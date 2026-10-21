@@ -8,13 +8,27 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.12 — 2026-10-21
+
+Fixes from a fourth review:
+- `on_change` calls never overlap and keep their order: a call made while earlier ones wait on the worker, or while the hook runs on another thread, waits on the worker too.
+- A tab whose move to a new window failed goes back to its place, not to the end.
+- Files: an action started from the delete question or the row menu gets the app's newest objects, and skips files that have gone. Enter, F2 and Delete act on the selected files, never on a file that only has the focus; Shift+F10 on such a file selects it first.
+- Files and tree: with `multiple`, plain Space adds or takes out the item with the focus (macOS keeps ⌘Space and Ctrl+Space for itself), so any selection can be made from the keyboard. In the tree, a row with a checkbox value still flips its checkbox. `selected()` (and `onSelect`'s first argument) is the selected item with the focus, or the first selected one; never an item that only has the focus.
+- Files: when the only selected file leaves the app's list, the file now in its place takes the selection, as in the tree. The delete question starts on Cancel, the safe answer (Tab reaches Delete), and is marked modal. In Windows high contrast the focus ring is drawn with borders.
+- Tree: `select([ids])` keeps the focus in the tree, and changes nothing when none of the ids exist.
+- Menus: a sub-menu's items are made once per opening; an empty sub-menu is an item that is off.
+- New shared colours: `--tauris-sel-inactive` (the tree's selection while it does not have the focus) and `--tauris-faint` (faint and disabled text).
+- `safe_name` also covers COM0–9 and LPT0–9 with ¹²³, CONIN$ and CONOUT$, and never ends a cut name with a space or a dot.
+- `escalating_evaluators.md` is not part of the library.
+
 ## 0.4.11 — 2026-10-21
 
 Fixes from a third review:
 - `on_change` runs at once again when the app's own code makes the change, as up to 0.4.9. Only a change made inside Tauri's plugin lock (the plugin's own events, the page's commands) reaches it a moment later on the worker, where a hook that opened a window would freeze the app.
 - A window whose opening panicked (the app's window hook) leaves no record on every path: a new window, a tab moved to a new window, a tab dragged out, restored windows.
-- Files: when the app hands new objects that look the same, every callback gets the new ones.
-- Files and tree: with `multiple`, ⌘ (Ctrl) with the arrows moves the focus alone and ⌘Space adds or takes out that item, so any selection can be made from the keyboard. The item with the focus has a thin ring when several are selected or when it is not selected. ⌘A never selects the page's text.
+- Files: when the app hands new objects that look the same, Enter, the selection and `onSelect` get the new ones.
+- Files and tree: with `multiple`, ⌘ (Ctrl) with the arrows moves the focus alone and ⌘ (Ctrl) Space adds or takes out that item. The item with the focus has a thin ring when several are selected or when it is not selected. ⌘A never selects the page's text.
 - Tree: when `setData` drops the only selected row, the row now in its place takes the selection and the focus. `select([ids])` without `multiple` opens only the first row's parents.
 - More colours follow the shared `--tauris-*` colours (the tree's lines, boxes, group rows and checkboxes, the menus' disabled items), and each component tells the browser its light or dark mode, so its scrollbars and checkboxes match. An app that is always light or always dark sets `data-tauris-theme`.
 - The delete question is named by its text for screen readers. A closed sub-menu leaves no `aria-controls` behind; an empty sub-menu does not open.

@@ -46,7 +46,7 @@
     --tv-sel-bg: var(--tauris-sel-bg, #2b5bd6);           /* the selected row while the tree has focus */
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tv-sel-line: rgb(255 255 255 / 0.55);
-    --tv-sel-inactive-bg: var(--tauris-hover, #2b2b31);  /* the selected row while focus is elsewhere */
+    --tv-sel-inactive-bg: var(--tauris-sel-inactive, #2b2b31);  /* the selected row while focus is elsewhere */
     --tv-sel-inactive-fg: var(--tv-fg);
     --tv-focus: var(--tauris-accent, #5b8cff);
     --tv-head-bg: var(--tauris-chrome, #1c1c20);
@@ -90,7 +90,7 @@
       --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
       --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
       --tv-sel-line: rgb(255 255 255 / 0.6);
-      --tv-sel-inactive-bg: var(--tauris-hover, #e2e3e8);
+      --tv-sel-inactive-bg: var(--tauris-sel-inactive, #e2e3e8);
       --tv-focus: var(--tauris-accent, #2f6bff);
       --tv-head-bg: var(--tauris-chrome, #f6f6f8);
       --tv-head-fg: var(--tauris-dim, #5c5c66);
@@ -129,7 +129,7 @@
     --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tv-sel-line: rgb(255 255 255 / 0.6);
-    --tv-sel-inactive-bg: var(--tauris-hover, #e2e3e8);
+    --tv-sel-inactive-bg: var(--tauris-sel-inactive, #e2e3e8);
     --tv-focus: var(--tauris-accent, #2f6bff);
     --tv-head-bg: var(--tauris-chrome, #f6f6f8);
     --tv-head-fg: var(--tauris-dim, #5c5c66);

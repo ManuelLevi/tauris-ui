@@ -30,6 +30,8 @@ Set a few `--tauris-*` colours once, and the tabs, the tree, the files table and
   --tauris-accent-ink: #2675bf;           /* the accent as text; keep it readable on --tauris-bg */
   --tauris-sel-bg: #2675bf;               /* the selected row, the chosen menu item */
   --tauris-sel-fg: #ffffff;
+  --tauris-sel-inactive: #e2e3e8;         /* the tree's selection while it does not have the focus */
+  --tauris-faint: #a3a6ad;                /* faint and disabled text */
   --tauris-focus: rgb(38 117 191 / 0.32); /* focus rings */
 }
 @media (prefers-color-scheme: dark) {     /* an app that follows the system: the dark ones */
@@ -46,6 +48,8 @@ Set them on `:root` (on another element they do not reach the components). Which
 | `--tauris-chrome`, `--tauris-dim` | ✓ | ✓ | ✓ | ✓ (chrome) |
 | `--tauris-accent` | ✓ | ✓ (also its focus lines) | ✓ | |
 | `--tauris-sel-bg`, `--tauris-sel-fg` | | ✓ | ✓ | ✓ |
+| `--tauris-sel-inactive` | | ✓ | | |
+| `--tauris-faint` | | | ✓ | ✓ |
 | `--tauris-focus` | | | ✓ | ✓ |
 | `--tauris-mono`, `--tauris-accent-ink` | | | ✓ | |
 
@@ -438,7 +442,7 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 | `styles` | `true` | Add the stylesheet |
 
 **Keyboard** (as in Windows and Qt):
-- Up and Down move. With `multiple`, Shift extends the selection, ⌘A selects every row shown, ⌘ (Ctrl) with the arrows moves the focus alone and ⌘Space adds or takes out that row.
+- Up and Down move. With `multiple`, Shift extends the selection, ⌘A selects every row shown, ⌘ (Ctrl) with the arrows moves the focus alone, and Space adds or takes out the row with the focus (a row with a checkbox value flips its checkbox instead).
 - Right opens a row, or goes to its first child.
 - Left closes a row, or goes to its parent.
 - Home, End, PageUp and PageDown jump.
@@ -600,7 +604,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 
 **Methods:** `setFiles(files)`, `update(options)`, `select(id)` (an array selects several), `selected()`, `selection()`, `selectAll()`, `add()` (as Add files…, for a File menu), `addPaths(paths)`, `open(id)`, `rename(id)`, `remove(id)`, `search(text)`, `dragDrop(event)` (to feed drag-and-drop events yourself), `busy(text)`, `message(text, kind)`, `focus()`, `focusSearch()`, `destroy()`. Helpers: `TaurisFiles.kindOf(file)`, `TaurisFiles.formatSize(bytes)`.
 
-**Keyboard:** Up, Down, Home, End, PageUp and PageDown move (with `multiple: true`, Shift selects along the way, ⌘A selects every file, ⌘ (Ctrl) with the arrows moves the focus alone and ⌘Space adds or takes out that file); a letter jumps to the next name starting with it; Enter opens; F2 renames (Enter saves, Escape cancels); Delete or ⌘⌫ deletes after the question; Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
+**Keyboard:** Up, Down, Home, End, PageUp and PageDown move (with `multiple: true`, Shift selects along the way, ⌘A selects every file, ⌘ (Ctrl) with the arrows moves the focus alone, and Space adds or takes out the file with the focus); a letter jumps to the next name starting with it. Enter opens the selected files, F2 renames the selected file (Enter saves, Escape cancels), Delete or ⌘⌫ deletes the selected files after the question (it starts on Cancel; Tab reaches Delete); they never act on a file that only has the focus. Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
 
 Types are in `web/files.d.ts`: copy it into a TypeScript app.
 
@@ -720,10 +724,10 @@ Types are in `web/terminal.d.ts`: copy it into a TypeScript app.
 ```
 cargo fmt --check && cargo clippy --all-targets && cargo test   # the model, the windows on Tauri's test runtime, saving, the command lists
 python test/run.py [shots-dir]             # the tabs page side: 105 checks in headless Chrome, nothing on screen
-python test/tree_run.py [shots-dir]        # the tree view: 140 checks, including the pixels of its lines and boxes
+python test/tree_run.py [shots-dir]        # the tree view: 144 checks, including the pixels of its lines and boxes
 python test/terminal_run.py [shots-dir]    # the terminal: 95 checks, including its gaps and bars by pixel
-python test/files_run.py [shots-dir]       # the files component: 146 checks, with drops and the picker stood in for
-python test/menus_run.py [shots-dir]       # the menus: 93 checks, mouse and keyboard
+python test/files_run.py [shots-dir]       # the files component: 154 checks, with drops and the picker stood in for
+python test/menus_run.py [shots-dir]       # the menus: 95 checks, mouse and keyboard
 cargo clippy --all-targets --features files && cargo test --features files   # the Rust side of the files component
 cd examples/basic/src-tauri && cargo build
 ```

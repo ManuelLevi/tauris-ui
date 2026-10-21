@@ -304,18 +304,25 @@ with sync_playwright() as p:
     page.wait_for_timeout(200)
     check("Enter opens, and the app's status line says so", page.evaluate("window.opened") == "Kickoff notes.md" and message(page) == "Opened Kickoff notes.md.")
     page.keyboard.press("Delete")
-    check("Delete asks first, with the file's name, the red button focused",
+    check("Delete asks first, with the file's name, the safe answer (Cancel) focused",
           page.is_visible(".tf-ask") and page.inner_text(".tf-ask-text") == "Delete “Kickoff notes.md”? This cannot be undone."
-          and page.evaluate("document.activeElement.classList.contains('tf-danger')") and css(page, ".tf-ask .tf-danger", "background-color") == DANGER)
+          and page.evaluate("document.activeElement.textContent") == "Cancel" and css(page, ".tf-ask .tf-danger", "background-color") == DANGER
+          and page.get_attribute(".tf-ask", "aria-modal") == "true")
     page.keyboard.press("Tab")
-    check("Tab stays inside the question", page.evaluate("document.activeElement.textContent") == "Cancel")
+    check("Tab stays inside the question", page.evaluate("document.activeElement.textContent") == "Delete")
+    page.keyboard.press("Tab")
+    check("and goes round it", page.evaluate("document.activeElement.textContent") == "Cancel")
     page.keyboard.press("Escape")
     check("Escape keeps the file and gives the focus back to the list",
           page.is_hidden(".tf-veil") and len(names(page)) == 8 and page.evaluate("document.activeElement.classList.contains('tf-list')"))
     page.keyboard.press("Meta+Backspace")
     page.keyboard.press("Enter")
+    check("Enter on the focused Cancel keeps the file", len(names(page)) == 8 and page.is_hidden(".tf-veil"))
+    page.keyboard.press("Meta+Backspace")
+    page.keyboard.press("Tab")
+    page.keyboard.press("Enter")
     page.wait_for_timeout(200)
-    check("⌘⌫ asks too; Enter deletes; the next file is selected",
+    check("⌘⌫ asks too; Tab and Enter delete; the next file is selected",
           "Kickoff notes.md" not in names(page) and selected(page) == "Launch plan.pptx" and message(page) == "Deleted Kickoff notes.md."
           and page.inner_text(".tf-sub").startswith("Documents · 7 files"))
     check("after deleting, the list keeps the focus", page.evaluate("document.activeElement.classList.contains('tf-list')"))
@@ -361,9 +368,9 @@ with sync_playwright() as p:
           menu == [["Open", False], ["Save a copy…", True], ["Rename", True], ["Delete", False]] and len(sel_names()) == 3, menu)
     page.click(".tmn-item:has-text('Delete')")
     check("Delete asks once, for all of them", page.inner_text(".tf-ask-text") == "Delete 3 files? This cannot be undone.")
-    page.keyboard.press("Enter")
+    page.click(".tf-ask .tf-danger")
     page.wait_for_timeout(400)
-    check("Enter deletes all three; the file after them is selected",
+    check("the red button deletes all three; the file after them is selected",
           names(page) == ["Customer interview — Maria Okafor, Lisbon office, recorded with consent.m4a", "Kickoff notes.md", "Launch plan.pptx", "Moodboard.heic", "Site visit.mov"]
           and sel_names() == [names(page)[0]] and message(page) == "Deleted 3 files.", (names(page), sel_names()))
     page.evaluate("window.__pick = ['/x/One.pdf', '/x/Two.pdf']; window.uploadMs = 50")
@@ -461,6 +468,41 @@ with sync_playwright() as p:
     page.focus(".tf-th.tf-c-name .tf-sort")
     page.keyboard.press("ControlOrMeta+a")
     check("⌘A on a column header does not select the page's text", page.evaluate("String(window.getSelection())") == "")
+    page.close()
+
+    # ---------- a fourth review ----------
+    page = fresh(browser)
+    page.evaluate("""window.got = []; demo.files.update({ confirmDelete: true, onDelete: async f => { got.push(['delete', f.url]); keep(demo.store.filter(x => x.id !== f.id)); },
+      onOpen: async f => got.push(['open', f.url]) })""")
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("Delete")
+    page.evaluate("demo.files.setFiles(demo.store.map(f => ({ ...f, url: 'v2' })))")
+    page.click(".tf-ask .tf-danger")
+    page.wait_for_timeout(200)
+    page.click(".tf-file:nth-child(1) .tf-c-name", button="right")
+    page.evaluate("demo.files.setFiles(demo.store.map(f => ({ ...f, url: 'v3' })))")
+    page.click(".tmn-item:has-text('Open')")
+    page.wait_for_timeout(200)
+    check("a new list while the question or the menu is open: the action gets the newest objects",
+          page.evaluate("got") == [["delete", "v2"], ["open", "v3"]], page.evaluate("got"))
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("ControlOrMeta+ArrowDown")
+    page.keyboard.press("Delete")
+    check("Delete acts on the selected file, not on one that only has the focus",
+          page.inner_text(".tf-ask-text") == f"Delete “{names(page)[0]}”? This cannot be undone.")
+    page.keyboard.press("Escape")
+    page.keyboard.press("Space")
+    check("plain Space adds the file with the focus (⌘Space is the system's on a Mac)", len(page.evaluate("demo.files.selection()")) == 2)
+    page.keyboard.press("Space")
+    check("Space again takes it out", len(page.evaluate("demo.files.selection()")) == 1)
+    check("selected() is the selected file, even when the focus is on another", page.evaluate("demo.files.selected().name") == names(page)[0])
+    page.close()
+    page = browser.new_page(viewport=SIZE, device_scale_factor=2, locale="en-GB", forced_colors="active")
+    page.goto(DEMO.as_uri())
+    page.wait_for_selector(".tf-file")
+    page.click(".tf-file:nth-child(2) .tf-c-name")
+    border = page.evaluate("getComputedStyle(document.querySelector('.tf-file.tf-focused .tf-cell')).borderTopStyle")
+    check("Windows high contrast: the row with the focus has a ring drawn with borders", border == "solid", border)
     page.close()
 
     # ---------- the row's buttons, double-click, the row menu ----------
@@ -700,10 +742,10 @@ with sync_playwright() as p:
       await Promise.all([demo.files.remove(id), demo.files.remove(id)]); return n; }""")
     check("one file is deleted once, however often Delete is pressed", calls == 1, calls)
     seen = page.evaluate("""() => { const seen = []; demo.files.update({ onSelect: f => seen.push(f ? f.name : null) });
-      const f = demo.store[1]; demo.files.select(f.id); keep(demo.store.filter(x => x.id !== f.id));
-      const after = demo.files.selected(); keep(demo.store.concat([f])); return [seen, after, demo.files.selected()]; }""")
-    check("a selected file that leaves the list is no longer selected, and the app hears it",
-          seen[0][-1] is None and seen[1] is None and seen[2] is None, seen)
+      const f = demo.store[1]; demo.files.select(f.id); seen.length = 0; keep(demo.store.filter(x => x.id !== f.id));
+      const after = demo.files.selected(); return [seen, f.name, after && after.name]; }""")
+    check("a selected file that leaves the app's list hands the selection to the file now in its place, and the app hears it",
+          seen[0] == [seen[2]] and seen[2] not in (None, seen[1]), seen)
     page.evaluate("demo.files.update({ dropArea: 'none' }); __emit('tauri://drag-drop', { paths: ['/x/Off.pdf'] })")
     page.wait_for_timeout(450)
     page.evaluate("demo.files.update({ dropArea: 'window' }); __emit('tauri://drag-drop', { paths: ['/x/On.pdf'] })")

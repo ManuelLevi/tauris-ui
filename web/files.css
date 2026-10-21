@@ -54,7 +54,7 @@
     /* colours */
     --tf-fg: var(--tauris-fg, #1e1f22);
     --tf-dim: var(--tauris-dim, #666a77);
-    --tf-faint: var(--tauris-dim, #a3a6ad);
+    --tf-faint: var(--tauris-faint, #a3a6ad);
     --tf-bg: var(--tauris-bg, #ffffff);                /* the list and the fields */
     --tf-chrome: var(--tauris-chrome, #e9e9eb);            /* the column headers */
     --tf-border: var(--tauris-line, #c4c6cc);
@@ -95,7 +95,7 @@
       --tf-scheme: dark;
       --tf-fg: var(--tauris-fg, #dfe1e5);
       --tf-dim: var(--tauris-dim, #adb0b8);
-      --tf-faint: var(--tauris-dim, #6f737a);
+      --tf-faint: var(--tauris-faint, #6f737a);
       --tf-bg: var(--tauris-bg, #2f3234);
       --tf-chrome: var(--tauris-chrome, #34373a);
       --tf-border: var(--tauris-line, #5e6165);
@@ -127,7 +127,7 @@
     --tf-scheme: dark;
     --tf-fg: var(--tauris-fg, #dfe1e5);
     --tf-dim: var(--tauris-dim, #adb0b8);
-    --tf-faint: var(--tauris-dim, #6f737a);
+    --tf-faint: var(--tauris-faint, #6f737a);
     --tf-bg: var(--tauris-bg, #2f3234);
     --tf-chrome: var(--tauris-chrome, #34373a);
     --tf-border: var(--tauris-line, #5e6165);
@@ -639,8 +639,12 @@
     .tf-acts { transition: none; }
   }
 
-  /* Windows high contrast: the system's colours for the selection and the drop zone. */
+  /* Windows high contrast: the system's colours for the selection and the drop zone,
+     and the focus ring drawn with borders (high contrast removes shadows). */
   @media (forced-colors: active) {
+    .tf-list:focus .tf-file.tf-focused .tf-cell { border-top: 2px solid Highlight; border-bottom: 2px solid Highlight; }
+    .tf-list:focus .tf-file.tf-focused .tf-cell:first-child { border-left: 2px solid Highlight; }
+    .tf-list:focus .tf-file.tf-focused .tf-cell:last-child { border-right: 2px solid Highlight; }
     .tf-file[aria-selected="true"] .tf-cell { forced-color-adjust: none; color: HighlightText; background: Highlight; }
     .tf-drop { outline-color: Highlight; }
     .tf-panel:has(> .tf-list:focus-visible) { outline: 2px solid Highlight; }

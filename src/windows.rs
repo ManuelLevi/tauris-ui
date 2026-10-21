@@ -26,6 +26,8 @@ pub(crate) struct Inner<R: Runtime> {
     after: Mutex<Option<Sender<Job<R>>>>,
     // Jobs sent to the worker and not finished yet.
     pending: std::sync::atomic::AtomicUsize,
+    // Held while the app's on_change hook runs: one call at a time.
+    hook: Mutex<()>,
     pub config: Config<R>,
     pub started: AtomicBool,
 }
@@ -37,6 +39,7 @@ impl<R: Runtime> Inner<R> {
             save: Mutex::new(()),
             after: Mutex::new(None),
             pending: std::sync::atomic::AtomicUsize::new(0),
+            hook: Mutex::new(()),
             config,
             started: AtomicBool::new(false),
         }
@@ -172,19 +175,36 @@ pub(crate) fn drain<R: Runtime>(app: &AppHandle<R>, limit: std::time::Duration) 
 // Tells the app (its on_change hook) that window `label` changed. A change
 // the app makes itself reaches the hook at once, as it always did. One made
 // inside Tauri's plugin lock (the plugin's on_event, a page's plain command)
-// reaches it a moment later, on the worker, in order: there a hook that opened
-// a window would freeze the app (see after_event). Changes the hook itself
+// reaches it a moment later, on the worker: there a hook that opened a window
+// would freeze the app (see after_event). Calls never overlap and keep their
+// order: while earlier ones wait on the worker, or the hook is running on
+// another thread, this one waits on the worker too. Changes the hook itself
 // makes do not call it again.
 pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    if inner(app).config.on_change.is_none() || IN_HOOK.with(|h| h.get()) {
+    let state = inner(app);
+    if state.config.on_change.is_none() || IN_HOOK.with(|h| h.get()) {
         return;
     }
-    if IN_PLUGIN.with(|p| p.get()) {
-        let label = label.to_string();
-        after_event(app, move |app| run_hook(app, &label));
-    } else {
-        run_hook(app, label);
+    let queued = state.pending.load(std::sync::atomic::Ordering::SeqCst) > 0;
+    if !IN_PLUGIN.with(|p| p.get()) && !queued {
+        // try_lock: a thread here never waits for the hook (the main thread
+        // waiting could stop a hook that is opening a window).
+        let free = match state.hook.try_lock() {
+            Ok(one) => Some(one),
+            // A hook that panicked once does not shut out the next call.
+            Err(std::sync::TryLockError::Poisoned(one)) => Some(one.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        };
+        if let Some(_one) = free {
+            run_hook(app, label);
+            return;
+        }
     }
+    let label = label.to_string();
+    after_event(app, move |app| {
+        let _one = inner(app).hook.lock().unwrap_or_else(PoisonError::into_inner);
+        run_hook(app, &label);
+    });
 }
 
 fn run_hook<R: Runtime>(app: &AppHandle<R>, label: &str) {
@@ -530,33 +550,30 @@ pub(crate) fn close_window_agreed<R: Runtime>(app: &AppHandle<R>, label: &str) {
 // closes if it is left empty. Returns the new window's label.
 pub(crate) fn move_to_new_window<R: Runtime>(app: &AppHandle<R>, tab: u64) -> tauri::Result<Option<String>> {
     let state = inner(app);
-    let (source, label, emptied) = {
+    let (source, label, at) = {
         let mut m = state.model();
         let Some(source) = m.wins.iter().find(|w| w.tabs.contains(&tab)).map(|w| w.label.clone()) else {
             return Ok(None);
         };
-        if m.win(&source).is_some_and(|w| w.tabs.len() == 1) {
+        let Some(win) = m.win(&source) else { return Ok(None) };
+        if win.tabs.len() == 1 {
             return Ok(Some(source)); // already alone in its window
         }
+        let at = win.tabs.iter().position(|t| *t == tab).unwrap_or(usize::MAX);
         m.detach(&source, tab);
         let label = m.create_win(vec![tab]);
-        (source.clone(), label, m.win(&source).is_some_and(|w| w.tabs.is_empty()))
+        (source, label, at)
     };
     if let Err(e) = open_window(app, &label, None, true) {
+        // No new window: the tab goes back where it was.
         let mut m = state.model();
         m.wins.retain(|w| w.label != label);
-        m.attach(&source, tab, usize::MAX);
+        m.attach(&source, tab, at);
         drop(m);
         notify(app, &source);
         return Err(e);
     }
-    if emptied {
-        if let Some(w) = app.get_webview_window(&source) {
-            let _ = w.destroy();
-        }
-    } else {
-        notify(app, &source);
-    }
+    notify(app, &source);
     changed(app, &label);
     Ok(Some(label))
 }

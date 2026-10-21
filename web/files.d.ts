@@ -100,7 +100,7 @@ declare global {
     onSaveAs?: (file: F) => Promise<boolean | void> | boolean | void;
     onRename?: (file: F, name: string) => Promise<unknown> | unknown;
     onDelete?: (file: F) => Promise<unknown> | unknown;
-    /** The file with the focus, and every selected file (top to bottom). */
+    /** The selected file with the focus (or the first selected one), and every selected file, top to bottom. */
     onSelect?: (file: F | null, files: F[]) => void;
     /** The row's menu (right click, Shift+F10) opened; label is the file's name. As TaurisMenu's onOpen. */
     onMenuOpen?: (info: { label: string; how: "mouse" | "keyboard" }) => void;
@@ -129,7 +129,7 @@ declare global {
     update(changes: Partial<TaurisFilesOptions<F>>): void;
     /** Selects one file (null: none), or several: an array of ids (the first gets the focus). */
     select(id: F["id"] | F["id"][] | null): void;
-    /** The file with the focus, or null. */
+    /** The selected file with the focus, or else the first selected file; null when none is. */
     selected(): F | null;
     /** Every selected file that is shown, top to bottom. */
     selection(): F[];

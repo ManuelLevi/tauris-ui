@@ -130,9 +130,11 @@ impl<R: Runtime> Config<R> {
     /// Rust or from the page). A change the app makes from its own code reaches
     /// the hook at once. One made inside Tauri's plugin lock (the plugin's own
     /// events, the page's commands) reaches it a moment later on a worker
-    /// thread, in order, so the hook may open windows there too. It may use
-    /// `app.tabs()`. Changes it makes directly do not call it again; a window it
-    /// closes is reported once that window is gone.
+    /// thread, so the hook may open windows there too. Calls never overlap and
+    /// keep their order (a change made while earlier calls wait reaches the
+    /// hook after them, on the worker). It may use `app.tabs()`. Changes it
+    /// makes directly do not call it again; a window it closes is reported once
+    /// that window is gone.
     pub fn on_change(mut self, hook: impl Fn(&AppHandle<R>, &str) + Send + Sync + 'static) -> Self {
         self.on_change = Some(Arc::new(hook));
         self

@@ -112,9 +112,15 @@
       }
       row.append(el("span", "tmn-label", {}, String(item.label ?? "")));
       if (Array.isArray(item.items) || typeof item.items === "function") {
-        row.setAttribute("aria-haspopup", "menu");
-        row.setAttribute("aria-expanded", "false");
-        row.append(el("span", "tmn-sub", { "aria-hidden": "true" }));
+        // Made once here; an empty sub-menu is an item that is off.
+        row.__tmnSub = listOf(item.items);
+        if (row.__tmnSub.length) {
+          row.setAttribute("aria-haspopup", "menu");
+          row.setAttribute("aria-expanded", "false");
+          row.append(el("span", "tmn-sub", { "aria-hidden": "true" }));
+        } else {
+          row.setAttribute("aria-disabled", "true");
+        }
       } else if (item.shortcut != null && item.shortcut !== "") {
         row.append(el("span", "tmn-shortcut", {}, String(item.shortcut)));
       }
@@ -213,9 +219,9 @@
       closeSub(lv);
       if (off(row)) return;
       const item = row.__tmnItem;
-      if (!listOf(item.items).length) return; // an empty sub-menu does not open
+      if (!row.__tmnSub?.length) return;
       const r = row.getBoundingClientRect();
-      const child = level(listOf(item.items), item.label, { x: r.right - 3, y: r.top - 5, flipX: r.left + 3 }, how, lv, row);
+      const child = level(row.__tmnSub, item.label, { x: r.right - 3, y: r.top - 5, flipX: r.left + 3 }, how, lv, row);
       row.setAttribute("aria-expanded", "true");
       row.setAttribute("aria-controls", child.menu.id);
       lv.child = child;

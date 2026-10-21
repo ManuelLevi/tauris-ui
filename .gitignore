@@ -8,3 +8,4 @@ __pycache__/
 test/freeze_check/target/
 test/freeze_check/gen/
 test/freeze_check/Cargo.lock
+escalating_evaluators.md

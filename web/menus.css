@@ -22,7 +22,7 @@
     --tmn-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
     --tmn-font-size: 13px;
     --tmn-fg: var(--tauris-fg, #1e1f22);
-    --tmn-disabled: var(--tauris-dim, #a3a6ad);
+    --tmn-disabled: var(--tauris-faint, #a3a6ad);
     --tmn-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));
     /* the bar */
     --tmn-bar-h: 24px;
@@ -60,7 +60,7 @@
     :root:not([data-tauris-theme="light"]) {
       --tmn-scheme: dark;
       --tmn-fg: var(--tauris-fg, #dfe1e5);
-      --tmn-disabled: var(--tauris-dim, #6f737a);
+      --tmn-disabled: var(--tauris-faint, #6f737a);
       --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
       --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
       --tmn-bar-line: var(--tauris-line, #515356);
@@ -80,7 +80,7 @@
   :root[data-tauris-theme="dark"] {
     --tmn-scheme: dark;
     --tmn-fg: var(--tauris-fg, #dfe1e5);
-    --tmn-disabled: var(--tauris-dim, #6f737a);
+    --tmn-disabled: var(--tauris-faint, #6f737a);
     --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
     --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
     --tmn-bar-line: var(--tauris-line, #515356);

@@ -586,6 +586,26 @@ with sync_playwright() as p:
     check("with several selected, the row with the focus has a ring", ring != "none", ring)
     page.close()
 
+    # ---------- a fourth review ----------
+    page = fresh(browser)
+    page.evaluate("(" + SORT_TREE + ")({ multiple: true })")
+    page.evaluate("sortHost.id = 'sortHost'; st.select('b169'); st.focus()")
+    page.evaluate("st.select(['b49', 'zoe'])")
+    check("select([ids]) keeps the focus in the tree", page.evaluate("document.activeElement.closest('#sortHost') !== null"))
+    page.evaluate("st.select(['nope'])")
+    check("select([ids]) with ids the tree does not have changes nothing", page.evaluate("st.selection().map(n => n.id)") == ["b49", "zoe"])
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ControlOrMeta+ArrowDown")
+    page.keyboard.press("Space")
+    check("plain Space adds the row with the focus (a row without a checkbox)", len(page.evaluate("st.selection()")) == 2, page.evaluate("st.selection().map(n => n.id)"))
+    page.close()
+    page = fresh(browser)
+    page.add_style_tag(content=":root { --tauris-hover: rgb(40, 40, 50); --tauris-sel-inactive: rgb(60, 70, 90); }")
+    page.evaluate("demo.files.select('atlas-desktop'); document.body.focus()")
+    inactive = page.evaluate("getComputedStyle(document.querySelector('#files .tv-row[aria-selected=\"true\"]')).backgroundColor")
+    check("the selection of a tree without the focus has its own shared colour, not hover's", inactive == "rgb(60, 70, 90)", inactive)
+    page.close()
+
     # ---------- one look for every component ----------
     page = fresh(browser)
     page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")

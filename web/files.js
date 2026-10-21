@@ -360,7 +360,7 @@
     const askText = el("div", "tf-ask-text", { id: `${id}-ask` });
     const askNo = el("span", "tf-btn", { role: "button", tabindex: "0" });
     const askYes = el("span", "tf-btn tf-danger", { role: "button", tabindex: "0" });
-    const askCard = el("div", "tf-ask", { role: "alertdialog", "aria-labelledby": `${id}-ask` },
+    const askCard = el("div", "tf-ask", { role: "alertdialog", "aria-modal": "true", "aria-labelledby": `${id}-ask` },
       askText, el("div", "tf-ask-acts", {}, askNo, askYes));
     const veil = el("div", "tf-veil", { hidden: "" }, askCard);
     pressable(askYes, () => asking?.finish(true));
@@ -524,6 +524,8 @@
       askYes.textContent = String(words.delete);
 
       // A selected file the app no longer has is not selected any more.
+      const oldAt = selId != null ? shown.findIndex(f => keyOf(f.id) === selId) : -1;
+      const hadSelection = sel.size > 0;
       const have = new Set(list.map(f => keyOf(f.id)));
       const lost = [...sel].filter(k => !have.has(k));
       const lostFocus = selId != null && !have.has(selId);
@@ -550,6 +552,13 @@
       empty.hidden = list.length !== 0;
       noMatch.hidden = !(list.length && !shown.length);
       noMatch.textContent = noMatch.hidden ? "" : say(words.noMatch, query.trim());
+      // The only selected file is gone from the app's list: the file now in its
+      // place takes the selection and the focus, as in a file manager (and the tree).
+      if (hadSelection && !sel.size && oldAt >= 0 && shown.length && !list.some(f => keyOf(f.id) === selId)) {
+        const k = keyOf(shown[Math.min(oldAt, shown.length - 1)].id);
+        sel = new Set([k]);
+        selId = anchor = k;
+      }
       // The file with the focus hidden by a search: the focus goes to a selected file that is shown.
       if (selId != null && !rows.has(selId)) {
         const visible = shown.find(f => sel.has(keyOf(f.id)));
@@ -561,6 +570,14 @@
 
     function current() {
       return selId != null && rows.has(selId) ? fileById(selId) : null;
+    }
+
+    // The selected file the app should think of first: the one with the focus
+    // when it is selected, otherwise the first selected file shown.
+    function primary() {
+      const file = current();
+      if (file && sel.has(keyOf(file.id))) return file;
+      return selection()[0] ?? null;
     }
 
     // The selected files that are shown, top to bottom (a search hides the others,
@@ -599,7 +616,7 @@
     let reported = "|";
     function report() {
       if (signal.aborted || typeof opt.onSelect !== "function") return;
-      const file = current();
+      const file = primary();
       const files = selection();
       const now = `${file ? keyOf(file.id) : ""}|${files.map(f => keyOf(f.id)).join("\u0000")}`;
       if (now === reported) return;
@@ -724,11 +741,16 @@
     }
 
     // Several files open one after the other; the first refusal stops the rest.
+    // The app's current object for each key, leaving out files that have gone.
+    const fresh_ = keys => keys.map(k => fileById(k)).filter(Boolean);
+
     async function openMany(files) {
       if (files.length < 2) return open(files[0]);
       if (typeof opt.onOpen !== "function") return;
       message(say(L().openingMany, files), "info");
-      for (const f of files) {
+      for (const k of files.map(f => keyOf(f.id))) {
+        const f = fileById(k);
+        if (!f) continue; // gone meanwhile
         try {
           await opt.onOpen(f);
         } catch (e) {
@@ -757,6 +779,9 @@
         : typeof opt.confirmDelete === "function" ? opt.confirmDelete(file) : say(L().confirmDelete, file);
       if (question && !(await ask(String(question)))) return;
       if (deleting.has(key) || signal.aborted) return;
+      // The app may have sent a new list while the question was open.
+      file = fileById(key);
+      if (!file) return;
       // The next row takes the selection, as in a file manager.
       const before = shown.slice();
       const at = Math.max(0, before.findIndex(f => keyOf(f.id) === key));
@@ -800,6 +825,9 @@
       const question = opt.confirmDelete === false ? null : say(L().confirmDeleteMany, files);
       if (question && !(await ask(String(question)))) return;
       if (signal.aborted) return;
+      // The app may have sent a new list while the question was open.
+      files = fresh_(files.map(f => keyOf(f.id)));
+      if (!files.length) return;
       const before = shown.slice();
       const keys = new Set(files.map(f => keyOf(f.id)));
       const last = Math.max(...before.map((f, i) => (keys.has(keyOf(f.id)) ? i : -1)));
@@ -835,7 +863,7 @@
       if (!root.contains(document.activeElement) || document.activeElement === document.body) focusList();
     }
 
-    // The delete question: a small card over the list. Enter or the red
+    // The delete question: a small card over the list, Cancel focused. The red
     // button deletes; Escape, Cancel or a click beside it keeps the file.
     function ask(question) {
       if (asking) asking.finish(false);
@@ -876,7 +904,8 @@
             (document.activeElement === askYes ? askNo : askYes).focus();
           }
         }, { signal: done.signal });
-        askYes.focus({ preventScroll: true });
+        // The safe answer has the focus: Tab reaches the red one.
+        askNo.focus({ preventScroll: true });
       });
     }
 
@@ -931,7 +960,7 @@
         state.busy = true;
         input.readOnly = true;
         try {
-          await opt.onRename(file, next);
+          await opt.onRename(fileById(keyOf(file.id)) ?? file, next);
           if (signal.aborted) return;
         } catch (e) {
           state.busy = false;
@@ -974,14 +1003,15 @@
       const items = [];
       // On a row of a selection of several, the menu acts on all of them; saving a
       // copy and renaming take one file at a time.
-      const files = sel.has(keyOf(file.id)) && selection().length > 1 ? selection() : [file];
-      const one = files.length === 1;
-      if (opt.onOpen) items.push({ label: words.open, shortcut: "↩", action: () => openMany(files) });
-      if (opt.onSaveAs) items.push({ label: words.saveAs, disabled: !one, action: () => saveAs(file) });
-      if (opt.onRename) items.push({ label: words.rename, shortcut: "F2", disabled: !one, action: () => rename(file) });
+      const keys = (sel.has(keyOf(file.id)) && selection().length > 1 ? selection() : [file]).map(f => keyOf(f.id));
+      const one = keys.length === 1;
+      const now = () => fresh_(keys); // the app may send a new list while the menu is open
+      if (opt.onOpen) items.push({ label: words.open, shortcut: "↩", action: () => openMany(now()) });
+      if (opt.onSaveAs) items.push({ label: words.saveAs, disabled: !one, action: () => saveAs(now()[0]) });
+      if (opt.onRename) items.push({ label: words.rename, shortcut: "F2", disabled: !one, action: () => rename(now()[0]) });
       if (opt.onDelete) {
         if (items.length) items.push("-");
-        items.push({ label: words.delete, shortcut: MAC ? "⌘⌫" : "Del", danger: true, action: () => removeMany(files) });
+        items.push({ label: words.delete, shortcut: MAC ? "⌘⌫" : "Del", danger: true, action: () => removeMany(now()) });
       }
       if (!items.length) return false;
       const label = String(file.name ?? "");
@@ -1084,7 +1114,7 @@
         // Inside the list ⌘A is never the page's own Select All.
         e.preventDefault();
         if (several()) setSelection(shown.map(f => keyOf(f.id)), focusAmongShown(), false);
-      } else if (e.key === " " && toggleKey && several() && selId != null) {
+      } else if (e.key === " " && !e.altKey && !e.shiftKey && several() && selId != null) {
         // Selects or unselects the file with the focus, keeping the others.
         e.preventDefault();
         const next = new Set(sel);
@@ -1098,16 +1128,19 @@
       else if (e.key === "End") to(shown.length - 1);
       else if (e.key === "PageDown") to(i < 0 ? page : i + page);
       else if (e.key === "PageUp") to(i < 0 ? 0 : i - page);
-      else if (e.key === "Enter" && file && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // Enter, F2 and Delete act on the selected files, never on a file that only has the focus.
+      else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
-        openMany(sel.has(selId) ? selection() : [file]);
-      } else if (e.key === "F2" && file) {
+        if (selection().length) openMany(selection());
+      } else if (e.key === "F2") {
         e.preventDefault();
-        if (selection().length <= 1) rename(file);
-      } else if (file && (e.key === "Delete" || (e.key === "Backspace" && (e.metaKey || e.ctrlKey)))) {
+        if (selection().length === 1) rename(selection()[0]);
+      } else if (e.key === "Delete" || (e.key === "Backspace" && (e.metaKey || e.ctrlKey))) {
         e.preventDefault();
-        removeMany(sel.has(selId) ? selection() : [file]);
+        if (selection().length) removeMany(selection());
       } else if (file && (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey))) {
+        // On a file that only has the focus, the menu selects it first, as a right click does.
+        if (!sel.has(selId)) select(selId, false);
         const r = rows.get(keyOf(file.id))?.querySelector(".tf-c-name")?.getBoundingClientRect();
         if (r && rowMenu(file, { x: r.left + 12, y: r.bottom }, true)) e.preventDefault();
       } else if (e.key.length === 1 && e.key !== " " && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -1273,8 +1306,8 @@
       selectAll() {
         if (several()) setSelection(shown.map(f => keyOf(f.id)), focusAmongShown(), false);
       },
-      /** The selected file, or null. */
-      selected() { return current(); },
+      /** The selected file with the focus, or else the first selected file; null when none is. */
+      selected() { return primary(); },
       /** Opens the picker, then adds what was chosen (as "Add files…"). */
       add,
       /** Adds these paths, as if they were dropped. */

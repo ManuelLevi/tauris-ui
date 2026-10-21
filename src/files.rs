@@ -76,9 +76,10 @@ pub fn mime_for(name: &str) -> &'static str {
 }
 
 /// A file name that is safe to create on disk, on every system: no folders,
-/// no characters Windows refuses, none of Windows' device names (CON, NUL,
-/// COM1…, which get a "_" in front), no control characters, no leading dot,
-/// at most 200 characters (the extension is kept). Empty becomes "file".
+/// no characters Windows refuses, none of Windows' device names (CON, PRN,
+/// AUX, NUL, CONIN$, CONOUT$, COM0–9 and LPT0–9 with ¹²³ too, which get a
+/// "_" in front), no control characters, no leading dot, no trailing dot or
+/// space, at most 200 characters (the extension is kept). Empty becomes "file".
 pub fn safe_name(name: &str) -> String {
     let swapped: String =
         name.chars()
@@ -95,12 +96,16 @@ pub fn safe_name(name: &str) -> String {
         return "file".into();
     }
     // Windows keeps these names for devices, with any extension ("con.txt" too).
-    let stem = trimmed.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
-    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || (stem.len() == 4
-            && (stem.starts_with("COM") || stem.starts_with("LPT"))
-            && stem.as_bytes()[3].is_ascii_digit()
-            && stem.as_bytes()[3] != b'0');
+    let stem = trimmed.split('.').next().unwrap_or("").trim_end().to_uppercase();
+    let numbered = |prefix: &str| {
+        stem.strip_prefix(prefix).is_some_and(|n| {
+            let mut chars = n.chars();
+            matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_digit() || matches!(c, '¹' | '²' | '³'))
+        })
+    };
+    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || numbered("COM")
+        || numbered("LPT");
     let trimmed = if device { format!("_{trimmed}") } else { trimmed };
     if trimmed.chars().count() <= 200 {
         return trimmed;
@@ -108,9 +113,13 @@ pub fn safe_name(name: &str) -> String {
     match trimmed.rsplit_once('.') {
         Some((stem, ext)) if !ext.is_empty() && ext.chars().count() <= 10 => {
             let keep = 200 - ext.chars().count() - 1;
-            format!("{}.{ext}", stem.chars().take(keep).collect::<String>().trim_end())
+            let cut: String = stem.chars().take(keep).collect();
+            format!("{}.{ext}", cut.trim_end_matches(['.', ' ']))
         }
-        _ => trimmed.chars().take(200).collect(),
+        _ => {
+            let cut: String = trimmed.chars().take(200).collect();
+            cut.trim_end_matches(['.', ' ']).to_string()
+        }
     }
 }
 
@@ -365,7 +374,13 @@ mod tests {
         assert_eq!(safe_name("nul"), "_nul");
         assert_eq!(safe_name("com1.log"), "_com1.log");
         assert_eq!(safe_name("console.txt"), "console.txt");
-        assert_eq!(safe_name("COM0.txt"), "COM0.txt");
+        assert_eq!(safe_name("COM0.txt"), "_COM0.txt");
+        assert_eq!(safe_name("lpt²"), "_lpt²");
+        assert_eq!(safe_name("CONIN$"), "_CONIN$");
+        assert_eq!(safe_name("conout$.log"), "_conout$.log");
+        assert_eq!(safe_name("COM10.txt"), "COM10.txt");
+        let spaced = format!("{} {}", "x".repeat(199), "y".repeat(20));
+        assert!(!safe_name(&spaced).ends_with(' '));
         let long = format!("{}.pdf", "x".repeat(300));
         let cut = safe_name(&long);
         assert_eq!(cut.chars().count(), 200);

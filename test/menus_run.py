@@ -415,6 +415,20 @@ with sync_playwright() as p:
     check("an empty sub-menu does not open", page.locator(".tmn-menu").count() == 1)
     page.close()
 
+    # ---------- sub-menus: a fourth review ----------
+    page = fresh(browser)
+    page.evaluate("""() => { window.made = 0; demo.bar.setMenus([{ label: 'File', items: [
+      { label: 'Recent', items: () => { made++; return [{ label: 'A' }]; } }, { label: 'Nothing yet', items: [] }] }]); return 0; }""")
+    page.click(title("File"))
+    page.locator(".tmn-item:has-text('Recent')").focus()
+    page.keyboard.press("ArrowRight")
+    check("a sub-menu's items are made once per opening", page.evaluate("made") == 1)
+    empty = ".tmn-item:has-text('Nothing yet')"
+    check("an empty sub-menu is an item that is off: no popup, no arrow",
+          page.get_attribute(empty, "aria-disabled") == "true" and page.get_attribute(empty, "aria-haspopup") is None
+          and page.locator(empty + " .tmn-sub").count() == 0)
+    page.close()
+
     # ---------- onOpen and onClose (for a sound) ----------
     page = fresh(browser)
     page.evaluate("""() => { demo.bar.destroy(); window.ev = [];

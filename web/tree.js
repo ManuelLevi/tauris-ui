@@ -789,6 +789,20 @@
       return changed;
     }
 
+    // Adds the row with the focus to the selection, or takes it out (Space with `multiple`).
+    function toggleFocused() {
+      const keys = new Set(picked);
+      if (keys.has(focusKey)) keys.delete(focusKey);
+      else keys.add(focusKey);
+      anchorKey = focusKey;
+      let next = keys.has(focusKey) ? focusKey : selectedKey;
+      if (next !== null && !keys.has(next)) next = rows.find(r => keys.has(r.key))?.key ?? null;
+      if (pick(keys, next)) {
+        render();
+        emitSelect();
+      }
+    }
+
     // The visible rows from the anchor to `key`.
     function span(key) {
       const a = index.get(anchorKey ?? key);
@@ -888,16 +902,7 @@
         }
         if (e.key === " ") {
           e.preventDefault();
-          const keys = new Set(picked);
-          if (keys.has(focusKey)) keys.delete(focusKey);
-          else keys.add(focusKey);
-          anchorKey = focusKey;
-          let next = keys.has(focusKey) ? focusKey : selectedKey;
-          if (next !== null && !keys.has(next)) next = rows.find(r => keys.has(r.key))?.key ?? null;
-          if (pick(keys, next)) {
-            render();
-            emitSelect();
-          }
+          toggleFocused();
           return;
         }
       }
@@ -942,6 +947,10 @@
         case " ": {
           handled();
           const ci = checkboxColumn(row);
+          if (opt.multiple && ci <= 0) {
+            toggleFocused();
+            break;
+          }
           if (selectedKey !== row.key) go(at);
           if (ci > 0) beginEdit(row.key, ci);
           break;
@@ -1149,7 +1158,9 @@
         if (Array.isArray(id)) {
           // Several rows (with `multiple`): the first gets the focus. Their parents open.
           const keys = id.map(keyOf).filter(k => nodes.has(k));
+          if (!keys.length) return; // as select() with an id the tree does not have
           const list = opt.multiple ? keys : keys.slice(0, 1);
+          const hadFocus = body.contains(document.activeElement);
           const closed = [];
           for (const k of list) for (let q = parents.get(k); q !== null && q !== undefined; q = parents.get(q)) if (!expanded.has(q)) closed.push(q);
           setOpen(closed, true);
@@ -1158,6 +1169,7 @@
           const changed = pick(list, list[0] ?? null);
           if (list[0] !== undefined) reveal(index.get(list[0]));
           render();
+          if (hadFocus) focusRow();
           if (changed) emitSelect();
           return;
         }

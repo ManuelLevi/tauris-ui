@@ -329,13 +329,8 @@ fn every_command_is_registered_and_allowed() {
     let mut built = names_between(include_str!("../build.rs"), "COMMANDS: &[&str] = &[", "];");
     let mut handled = names_between(include_str!("lib.rs"), "generate_handler![", "]");
     let mut allowed = names_between(include_str!("../permissions/default.toml"), "permissions = [", "]");
-    let source = include_str!("commands.rs");
-    // Every #[tauri::command], sync or async.
-    let mut defined: Vec<String> = source
-        .split("#[tauri::command]")
-        .skip(1)
-        .map(|s| s.split(" fn ").nth(1).expect("a command function").split(['<', '(']).next().unwrap().to_string())
-        .collect();
+    // Every #[tauri::command], sync or async, however it is written.
+    let mut defined: Vec<String> = commands().into_iter().map(|c| c.name).collect();
     for list in [&mut built, &mut handled, &mut allowed, &mut defined] {
         list.sort();
     }
@@ -439,17 +434,87 @@ fn the_event_handler_opens_no_window_itself() {
     }
 }
 
+// A page command in src/commands.rs: its name, whether it is async, its body.
+struct Command {
+    name: String,
+    is_async: bool,
+    body: String,
+}
+
+// Reads every #[tauri::command ...] item, whatever its visibility or attribute arguments.
+fn commands() -> Vec<Command> {
+    let source = include_str!("commands.rs");
+    let mut out = Vec::new();
+    let mut rest = source;
+    while let Some(at) = rest.find("#[tauri::command") {
+        let after = &rest[at..];
+        let attr_end = after.find(']').expect("the end of the attribute") + 1;
+        let item = &after[attr_end..];
+        let fn_at = item.find("fn ").expect("a command function");
+        let head = &item[..fn_at];
+        let name: String = item[fn_at + 3..].chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let open = item.find('{').expect("a body");
+        let mut depth = 0;
+        let mut close = item.len();
+        for (i, c) in item[open..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = open + i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        out.push(Command {
+            name,
+            is_async: head.split_whitespace().any(|w| w == "async"),
+            body: item[open..close].to_string(),
+        });
+        rest = &item[close..];
+    }
+    out
+}
+
 // Every plain (not async) page command runs inside Tauri's plugin lock and must say so.
 #[test]
 fn every_plain_command_marks_the_lock() {
-    let source = include_str!("commands.rs");
-    for part in source.split("#[tauri::command]").skip(1) {
-        let name = part.split(" fn ").nth(1).and_then(|s| s.split(['<', '(']).next()).unwrap_or("?");
-        let body = &part[part.find('{').expect("a body")..];
-        if part.trim_start().starts_with("pub fn") {
-            assert!(body.contains("InPlugin::enter()"), "the command {name} does not mark Tauri's lock");
-        }
+    let all = commands();
+    assert!(all.len() >= 15, "only {} commands found", all.len());
+    for c in all.iter().filter(|c| !c.is_async) {
+        assert!(c.body.contains("InPlugin::enter()"), "the command {} does not mark Tauri's lock", c.name);
     }
+}
+
+// The hook never runs twice at once, and calls keep their order: one waiting
+// on the worker (from inside Tauri's lock) and one made right after by the app.
+#[test]
+fn the_hook_never_runs_twice_at_once() {
+    let running = Arc::new(AtomicUsize::new(0));
+    let most = Arc::new(AtomicUsize::new(0));
+    let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (r, m, o) = (running.clone(), most.clone(), order.clone());
+    let app = app(quiet().on_change(move |_, label| {
+        let now = r.fetch_add(1, Ordering::SeqCst) + 1;
+        m.fetch_max(now, Ordering::SeqCst);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        o.lock().unwrap().push(label.to_string());
+        r.fetch_sub(1, Ordering::SeqCst);
+    }));
+    app.tabs().start().unwrap();
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
+    order.lock().unwrap().clear();
+    {
+        let _locked = windows::InPlugin::enter();
+        windows::changed(app.handle(), "first");
+    }
+    windows::changed(app.handle(), "second");
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
+    assert_eq!(most.load(Ordering::SeqCst), 1, "two hook calls overlapped");
+    assert_eq!(*order.lock().unwrap(), ["first", "second"]);
 }
 
 fn eventually(what: &str, ok: impl Fn() -> bool) {
@@ -578,8 +643,10 @@ fn a_tab_moved_to_a_window_that_failed_to_open_comes_back() {
     }));
     app.tabs().start().unwrap();
     let report = app.tabs().open(NewTab::new("Report")).unwrap();
+    app.tabs().open(NewTab::new("Notes")).unwrap();
     fail.store(true, Ordering::SeqCst);
     assert!(app.tabs().move_to_new_window(report).is_err());
     assert_eq!(app.tabs().window_count(), 1);
-    assert_eq!(titles(&app), [["Home", "Report"]]);
+    // A tab from the middle goes back to the middle.
+    assert_eq!(titles(&app), [["Home", "Report", "Notes"]]);
 }
