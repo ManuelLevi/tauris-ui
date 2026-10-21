@@ -1,0 +1,30 @@
+/* The look of the tabs is a handful of variables; see web/tabs.css in the library.
+   The page follows the system's light or dark mode, like the strip does. */
+:root {
+  color-scheme: light dark;
+  --page: #0f0f11;
+  --text: #ececf1;
+  --field: #18181b;
+  --field-line: #2c2c31;
+  --tt-accent: #34c759;
+  --tt-active-bg: var(--page);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --page: #ffffff;
+    --text: #18181b;
+    --field: #f4f4f6;
+    --field-line: #d4d4d9;
+    --tt-accent: #1f9d46;
+  }
+}
+
+html, body { margin: 0; height: 100%; background: var(--page); color: var(--text); font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+/* The strip is fixed at the top: keep the page below it. */
+body { padding-top: var(--tt-strip-h); box-sizing: border-box; }
+main { height: 100%; display: flex; flex-direction: column; gap: 12px; padding: 20px 24px; box-sizing: border-box; }
+input, textarea { background: var(--field); color: inherit; border: 1px solid var(--field-line); border-radius: 8px; padding: 10px 12px; font: inherit; }
+input { font-size: 18px; font-weight: 600; }
+textarea { flex: 1; resize: none; }
+#status { margin: 0; min-height: 1.4em; color: #d99a00; }

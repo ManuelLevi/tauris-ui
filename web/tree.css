@@ -1,0 +1,528 @@
+/* tauris-ui tree view: the look of the tree and the configuration editor.
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --tv-* variables on :root (or on the tree's element), or override any
+ * .tv-* class. The defaults follow the system's light or dark mode.
+ *
+ * tree.js reads --tv-row-h, --tv-indent and --tv-box when it mounts (and on
+ * setData). Keep them whole pixels, and keep --tv-box odd: the connector
+ * lines meet the middle pixel of the box. An even --tv-row-h also keeps a
+ * dot touching every box (with an odd one, every other row starts between dots).
+ */
+@layer tauris-ui {
+  :root {
+    /* sizes */
+    --tv-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --tv-font-size: 12px;
+    --tv-row-h: 18px;
+    --tv-indent: 16px;              /* per level */
+    --tv-box: 9px;                  /* the +/- box */
+    --tv-box-radius: 1px;
+    --tv-pad: 4px;                  /* left of the top level */
+    --tv-icon-gap: 4px;             /* between an icon and its label */
+    --tv-cell-pad: 6px;             /* left and right inside a column */
+    --tv-head-h: 20px;
+    --tv-head-font-size: 11px;
+    --tv-check: 11px;               /* the checkbox of a true/false value */
+    --tv-swatch: transparent;       /* set per cell: a colour value's swatch */
+    /* the connector pattern: one dot, one gap, on a checkerboard shared by
+       every row. `none` draws solid lines. */
+    /* the dot pattern: a 2x2 checkerboard (top-left and bottom-right pixels on),
+       drawn with a gradient so a strict content policy (no data: images) keeps it */
+    --tv-dots: repeating-conic-gradient(transparent 0 25%, #000 0 50%);
+
+    /* colours */
+    --tv-bg: #161619;
+    --tv-fg: #d8d8de;
+    --tv-muted: #8a8a94;
+    --tv-line: #777782;             /* the dotted connectors */
+    --tv-box-border: #85858f;
+    --tv-box-bg: transparent;
+    --tv-box-fg: #dcdce2;
+    --tv-box-hover: #8fb0ff;
+    --tv-hover-bg: #1f1f24;
+    --tv-sel-bg: #2b5bd6;           /* the selected row while the tree has focus */
+    --tv-sel-fg: #ffffff;
+    --tv-sel-line: rgb(255 255 255 / 0.55);
+    --tv-sel-inactive-bg: #2b2b31;  /* the selected row while focus is elsewhere */
+    --tv-sel-inactive-fg: var(--tv-fg);
+    --tv-focus: #5b8cff;
+    --tv-head-bg: #1c1c20;
+    --tv-head-fg: #9e9ea8;
+    --tv-head-line: #2f2f36;
+    --tv-grid: #232328;             /* lines between columns */
+    --tv-group-bg: #1b1b1f;         /* rows that only group others, in a table */
+    --tv-edit-bg: #0e0e10;
+    --tv-edit-fg: #f4f4f6;
+    --tv-check-bg: #1e1e22;
+    --tv-check-border: #74747e;
+    --tv-check-on: #4d7dff;
+    --tv-check-mark: #ffffff;
+    --tv-swatch-line: rgb(255 255 255 / 0.28);
+    --tv-scroll-thumb: #3b3b43;
+    /* icons */
+    --tv-icon-tint: 0.22;           /* how strong an icon's fill is */
+    --tv-icon-folder: #dcab52;
+    --tv-icon-file: #9d9da8;
+    --tv-icon-code: #6fa4ff;
+    --tv-icon-doc: #a7b0bf;
+    --tv-icon-data: #b598ff;
+    --tv-icon-image: #57c48f;
+    --tv-icon-package: #e4904f;
+    --tv-icon-lock: #9d9da8;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --tv-bg: #ffffff;
+      --tv-fg: #1d1d21;
+      --tv-muted: #6f6f79;
+      --tv-line: #9a9aa4;
+      --tv-box-border: #8b8b95;
+      --tv-box-fg: #2c2c32;
+      --tv-box-hover: #2f6bff;
+      --tv-hover-bg: #f0f2f6;
+      --tv-sel-bg: #2a64f0;
+      --tv-sel-fg: #ffffff;
+      --tv-sel-line: rgb(255 255 255 / 0.6);
+      --tv-sel-inactive-bg: #e2e3e8;
+      --tv-focus: #2f6bff;
+      --tv-head-bg: #f6f6f8;
+      --tv-head-fg: #5c5c66;
+      --tv-head-line: #dadade;
+      --tv-grid: #ececef;
+      --tv-group-bg: #f6f6f8;
+      --tv-edit-bg: #ffffff;
+      --tv-edit-fg: #111114;
+      --tv-check-bg: #ffffff;
+      --tv-check-border: #8b8b95;
+      --tv-check-on: #2f6bff;
+      --tv-swatch-line: rgb(0 0 0 / 0.22);
+      --tv-scroll-thumb: #c8c8cf;
+      --tv-icon-tint: 0.16;
+      --tv-icon-folder: #cf9620;
+      --tv-icon-file: #84848e;
+      --tv-icon-code: #2f6bff;
+      --tv-icon-doc: #677284;
+      --tv-icon-data: #7a52dc;
+      --tv-icon-image: #17985c;
+      --tv-icon-package: #cc6a22;
+      --tv-icon-lock: #7a7a83;
+    }
+  }
+
+  /* ---------- frame ---------- */
+
+  .tv {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--tv-bg);
+    color: var(--tv-fg);
+    font-family: var(--tv-font);
+    font-size: var(--tv-font-size);
+    line-height: var(--tv-row-h);
+    -webkit-font-smoothing: antialiased;
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
+
+  .tv-scroll {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--tv-scroll-thumb) transparent;
+  }
+
+  .tv-body {
+    position: relative;
+    min-width: 100%;
+    outline: none;
+  }
+
+  .tv-columns .tv-body,
+  .tv-head {
+    width: var(--tv-total);
+  }
+
+  /* ---------- rows ---------- */
+
+  .tv-row {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: var(--tv-row-h);
+    display: flex;
+    outline: none;
+    white-space: nowrap;
+  }
+
+  .tv-row:hover { background: var(--tv-hover-bg); }
+
+  .tv-columns .tv-group { background: var(--tv-group-bg); }
+  .tv-columns .tv-group .tv-label { font-weight: 600; }
+
+  .tv-row[aria-selected="true"] {
+    background: var(--tv-sel-inactive-bg);
+    color: var(--tv-sel-inactive-fg);
+  }
+
+  .tv-body:focus-within .tv-row[aria-selected="true"] {
+    background: var(--tv-sel-bg);
+    color: var(--tv-sel-fg);
+    --tv-line: var(--tv-sel-line);
+    --tv-box-border: var(--tv-sel-line);
+    --tv-box-fg: var(--tv-sel-fg);
+    --tv-muted: var(--tv-sel-line);
+    --tv-grid: transparent;
+  }
+
+  .tv-body:focus-within .tv-row[aria-selected="true"] .tv-svg { color: var(--tv-sel-fg); }
+
+  /* keyboard focus on a row that is not selected (a selected row shows it by its colour) */
+  .tv-row:focus-visible:not([aria-selected="true"]) {
+    box-shadow: inset 0 0 0 1px var(--tv-focus);
+  }
+
+  /* ---------- cells ---------- */
+
+  .tv-cell {
+    position: relative;
+    flex: none;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 100%;
+    padding: 0 var(--tv-cell-pad);
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tv-main {
+    padding-left: var(--tv-pad);
+    padding-right: 4px;
+  }
+
+  .tv-row > .tv-cell:last-child { flex: 1 0 auto; }
+  .tv-row > .tv-main:only-child { flex: 1 1 auto; }
+
+  .tv-columns .tv-row > .tv-cell:not(:last-child) { box-shadow: inset -1px 0 var(--tv-grid); }
+
+  .tv-right { justify-content: flex-end; }
+  .tv-center { justify-content: center; }
+
+  .tv-label,
+  .tv-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tv-label { padding-left: 3px; }
+  .tv-icon + .tv-label { padding-left: 0; }
+
+  /* give a column className: "tv-dim" for secondary text, like a type column */
+  .tv-dim { color: var(--tv-muted); }
+  .tv-readonly { color: var(--tv-muted); }
+
+  /* ---------- connector lines and +/- boxes ---------- */
+
+  .tv-indent {
+    position: relative;
+    flex: none;
+    align-self: stretch;
+    width: calc((var(--tv-depth) + 1) * var(--tv-indent));
+  }
+
+  /* tree.js puts this row's lines in --tv-g as background layers; the mask
+     turns them into dots. */
+  .tv-indent::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--tv-g);
+    -webkit-mask-image: var(--tv-dots);
+    mask-image: var(--tv-dots);
+    -webkit-mask-size: 2px 2px;
+    mask-size: 2px 2px;
+    -webkit-mask-position: 0 var(--tv-ph, 0px);
+    mask-position: 0 var(--tv-ph, 0px);
+    pointer-events: none;
+  }
+
+  .tv-nolines .tv-indent::before { display: none; }
+
+  .tv-box {
+    position: absolute;
+    left: calc(var(--tv-depth) * var(--tv-indent) + var(--tv-lx) - (var(--tv-box) - 1px) / 2);
+    top: calc(var(--tv-mid) - (var(--tv-box) - 1px) / 2);
+    width: var(--tv-box);
+    height: var(--tv-box);
+    box-sizing: border-box;
+    border: 1px solid var(--tv-box-border);
+    border-radius: var(--tv-box-radius);
+    /* the minus, and the bar that makes it a plus while closed */
+    background:
+      linear-gradient(var(--tv-box-fg), var(--tv-box-fg)) center / calc(var(--tv-box) - 4px) 1px no-repeat,
+      var(--tv-box-bg);
+  }
+
+  .tv-row[aria-expanded="false"] .tv-box {
+    background:
+      linear-gradient(var(--tv-box-fg), var(--tv-box-fg)) center / calc(var(--tv-box) - 4px) 1px no-repeat,
+      linear-gradient(var(--tv-box-fg), var(--tv-box-fg)) center / 1px calc(var(--tv-box) - 4px) no-repeat,
+      var(--tv-box-bg);
+  }
+
+  .tv-box:hover { border-color: var(--tv-box-hover); }
+
+  /* a bigger target than the 9px box */
+  .tv-box::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+  }
+
+  /* ---------- icons ---------- */
+
+  .tv-icon {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin-right: var(--tv-icon-gap);
+  }
+
+  .tv-svg { display: block; overflow: visible; }
+  .tv-i-fill { fill: currentColor; stroke: none; opacity: var(--tv-icon-tint); }
+  .tv-i-fill.tv-i-strong { opacity: calc(var(--tv-icon-tint) * 1.8); }
+  .tv-i-line { fill: none; stroke: currentColor; stroke-width: 1px; stroke-linejoin: round; }
+  .tv-i-dot { fill: currentColor; }
+
+  .tv-svg-folder { color: var(--tv-icon-folder); }
+  .tv-svg-file { color: var(--tv-icon-file); }
+  .tv-svg-code { color: var(--tv-icon-code); }
+  .tv-svg-doc { color: var(--tv-icon-doc); }
+  .tv-svg-data { color: var(--tv-icon-data); }
+  .tv-svg-image { color: var(--tv-icon-image); }
+  .tv-svg-package { color: var(--tv-icon-package); }
+  .tv-svg-lock { color: var(--tv-icon-lock); }
+
+  /* ---------- column header ---------- */
+
+  .tv-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    min-width: 100%;
+    height: var(--tv-head-h);
+    box-sizing: border-box;
+    background: var(--tv-head-bg);
+    box-shadow: inset 0 -1px var(--tv-head-line);
+    color: var(--tv-head-fg);
+    font-size: var(--tv-head-font-size);
+    font-weight: 600;
+    line-height: var(--tv-head-h);
+  }
+
+  .tv-hcell {
+    position: relative;
+    flex: none;
+    box-sizing: border-box;
+    display: flex;
+    min-width: 0;
+    padding: 0 var(--tv-cell-pad);
+    box-shadow: inset -1px 0 var(--tv-head-line);
+  }
+
+  .tv-hcell:last-child {
+    flex: 1 0 auto;
+    box-shadow: none;
+  }
+
+  .tv-htext {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* drag a column's right edge to resize it */
+  .tv-grip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -3px;
+    width: 7px;
+    z-index: 1;
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .tv-resizing, .tv-resizing * { cursor: col-resize !important; }
+
+  /* ---------- values and editors ---------- */
+
+  .tv-editable { gap: 6px; }
+
+  .tv-check {
+    position: relative;
+    flex: none;
+    width: var(--tv-check);
+    height: var(--tv-check);
+    box-sizing: border-box;
+    border: 1px solid var(--tv-check-border);
+    border-radius: 2px;
+    background: var(--tv-check-bg);
+  }
+
+  /* the tick: two borders of a small box, turned 45 degrees */
+  .tv-check::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 0.5px;
+    width: 3px;
+    height: 6px;
+    box-sizing: border-box;
+    border: solid transparent;
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
+
+  .tv-check.tv-on {
+    border-color: var(--tv-check-on);
+    background: var(--tv-check-on);
+  }
+
+  .tv-check.tv-on::after { border-color: var(--tv-check-mark); }
+
+  .tv-body:focus-within .tv-row[aria-selected="true"] .tv-check.tv-on {
+    border-color: var(--tv-check-mark);
+  }
+
+  .tv-body:focus-within .tv-row[aria-selected="true"] .tv-swatch {
+    box-shadow: 0 0 0 1px var(--tv-sel-fg);
+  }
+
+  .tv-swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--tv-swatch);
+    box-shadow: inset 0 0 0 1px var(--tv-swatch-line);
+  }
+
+  .tv-kind-color .tv-text { text-transform: uppercase; }
+
+  .tv-caret {
+    flex: none;
+    width: 7px;
+    height: 4px;
+    margin-left: auto;
+    background: currentColor;
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+    opacity: 0;
+  }
+
+  .tv-row:hover .tv-caret,
+  .tv-row[aria-selected="true"] .tv-caret { opacity: 0.6; }
+
+  /* the select's arrow, drawn like the caret */
+  .tv-kind-select.tv-editing::after {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    right: var(--tv-cell-pad);
+    top: calc(50% - 2px);
+    width: 7px;
+    height: 4px;
+    background: var(--tv-edit-fg);
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+    pointer-events: none;
+  }
+
+  /* Windows high contrast: the system's colours, so the selection, the
+     boxes, the lines and the ticks stay visible. */
+  @media (forced-colors: active) {
+    .tv-row[aria-selected="true"],
+    .tv-body:focus-within .tv-row[aria-selected="true"] {
+      forced-color-adjust: none;
+      background: Highlight;
+      color: HighlightText;
+    }
+    .tv-box { forced-color-adjust: none; --tv-box-border: CanvasText; --tv-box-fg: CanvasText; --tv-box-bg: Canvas; }
+    .tv-check { forced-color-adjust: none; border-color: CanvasText; background: Canvas; }
+    /* the lines' colour is read where tree.js sets them, on the indent */
+    .tv-indent { --tv-line: CanvasText; }
+    .tv-indent::before { forced-color-adjust: none; }
+    .tv-check.tv-on { background: Highlight; border-color: Highlight; }
+    .tv-check.tv-on::after { border-color: HighlightText; }
+    .tv-row:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+  }
+}
+
+/* The editors are real form fields, so they sit outside the layer on purpose:
+   an app's plain `input { ... }` rule (starter templates have one) must not
+   restyle them. These selectors weigh no more than `input`, so any class rule
+   the app writes still wins. */
+:is(input, select):where(.tv-editor) {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  /* the editor covers its cell exactly, so the row keeps its height and the
+     text does not move: 1px border + (cell padding - 1px) */
+  padding: 0 calc(var(--tv-cell-pad) - 1px);
+  border: 1px solid var(--tv-focus);
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  transition: none;
+  background: var(--tv-edit-bg);
+  color: var(--tv-edit-fg);
+  font: inherit;
+  line-height: normal;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+select:where(.tv-editor) {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 18px;
+}
+
+input:where(.tv-editor)::-webkit-inner-spin-button,
+input:where(.tv-editor)::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input:where(.tv-editor)[type="number"] { -moz-appearance: textfield; }
+
+/* the system colour picker's input: present, never seen */
+input:where(.tv-picker) {
+  position: absolute;
+  left: var(--tv-cell-pad);
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+}

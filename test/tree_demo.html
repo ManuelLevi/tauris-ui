@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tree view</title>
+<link rel="stylesheet" href="../web/tree.css">
+<style>
+  /* The page around the two trees; the trees themselves come from tree.css. */
+  :root {
+    --page-bg: #0c0c0e;
+    --panel-line: #2a2a30;
+    --panel-title-bg: #1b1b1f;
+    --panel-title-fg: #c9c9d1;
+    --panel-note: #82828c;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --page-bg: #e6e6ea;
+      --panel-line: #cfcfd5;
+      --panel-title-bg: #f3f3f5;
+      --panel-title-fg: #3a3a41;
+      --panel-note: #6f6f79;
+      color-scheme: light;
+    }
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--page-bg);
+    font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .demo {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 10px;
+    height: 100vh;
+    padding: 10px;
+    box-sizing: border-box;
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid var(--panel-line);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--tv-bg);
+  }
+  .panel-title {
+    flex: none;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    height: 26px;
+    line-height: 26px;
+    padding: 0 10px;
+    background: var(--panel-title-bg);
+    border-bottom: 1px solid var(--panel-line);
+    color: var(--panel-title-fg);
+    font-weight: 600;
+  }
+  .panel-title small { color: var(--panel-note); font-weight: 400; font-size: 11px; }
+  .panel-tree { flex: 1 1 auto; min-height: 0; }
+  .panel-status {
+    flex: none;
+    height: 21px;
+    line-height: 20px;
+    padding: 0 10px;
+    border-top: 1px solid var(--panel-line);
+    background: var(--panel-title-bg);
+    color: var(--panel-note);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+</style>
+</head>
+<body>
+<main class="demo">
+  <section class="panel">
+    <header class="panel-title">Project <small>atlas-desktop</small></header>
+    <div id="files" class="panel-tree"></div>
+    <footer id="files-status" class="panel-status"></footer>
+  </section>
+  <section class="panel">
+    <header class="panel-title">Settings <small>Atlas 2.4</small></header>
+    <div id="settings" class="panel-tree"></div>
+    <footer id="settings-status" class="panel-status"></footer>
+  </section>
+</main>
+
+<script src="../web/tree.js"></script>
+<script>
+  "use strict";
+
+  // ---------- a project on disk ----------
+  // A node's id is its path, so the status line can show it.
+
+  const ICON_BY_EXT = {
+    js: "code", ts: "code", rs: "code", html: "code", css: "code",
+    json: "data", toml: "data", yml: "data", yaml: "data",
+    md: "doc", txt: "doc",
+    png: "image", svg: "image", icns: "image", ico: "image",
+    lock: "lock",
+  };
+
+  function iconFor(name) {
+    if (name === "package.json" || name === "Cargo.toml") return "package";
+    if (name === "LICENSE") return "doc";
+    const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+    return ICON_BY_EXT[ext] || "file";
+  }
+
+  // [name, children?, open?]: a folder has a children array.
+  function files(entries, base = "") {
+    return entries.map(([name, children, open]) => {
+      const id = base ? `${base}/${name}` : name;
+      if (!children) return { id, label: name, icon: iconFor(name) };
+      return { id, label: name, icon: "folder", expanded: Boolean(open), children: files(children, id) };
+    });
+  }
+
+  const project = files([
+    ["atlas-desktop", [
+      [".github", [
+        ["workflows", [["build.yml"], ["release.yml"]]],
+      ]],
+      ["docs", [["architecture.md"], ["keyboard-shortcuts.md"], ["release-checklist.md"]]],
+      ["src", [
+        ["assets", [
+          ["fonts", [["Inter-Variable.woff2"]]],
+          ["logo.svg"], ["splash.png"],
+        ]],
+        ["lib", [["api.js"], ["format.js"], ["store.js"]], true],
+        ["views", [
+          ["inspector", [["fields.js"], ["inspector.css"], ["panel.js"]], true],
+          ["sidebar.js"], ["settings.js"], ["welcome.js"],
+        ], true],
+        ["index.html"], ["main.js"], ["styles.css"],
+      ], true],
+      ["src-tauri", [
+        ["capabilities", [["default.json"]]],
+        ["icons", [["128x128.png"], ["128x128@2x.png"], ["icon.icns"], ["icon.ico"]]],
+        ["src", [
+          ["sync", [["conflict.rs"], ["mod.rs"], ["queue.rs"]], true],
+          ["commands.rs"], ["db.rs"], ["lib.rs"], ["main.rs"],
+        ], true],
+        ["build.rs"], ["Cargo.lock"], ["Cargo.toml"], ["tauri.conf.json"],
+      ], true],
+      [".gitignore"], ["CHANGELOG.md"], ["LICENSE"], ["package.json"], ["README.md"],
+    ], true],
+  ]);
+
+  const filesStatus = document.getElementById("files-status");
+  const filesTree = TaurisTree.mount(document.getElementById("files"), { data: project, label: "Project files" });
+  filesTree.on("select", ({ node }) => { filesStatus.textContent = node ? node.id : ""; });
+  filesTree.on("activate", ({ node }) => { filesStatus.textContent = `Open ${node.id}`; });
+  filesTree.select("atlas-desktop/src-tauri/src/sync/queue.rs");
+
+  // ---------- application settings ----------
+
+  const setting = (id, label, type, value, editor) => ({ id, label, values: { value, type }, editor });
+  const group = (id, label, children, open = true) => ({ id, label, children, expanded: open });
+  const LEVELS = ["Error", "Warning", "Info", "Debug", "Trace"];
+
+  const settings = [
+    group("general", "General", [
+      setting("general.name", "Application name", "String", "Atlas"),
+      setting("general.language", "Language", "Enum", "English (UK)",
+        { type: "select", options: ["English (UK)", "English (US)", "Deutsch", "Español", "Français", "Português"] }),
+      setting("general.login", "Open at login", "Boolean", true),
+      setting("general.restore", "Restore windows", "Boolean", true),
+      setting("general.updates", "Check for updates", "Enum", "Weekly", { type: "select", options: ["Never", "Daily", "Weekly"] }),
+    ]),
+    group("appearance", "Appearance", [
+      setting("appearance.theme", "Theme", "Enum", "System", { type: "select", options: ["System", "Light", "Dark"] }),
+      setting("appearance.accent", "Accent colour", "Colour", "#5b8cff", "color"),
+      setting("appearance.fontSize", "Interface font size", "Integer", 12, { type: "number", min: 10, max: 16, step: 1 }),
+      setting("appearance.rowHeight", "Row height", "Integer", 18, { type: "number", min: 16, max: 28, step: 1 }),
+      setting("appearance.lines", "Show tree lines", "Boolean", true),
+      setting("appearance.motion", "Reduce motion", "Boolean", false),
+    ]),
+    group("editor", "Editor", [
+      setting("editor.font", "Font family", "String", "SF Mono"),
+      setting("editor.fontSize", "Font size", "Integer", 13, { type: "number", min: 8, max: 32, step: 1 }),
+      setting("editor.lineHeight", "Line height", "Decimal", 1.45, { type: "number", min: 1, max: 3, step: 0.05 }),
+      setting("editor.tab", "Tab width", "Integer", 4, { type: "number", min: 1, max: 8, step: 1 }),
+      setting("editor.spaces", "Insert spaces", "Boolean", true),
+      setting("editor.wrap", "Word wrap", "Enum", "Off", { type: "select", options: ["Off", "On", "At ruler"] }),
+    ], false),
+    group("network", "Network", [
+      setting("network.timeout", "Request timeout (s)", "Integer", 30, { type: "number", min: 1, max: 300, step: 1 }),
+      setting("network.retries", "Retries", "Integer", 3, { type: "number", min: 0, max: 10, step: 1 }),
+      group("network.proxy", "Proxy", [
+        setting("network.proxy.on", "Enabled", "Boolean", false),
+        setting("network.proxy.host", "Host", "String", "proxy.northwind.lan"),
+        setting("network.proxy.port", "Port", "Integer", 3128, { type: "number", min: 1, max: 65535, step: 1 }),
+        group("network.proxy.auth", "Authentication", [
+          setting("network.proxy.auth.scheme", "Scheme", "Enum", "Basic", { type: "select", options: ["Basic", "Digest", "NTLM"] }),
+          setting("network.proxy.auth.user", "User name", "String", "svc-atlas"),
+        ]),
+      ]),
+    ]),
+    group("sync", "Sync", [
+      setting("sync.server", "Server", "String", "https://sync.atlas-app.io/v2"),
+      setting("sync.interval", "Interval (minutes)", "Integer", 15, { type: "number", min: 1, max: 1440, step: 1 }),
+      setting("sync.conflicts", "On conflict", "Enum", "Ask every time",
+        { type: "select", options: ["Ask every time", "Keep the newest", "Keep this device's copy", "Keep the server's copy"] }),
+      setting("sync.encrypt", "Encrypt before upload", "Boolean", true),
+    ]),
+    group("logging", "Logging", [
+      setting("logging.level", "Level", "Enum", "Info", { type: "select", options: LEVELS }),
+      setting("logging.folder", "Folder", "String", "~/Library/Logs/Atlas"),
+      setting("logging.maxSize", "Largest file (MB)", "Integer", 10, { type: "number", min: 1, max: 500, step: 1 }),
+      setting("logging.keep", "Files kept", "Integer", 7, { type: "number", min: 1, max: 90, step: 1 }),
+      group("logging.colours", "Colours", [
+        setting("logging.colours.error", "Error", "Colour", "#e5484d", "color"),
+        setting("logging.colours.warning", "Warning", "Colour", "#f5a524", "color"),
+        setting("logging.colours.info", "Info", "Colour", "#3e9fff", "color"),
+        setting("logging.colours.debug", "Debug", "Colour", "#8e8e98", "color"),
+      ]),
+    ]),
+  ];
+
+  const settingsStatus = document.getElementById("settings-status");
+  const settingsTree = TaurisTree.mount(document.getElementById("settings"), {
+    data: settings,
+    label: "Settings",
+    columns: [
+      { label: "Setting", width: 230 },
+      { key: "value", label: "Value", width: 210, editable: true },
+      { key: "type", label: "Type", width: 80, className: "tv-dim" },
+    ],
+  });
+  const shown = v => typeof v === "boolean" ? (v ? "on" : "off") : String(v);
+  settingsTree.on("select", ({ node }) => {
+    settingsStatus.textContent = node && node.values ? `${node.label} = ${shown(node.values.value)}` : node ? node.label : "";
+  });
+  settingsTree.on("change", ({ node, value }) => { settingsStatus.textContent = `${node.label} changed to ${shown(value)}`; });
+  settingsTree.select("appearance.accent");
+
+  // For the headless check (test/tree_run.py).
+  window.demo = { files: filesTree, settings: settingsTree };
+</script>
+</body>
+</html>

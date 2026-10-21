@@ -1,0 +1,407 @@
+/* tauris-ui: the look of the tab strip.
+ *
+ * Everything here sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without needing a stronger selector. Change the look by
+ * setting the --tt-* variables on :root (or on the strip), or override any
+ * .tt-* class. The defaults follow the system's light or dark mode.
+ *
+ * The strip is fixed to the top of the window: give your page
+ * `padding-top: var(--tt-strip-h)` (or position it below the strip).
+ */
+@layer tauris-ui {
+  :root {
+    /* strip */
+    --tt-strip-h: 40px;
+    --tt-strip-bg: #18181b;
+    --tt-line: #2c2c31;             /* the line under the strip */
+    --tt-inset-left: 84px;          /* room for the macOS window buttons (set by the plugin) */
+    --tt-inset-right: 56px;         /* empty strip kept at the right, to drag the window by */
+    /* tabs */
+    --tt-tab-h: 32px;
+    --tt-tab-w: 168px;
+    --tt-tab-min-w: 72px;
+    --tt-tab-radius: 8px;
+    --tt-tab-padding: 0 8px 0 12px;
+    --tt-tab-gap: 6px;              /* between a tab's title and its close button */
+    --tt-tabs-gap: 2px;             /* between tabs */
+    --tt-tab-overlap: 1px;          /* how far the active tab sinks over the line, to join the page */
+    --tt-font: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    --tt-font-size: 12px;
+    --tt-fg: #9b9ba4;
+    --tt-fg-hover: #d6d6dc;
+    --tt-fg-active: #f4f4f6;
+    --tt-tab-bg: transparent;
+    --tt-hover-bg: #222226;
+    --tt-active-bg: #0f0f11;        /* make it your page's background */
+    --tt-active-border: transparent;
+    --tt-accent: #5b8cff;           /* the bar along the top of the active tab */
+    --tt-accent-size: 2px;
+    --tt-separator: #2c2c31;        /* the thin line between idle tabs */
+    --tt-flare: 8px;                /* the curve where the active tab meets the page (0 = none) */
+    --tt-focus: var(--tt-accent);
+    /* close and new-tab buttons */
+    --tt-close-size: 18px;
+    --tt-close-radius: 4px;
+    --tt-close-hover-bg: var(--tt-line);
+    --tt-close-idle-opacity: 0;     /* of the close button on a tab that is not hovered or active */
+    --tt-new-size: 28px;
+    --tt-new-margin: 0 0 2px 4px;
+    --tt-new-radius: 6px;
+    --tt-new-fg: var(--tt-fg);
+    --tt-new-hover-bg: var(--tt-hover-bg);
+    /* dragging */
+    --tt-drag-bg: var(--tt-hover-bg);
+    --tt-drag-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+    --tt-slot-opacity: 0.35;        /* the empty slot while a preview floats under the mouse */
+    --tt-preview-opacity: 0.85;
+    --tt-ghost-border: var(--tt-accent);
+    --tt-ghost-fg: var(--tt-accent);
+    /* right-click menu */
+    --tt-menu-bg: #232327;
+    --tt-menu-fg: #ececf1;
+    --tt-menu-border: #34343a;
+    --tt-menu-hover-bg: #34343a;
+    --tt-menu-radius: 8px;
+    --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
+    --tt-menu-muted: #8e8e97;
+    --tt-menu-danger: #ef4444;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --tt-strip-bg: #ececef;
+      --tt-line: #d4d4d9;
+      --tt-fg: #5d5d66;
+      --tt-fg-hover: #2a2a30;
+      --tt-fg-active: #111114;
+      --tt-hover-bg: #e1e1e6;
+      --tt-active-bg: #ffffff;
+      --tt-accent: #2f6bff;
+      --tt-separator: #d0d0d6;
+      --tt-drag-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+      --tt-menu-bg: #ffffff;
+      --tt-menu-fg: #18181b;
+      --tt-menu-border: #dcdce1;
+      --tt-menu-hover-bg: #ececf1;
+      --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
+      --tt-menu-muted: #7a7a83;
+    }
+  }
+
+  .tt-strip {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 1000;
+    height: var(--tt-strip-h);
+    box-sizing: border-box;
+    display: flex;
+    align-items: flex-end;
+    padding-left: var(--tt-inset-left);
+    padding-right: var(--tt-inset-right);
+    background: var(--tt-strip-bg);
+    border-bottom: 1px solid var(--tt-line);
+    font-family: var(--tt-font);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* The row of tabs. Its padding gives the active tab's curves room when the
+     row scrolls; the negative margin keeps the tabs where they would be. */
+  .tt-tabs {
+    display: flex;
+    flex: 0 1 auto;
+    gap: var(--tt-tabs-gap);
+    min-width: 0;
+    box-sizing: border-box;
+    height: calc(var(--tt-tab-h) + var(--tt-tab-overlap));
+    margin: 0 calc(var(--tt-flare) * -1) calc(var(--tt-tab-overlap) * -1);
+    padding: 0 var(--tt-flare);
+  }
+
+  .tt-tabs.tt-scrolling {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .tt-tabs.tt-scrolling::-webkit-scrollbar { display: none; }
+
+  .tt-tab {
+    position: relative;
+    flex: 0 1 auto;
+    width: var(--tt-tab-w);
+    min-width: var(--tt-tab-min-w);
+    height: var(--tt-tab-h);
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: var(--tt-tab-gap);
+    padding: var(--tt-tab-padding);
+    border: 1px solid transparent;
+    border-bottom: 0;
+    border-radius: var(--tt-tab-radius) var(--tt-tab-radius) 0 0;
+    background: var(--tt-tab-bg);
+    color: var(--tt-fg);
+    font-size: var(--tt-font-size);
+    outline: none;
+    transform: translateX(var(--dx, 0px));
+  }
+
+  .tt-tab:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--tt-focus);
+  }
+
+  .tt-tab.tt-shifting { transition: transform 160ms ease; }
+  .tt-tab.tt-settling { transition: transform 140ms ease-out; }
+
+  /* A thin line between idle tabs; gone next to the active or hovered tab. */
+  .tt-tab::after {
+    content: "";
+    position: absolute;
+    right: calc(var(--tt-tabs-gap) / -2 - 0.5px);
+    top: 25%;
+    bottom: 25%;
+    width: 1px;
+    background: var(--tt-separator);
+    pointer-events: none;
+  }
+  .tt-tab:hover::after,
+  .tt-tab:has(+ .tt-active)::after,
+  .tt-tab:has(+ .tt-ghost)::after,
+  .tt-tab:has(+ .tt-tab:hover)::after,
+  .tt-tab:last-child::after,
+  .tt-tab.tt-dragging::after,
+  .tt-tab.tt-slot::after { opacity: 0; }
+
+  /* The active tab flows into the page: a curve at each foot. */
+  .tt-tab.tt-active::before,
+  .tt-tab.tt-active::after {
+    content: "";
+    position: absolute;
+    top: auto;
+    bottom: 0;
+    width: var(--tt-flare);
+    height: var(--tt-flare);
+    background: none;
+    opacity: 1;
+    pointer-events: none;
+  }
+  .tt-tab.tt-active::before {
+    left: calc(var(--tt-flare) * -1 - 1px);
+    background: radial-gradient(circle at 0 0, transparent calc(var(--tt-flare) - 0.5px), var(--tt-active-bg) var(--tt-flare));
+  }
+  .tt-tab.tt-active::after {
+    left: auto;
+    right: calc(var(--tt-flare) * -1 - 1px);
+    background: radial-gradient(circle at 100% 0, transparent calc(var(--tt-flare) - 0.5px), var(--tt-active-bg) var(--tt-flare));
+  }
+  .tt-tab.tt-dragging::before,
+  .tt-tab.tt-dragging::after,
+  .tt-tab.tt-slot::before,
+  .tt-tab.tt-slot::after { display: none; }
+
+  .tt-tab:hover {
+    background: var(--tt-hover-bg);
+    color: var(--tt-fg-hover);
+  }
+
+  .tt-tab.tt-active {
+    z-index: 1;
+    height: calc(var(--tt-tab-h) + var(--tt-tab-overlap));  /* sinks over the strip's line */
+    padding-bottom: var(--tt-tab-overlap);                  /* ...without moving the label */
+    background: var(--tt-active-bg);
+    border-color: var(--tt-active-border);
+    color: var(--tt-fg-active);
+    /* the accent: a straight bar along the top, clear of the rounded corners */
+    background-image: linear-gradient(var(--tt-accent), var(--tt-accent));
+    background-repeat: no-repeat;
+    background-origin: border-box;
+    background-position: center top;
+    background-size: calc(100% - var(--tt-tab-radius) * 2) var(--tt-accent-size);
+  }
+
+  .tt-tab.tt-dragging {
+    z-index: 2;
+    background-color: var(--tt-drag-bg);
+    box-shadow: var(--tt-drag-shadow);
+  }
+
+  /* The slot of a tab whose preview floats elsewhere (ghost, title, custom). */
+  .tt-tab.tt-slot {
+    z-index: 0;
+    opacity: var(--tt-slot-opacity);
+    box-shadow: none;
+  }
+
+  /* The tab of another window hovering this strip: where it would land. */
+  .tt-tab.tt-ghost {
+    border: 1px dashed var(--tt-ghost-border);
+    border-bottom: 0;
+    color: var(--tt-ghost-fg);
+  }
+
+  .tt-tab.tt-appear { animation: tt-pop 160ms ease-out; }
+
+  @keyframes tt-pop {
+    from { opacity: 0; transform: translateX(var(--dx, 0px)) scale(0.92); }
+    to { opacity: 1; transform: translateX(var(--dx, 0px)) scale(1); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tt-tab.tt-appear { animation: none; }
+    .tt-tab.tt-shifting, .tt-tab.tt-settling { transition: none; }
+  }
+
+  .tt-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    pointer-events: none;
+  }
+
+  .tt-close {
+    flex: none;
+    width: var(--tt-close-size);
+    height: var(--tt-close-size);
+    padding: 0;
+    border: 0;
+    border-radius: var(--tt-close-radius);
+    background: transparent;
+    color: inherit;
+    display: grid;
+    place-items: center;
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    opacity: var(--tt-close-idle-opacity);
+    cursor: default;
+  }
+
+  .tt-tab:hover .tt-close,
+  .tt-tab.tt-active .tt-close,
+  .tt-tab:focus-visible .tt-close { opacity: 0.6; }
+
+  .tt-close:hover {
+    background: var(--tt-close-hover-bg);
+    opacity: 1;
+  }
+
+  .tt-new {
+    flex: none;
+    width: var(--tt-new-size);
+    height: var(--tt-new-size);
+    margin: var(--tt-new-margin);
+    padding: 0;
+    border: 0;
+    border-radius: var(--tt-new-radius);
+    background: transparent;
+    color: var(--tt-new-fg);
+    display: grid;
+    place-items: center;
+    font: inherit;
+    line-height: 1;
+    cursor: default;
+  }
+
+  .tt-new:hover {
+    background: var(--tt-new-hover-bg);
+    color: var(--tt-fg-hover);
+  }
+
+  .tt-new:focus-visible,
+  .tt-menu-item:focus-visible {
+    outline: 2px solid var(--tt-focus);
+    outline-offset: -2px;
+  }
+
+  .tt-fill {
+    flex: 1;
+    align-self: stretch;
+  }
+
+  /* What floats under the mouse while a tab is dragged (ghost, title, custom). */
+  .tt-preview {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 2147483000;
+    pointer-events: none;
+    opacity: var(--tt-preview-opacity);
+    box-shadow: var(--tt-drag-shadow);
+  }
+
+  .tt-preview.tt-preview-title {
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--tt-drag-bg);
+    color: var(--tt-fg-active);
+    font: var(--tt-font-size) var(--tt-font);
+    white-space: nowrap;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tt-preview.tt-preview-ghost {
+    margin: 0;
+    transform: none;
+  }
+
+  .tt-menu {
+    position: fixed;
+    z-index: 2147483001;
+    min-width: 200px;
+    padding: 4px;
+    box-sizing: border-box;
+    background: var(--tt-menu-bg);
+    color: var(--tt-menu-fg);
+    border: 1px solid var(--tt-menu-border);
+    border-radius: var(--tt-menu-radius);
+    box-shadow: var(--tt-menu-shadow);
+    font: var(--tt-font-size) var(--tt-font);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .tt-menu-item {
+    display: flex;
+    width: 100%;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: calc(var(--tt-menu-radius) - 3px);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: default;
+  }
+
+  .tt-menu-item:hover:not([aria-disabled="true"]),
+  .tt-menu-item:focus:not([aria-disabled="true"]) { background: var(--tt-menu-hover-bg); outline: none; }
+  .tt-menu-item[aria-disabled="true"] { opacity: 0.4; }
+  .tt-menu-item.tt-danger { color: var(--tt-menu-danger); }
+  .tt-menu-shortcut { color: var(--tt-menu-muted); }
+
+  .tt-menu-sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--tt-menu-border);
+  }
+
+  /* Windows high contrast: the system's colours, and outlines instead of tints. */
+  @media (forced-colors: active) {
+    .tt-tab.tt-active { border-color: Highlight; background-image: linear-gradient(Highlight, Highlight); }
+    .tt-tab:focus-visible,
+    .tt-new:focus-visible,
+    .tt-menu-item:focus-visible,
+    .tt-menu-item:focus { outline: 2px solid Highlight; outline-offset: -2px; }
+    .tt-tab::before,
+    .tt-tab.tt-active::after { forced-color-adjust: none; display: none; }
+    .tt-menu { border-color: CanvasText; }
+  }
+}

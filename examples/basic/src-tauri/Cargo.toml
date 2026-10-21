@@ -1,0 +1,15 @@
+[package]
+name = "tauris-ui-example"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Not part of any workspace above it.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauris-ui = { path = "../../..", version = "0.4" }

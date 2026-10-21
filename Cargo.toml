@@ -1,0 +1,32 @@
+[package]
+name = "tauris-ui"
+version = "0.4.0"
+edition = "2021"
+rust-version = "1.90"
+description = "UI components for Tauri 2 desktop apps: browser-style tabs (reorder, drag out into windows, remembered layout) and a dense tree view / configuration editor."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ManuelLevi/tauris-ui"
+homepage = "https://github.com/ManuelLevi/tauris-ui"
+documentation = "https://docs.rs/tauris-ui"
+keywords = ["tauri", "tabs", "treeview", "desktop", "ui"]
+categories = ["gui"]
+links = "tauris-ui"
+exclude = ["test/", "examples/", ".github/", "CLAUDE.md"]
+
+[package.metadata.docs.rs]
+targets = ["aarch64-apple-darwin"]
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }

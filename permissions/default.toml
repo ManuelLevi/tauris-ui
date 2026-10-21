@@ -1,0 +1,17 @@
+[default]
+description = "Lets a window use the tab strip: read its tabs, open, close, move and drag them."
+permissions = [
+    "allow-window-state",
+    "allow-new-tab",
+    "allow-close-tab",
+    "allow-activate-tab",
+    "allow-move-tab",
+    "allow-update-tab",
+    "allow-report-strip",
+    "allow-drag-out",
+    "allow-open-tab",
+    "allow-set-close-guard",
+    "allow-close-window",
+    "allow-move-to-new-window",
+    "allow-close-asked",
+]
