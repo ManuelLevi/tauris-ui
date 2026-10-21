@@ -8,6 +8,14 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.15 — 2026-10-22
+
+Fixes from the first of the stronger reviewers (tabs, saving, dragging):
+- While a tab is dragged in a window of its own, `frontmost()` and anything that opens a tab (`open`, `open_or_focus`, ⌘T) leave that window out. A tab opened in it anyway moves with the drop, or back with a drag or a move to a new window that failed. A dragged window that closes mid-drag clears the strip it was over.
+- While remembered windows open, nothing saves over the layout. A second caller that finds them opening waits for them instead of opening a window of its own. A `start()` whose window could not open can be called again.
+- A save after a pause leaves out windows closed a moment ago (only the save as the app quits keeps them), so a window the person closed does not come back after a crash. Closing the last tab forgets the layout only if no window opened meanwhile.
+- Tests: a check of a file's date no longer depends on today's date; the ⌘⌫ check uses Ctrl off a Mac.
+
 ## 0.4.14 — 2026-10-22
 
 - Files: names sort as in Finder, the name without its extension first and then the extension, so "Q3 plan.md" comes before "Q3 plan 2.md".

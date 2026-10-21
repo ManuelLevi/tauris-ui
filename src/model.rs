@@ -237,7 +237,7 @@ impl Model {
         chosen: Option<u64>,
     ) -> Option<String> {
         let Some(win) = self.win(label) else {
-            let Some(front) = self.wins.last().map(|w| w.label.clone()) else {
+            let Some(front) = self.frontmost() else {
                 self.tabs.remove(&tab);
                 return None;
             };
@@ -250,6 +250,20 @@ impl Model {
             win.active = active.filter(|a| win.tabs.contains(a)).or(Some(tab));
         }
         Some(label.to_string())
+    }
+
+    // The most recently focused window, leaving out the one a tab is being
+    // dragged in: what opens meanwhile must not ride away with the drag.
+    pub fn frontmost(&self) -> Option<String> {
+        let dragged = self.drag.as_ref().map(|d| d.window.as_str());
+        self.wins.iter().rev().find(|w| Some(w.label.as_str()) != dragged).map(|w| w.label.clone())
+    }
+
+    // Takes a window out of the open windows (it is going away), returning the
+    // tabs it holds besides `except`, for another window to take in.
+    pub fn take_win(&mut self, label: &str, except: u64) -> Vec<u64> {
+        let Some(pos) = self.wins.iter().position(|w| w.label == label) else { return vec![] };
+        self.wins.remove(pos).tabs.into_iter().filter(|t| *t != except).collect()
     }
 
     pub fn attach(&mut self, label: &str, tab: u64, index: usize) {
@@ -347,5 +361,60 @@ mod tests {
         let w = m.create_win(vec![a]);
         m.remove_win(&w);
         assert!(m.wins.is_empty() && m.tabs.is_empty());
+    }
+
+    // A failed move puts the tab back: where it was, and the active tab as it
+    // was, unless the person chose another meanwhile.
+    #[test]
+    fn put_back_restores_place_and_active_tab() {
+        let mut m = model();
+        let ids: Vec<u64> = ["a", "b", "c"].into_iter().map(|t| m.create_tab(NewTab::new(t))).collect();
+        let w = m.create_win(ids.clone());
+        m.win(&w).unwrap().active = Some(ids[1]);
+        m.detach(&w, ids[1]);
+        let chosen = m.win(&w).unwrap().active;
+        assert_eq!(m.put_back(&w, ids[1], 1, Some(ids[1]), chosen), Some(w.clone()));
+        assert_eq!(m.win(&w).unwrap().tabs, ids);
+        assert_eq!(m.win(&w).unwrap().active, Some(ids[1]));
+        // The person clicked another tab meanwhile: that one stays active.
+        m.detach(&w, ids[1]);
+        let chosen = m.win(&w).unwrap().active;
+        m.win(&w).unwrap().active = Some(ids[0]);
+        m.put_back(&w, ids[1], 1, Some(ids[1]), chosen);
+        assert_eq!(m.win(&w).unwrap().active, Some(ids[0]));
+    }
+
+    // Its window gone meanwhile: the frontmost window takes the tab; with no
+    // window at all, the tab is forgotten (nothing keeps a tab no one sees).
+    #[test]
+    fn put_back_without_the_window() {
+        let mut m = model();
+        let (a, b) = (m.create_tab(NewTab::new("a")), m.create_tab(NewTab::new("b")));
+        let first = m.create_win(vec![a]);
+        let gone = m.create_win(vec![]);
+        m.remove_win(&gone);
+        assert_eq!(m.put_back(&gone, b, 0, None, None), Some(first.clone()));
+        assert_eq!(m.win(&first).unwrap().tabs, [a, b]);
+        m.remove_win(&first);
+        let c = m.create_tab(NewTab::new("c"));
+        assert_eq!(m.put_back(&first, c, 0, None, None), None);
+        assert!(!m.tabs.contains_key(&c));
+    }
+
+    // While a tab is dragged in a window of its own, what opens meanwhile goes
+    // to the window before it, not into the one riding with the mouse.
+    #[test]
+    fn the_dragged_window_is_never_the_frontmost() {
+        let mut m = model();
+        let (a, b) = (m.create_tab(NewTab::new("a")), m.create_tab(NewTab::new("b")));
+        let first = m.create_win(vec![a]);
+        let moving = m.create_win(vec![b]);
+        assert_eq!(m.frontmost(), Some(moving.clone()));
+        m.drag = Some(Drag { tab: b, window: moving.clone(), grab: (0.0, 0.0), hover: None });
+        assert_eq!(m.frontmost(), Some(first));
+        // The window goes away: what was opened in it besides the dragged tab comes back.
+        let c = m.create_tab(NewTab::new("c"));
+        m.win(&moving).unwrap().tabs.push(c);
+        assert_eq!(m.take_win(&moving, b), [c]);
     }
 }

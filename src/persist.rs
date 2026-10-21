@@ -37,7 +37,11 @@ pub(crate) fn start<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     if inner(app).started.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
-    restore(app)?;
+    // A start that failed (no window could open) can be tried again.
+    if let Err(e) = restore(app) {
+        inner(app).started.store(false, Ordering::SeqCst);
+        return Err(e);
+    }
     let app = app.clone();
     thread::spawn(move || loop {
         thread::sleep(Duration::from_millis(500));
@@ -58,7 +62,8 @@ pub(crate) fn restore<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     Ok(())
 }
 
-// Opens the remembered windows, frontmost last; false when there are none.
+// Opens the remembered windows, frontmost last; false when there are none
+// (true when another caller is opening them already).
 // An unreadable file is kept aside as `<name>.unreadable` so it is not lost
 // when the next layout is saved.
 pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
@@ -74,8 +79,10 @@ pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
     // click and the app's own open_or_focus) must not each open them all.
     // Never waited for: the other one may need this thread to open its windows.
     let state = inner(app);
+    // Another caller is opening them: they are on their way (true), and no
+    // other window should open in their place.
     if state.restoring.swap(true, Ordering::SeqCst) {
-        return false;
+        return true;
     }
     struct Done(&'static AtomicBool);
     impl Drop for Done {
@@ -144,6 +151,10 @@ pub(crate) fn forget<R: Runtime>(app: &AppHandle<R>) {
     let _writing = state.save_lock();
     {
         let mut m = state.model();
+        // A window opened meanwhile (⌘N right after the last tab closed): it is remembered.
+        if !m.wins.is_empty() {
+            return;
+        }
         m.saved();
         m.closing.clear();
     }
@@ -164,11 +175,14 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
             (Some(last), Some(first)) => now || last.elapsed() >= state.config.settle || first.elapsed() >= MAX_WAIT,
             _ => false,
         };
-        if !due {
+        // While remembered windows are opening, the file still holds them all.
+        if !due || state.restoring.load(Ordering::SeqCst) {
             return;
         }
         m.saved();
-        let just_closed = m.closing.iter().filter(|c| c.at.elapsed() < QUIT_BURST).map(|c| SavedWin {
+        // Windows closed a moment ago are kept only by a save at once (the app
+        // quitting closes them one by one); a save after a pause leaves them out.
+        let just_closed = m.closing.iter().filter(|c| now && c.at.elapsed() < QUIT_BURST).map(|c| SavedWin {
             active: c.win.active.and_then(|a| c.win.tabs.iter().position(|t| *t == a)).unwrap_or(0),
             tabs: c.tabs.clone(),
             frame: c.win.frame,

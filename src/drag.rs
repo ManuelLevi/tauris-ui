@@ -68,9 +68,15 @@ pub(crate) fn start<R: Runtime>(
             let back = {
                 let mut m = state.model();
                 m.drag = None;
-                m.detach(&moving, tab);
-                m.wins.retain(|w| w.label != moving);
-                m.put_back(&source, tab, at, active, chosen)
+                // Anything opened in the new window meanwhile goes back with the tab.
+                let others = m.take_win(&moving, tab);
+                let back = m.put_back(&source, tab, at, active, chosen);
+                if let Some(back) = &back {
+                    for other in others {
+                        m.attach(back, other, usize::MAX);
+                    }
+                }
+                back
             };
             if let Some(back) = back {
                 notify(app, &back);
@@ -146,7 +152,11 @@ fn follow_mouse<R: Runtime>(app: AppHandle<R>) {
             (d.tab, d.window.clone(), d.grab, d.hover.clone())
         };
         let Some(window) = app.get_webview_window(&moving) else {
+            // The dragged window closed (⌘W mid-drag): the strip it was over stops showing it.
             state.model().drag = None;
+            if let Some((label, _)) = previous {
+                send_hover(&app, &label, None, "");
+            }
             return;
         };
         let _ = window.set_position(LogicalPosition::new(cx - grab.0, cy - grab.1));
@@ -197,8 +207,16 @@ fn finish<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>, tab: u64, h
         notify(app, window.label());
         return;
     };
-    m.detach(window.label(), tab);
+    // The dragged window goes away in the same step: a tab opened in it
+    // meanwhile moves to the target with the dragged one.
+    let others = m.take_win(window.label(), tab);
     m.attach(&target, tab, index);
+    for other in others {
+        m.attach(&target, other, usize::MAX);
+    }
+    if let Some(w) = m.win(&target) {
+        w.active = Some(tab);
+    }
     drop(m);
     send_hover(app, &target, None, "");
     notify(app, &target);

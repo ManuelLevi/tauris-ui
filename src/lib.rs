@@ -313,7 +313,8 @@ impl<R: Runtime> Tabs<R> {
         windows::all_windows(&self.0)
     }
 
-    /// The label of the most recently focused window of tabs.
+    /// The label of the most recently focused window of tabs (never the one a
+    /// tab is being dragged in).
     pub fn frontmost(&self) -> Option<String> {
         windows::frontmost(&self.0)
     }

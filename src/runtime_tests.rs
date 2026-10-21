@@ -226,6 +226,38 @@ fn a_remembered_window_that_cannot_open_is_kept_aside() {
     assert_eq!(aside.as_array().unwrap().len(), 2, "the window that failed was not kept");
 }
 
+// While remembered windows are opening, nothing overwrites the file.
+#[test]
+fn nothing_is_saved_while_windows_are_restored() {
+    let file = temp_file("restoring");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    app.tabs().open(NewTab::new("Users")).unwrap();
+    windows::inner(app.handle()).restoring.store(true, Ordering::SeqCst);
+    persist::save(app.handle(), true);
+    assert!(!file.is_file(), "saved while restoring");
+    windows::inner(app.handle()).restoring.store(false, Ordering::SeqCst);
+    persist::save(app.handle(), true);
+    assert!(file.is_file(), "the save after the restore did not happen");
+}
+
+// A start whose window could not open can be tried again.
+#[test]
+fn a_start_that_failed_can_be_tried_again() {
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let f = fail.clone();
+    let app = app(quiet().window(move |w| {
+        if f.swap(false, Ordering::SeqCst) {
+            panic!("the first window failed");
+        }
+        w
+    }));
+    assert!(app.tabs().start().is_err());
+    app.tabs().start().unwrap();
+    assert_eq!(titles(&app), [["Home"]]);
+}
+
 #[test]
 fn a_tab_moves_to_a_new_window_of_its_own() {
     let app = app(quiet());

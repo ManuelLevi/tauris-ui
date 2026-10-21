@@ -147,7 +147,9 @@ with sync_playwright() as p:
           css(page, pdf, "color") == PDF_RED and css(page, pdf, "border-top-color") == "color(srgb 0.705882 0.137255 0.164706 / 0.35)",
           (css(page, pdf, "color"), css(page, pdf, "border-top-color")))
     cells = page.evaluate("[...document.querySelector('.tf-file:nth-child(6)').cells || document.querySelector('.tf-file:nth-child(6)').children].map(c => c.textContent)")
-    check("a row: badge, name, size, short date, who", cells[:5] == ["PPT", "Launch plan.pptx", "4.5 MB", "20 Oct", "sophie"], cells)
+    # The demo's file was added a day ago, whatever today is.
+    yesterday = page.evaluate("(() => { const d = new Date(Date.now() - 86400000); return `${d.getDate()} ${d.toLocaleString('en-GB', { month: 'short' })}`; })()")
+    check("a row: badge, name, size, short date, who", cells[:5] == ["PPT", "Launch plan.pptx", "4.5 MB", yesterday, "sophie"], cells)
     sizes = page.evaluate("[...document.querySelectorAll('.tf-c-size.tf-cell')].map(c => c.textContent)")
     check("sizes in KB and MB", sizes == ["22 MB", "86 KB", "402 KB", "12.4 MB", "6 KB", "4.5 MB", "3.2 MB", "145 MB"], sizes)
     check("a date from another year shows the year", page.inner_text(".tf-file:nth-child(8) .tf-c-added") == "4 Nov 25")
@@ -329,10 +331,10 @@ with sync_playwright() as p:
         page.keyboard.press("Control+Backspace")
         page.keyboard.press("Control+Meta+Backspace")
         check("on a Mac, ⌃⌫ and ⌃⌘⌫ are not ⌘⌫: nothing asks", page.is_hidden(".tf-veil") and len(names(page)) == 8)
-    page.keyboard.press("Meta+Backspace")
+    page.keyboard.press("ControlOrMeta+Backspace")  # ⌘⌫ on a Mac, Ctrl+Backspace elsewhere
     page.keyboard.press("Enter")
     check("Enter on the focused Cancel keeps the file", len(names(page)) == 8 and page.is_hidden(".tf-veil"))
-    page.keyboard.press("Meta+Backspace")
+    page.keyboard.press("ControlOrMeta+Backspace")
     page.keyboard.press("Tab")
     page.keyboard.press("Enter")
     page.wait_for_timeout(200)

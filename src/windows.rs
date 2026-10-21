@@ -546,7 +546,7 @@ pub(crate) fn bring_up<R: Runtime>(app: &AppHandle<R>, label: &str) {
 
 // The most recently focused window of tabs.
 pub(crate) fn frontmost<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    inner(app).model().wins.last().map(|w| w.label.clone())
+    inner(app).model().frontmost()
 }
 
 #[derive(Clone, Serialize)]
@@ -671,8 +671,15 @@ pub(crate) fn move_to_new_window<R: Runtime>(app: &AppHandle<R>, tab: u64) -> ta
         // No new window: the tab goes back where it was.
         let back = {
             let mut m = state.model();
-            m.wins.retain(|w| w.label != label);
-            m.put_back(&source, tab, at.0, at.1, at.2)
+            // Anything opened in the new window meanwhile goes back with the tab.
+            let others = m.take_win(&label, tab);
+            let back = m.put_back(&source, tab, at.0, at.1, at.2);
+            if let Some(back) = &back {
+                for other in others {
+                    m.attach(back, other, usize::MAX);
+                }
+            }
+            back
         };
         if let Some(back) = back {
             notify(app, &back);
