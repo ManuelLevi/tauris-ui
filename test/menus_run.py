@@ -378,6 +378,29 @@ with sync_playwright() as p:
           enter_opens == 1 and page.locator(".tmn-menu[aria-label='Share']").count() == 0)
     page.close()
 
+    # ---------- sub-menus: a second review ----------
+    page = fresh(browser)
+    page.evaluate("""() => { demo.bar.setMenus([{ label: 'File', items: [{ label: 'New' },
+      { label: 'Open Recent', items: [{ label: 'Budget.xlsx' }] }, { label: 'Print' }] }]); return 0; }""")
+    page.click(title("File"))
+    page.hover(".tmn-item:has-text('Open Recent')")
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(300)
+    check("a key pressed while a sub-menu is about to open stops it", page.locator(".tmn-menu").count() == 1 and focused(page) == "Print")
+    page.hover(".tmn-item:has-text('Open Recent')")
+    page.wait_for_timeout(300)
+    page.hover(".tmn-item:has-text('New')")
+    box = page.locator(".tmn-menu").first.bounding_box()
+    page.mouse.move(box["x"] - 30, box["y"] + 10, steps=2)
+    page.wait_for_timeout(400)
+    check("a sub-menu about to close still closes when the mouse leaves the menu", page.locator(".tmn-menu").count() == 1)
+    item = page.locator(".tmn-item:has-text('Open Recent')").bounding_box()
+    page.mouse.move(item["x"] + 20, item["y"] + item["height"] / 2)
+    page.mouse.move(box["x"] - 30, item["y"] + item["height"] / 2, steps=2)
+    page.wait_for_timeout(300)
+    check("leaving beside the item but away from the sub-menu's side does not open it", page.locator(".tmn-menu").count() == 1)
+    page.close()
+
     # ---------- onOpen and onClose (for a sound) ----------
     page = fresh(browser)
     page.evaluate("""() => { demo.bar.destroy(); window.ev = [];

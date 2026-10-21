@@ -140,9 +140,8 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
             app.manage(state);
             Ok(())
         })
+        // While this runs, Tauri holds its plugin lock: see windows::after_event.
         .on_event(|app, event| {
-            // While this runs, Tauri holds its plugin lock: see windows::after_event.
-            let _inside = windows::InEvent::enter();
             match event {
                 RunEvent::WindowEvent { label, event, .. } => match event {
                     WindowEvent::Focused(true) => windows::bring_to_front(app, label),
@@ -173,7 +172,12 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
                     _ => {}
                 },
                 // Quitting (⌘Q sends only Exit): save what is open now, not a moment later.
-                RunEvent::ExitRequested { .. } | RunEvent::Exit => persist::save(app, true),
+                RunEvent::ExitRequested { .. } => persist::save(app, true),
+                // The app's hook still hears the last changes (a moment at most).
+                RunEvent::Exit => {
+                    windows::drain(app, std::time::Duration::from_millis(500));
+                    persist::save(app, true);
+                }
                 // The dock icon was clicked with no window open: the remembered ones
                 // come back (only in an app that uses tabs, i.e. called start()).
                 #[cfg(target_os = "macos")]

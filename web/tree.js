@@ -260,17 +260,12 @@
       if (selectedKey !== null && !nodes.has(selectedKey)) selectedKey = null;
       for (const k of [...picked]) if (!nodes.has(k)) picked.delete(k);
       const dropped = selectedKey !== hadKey || picked.size !== hadPicked;
-      if (focusKey !== null && !nodes.has(focusKey)) focusKey = null;
+      if (focusKey !== null && !nodes.has(focusKey)) focusKey = selectedKey;
       // The rows may be in a new order: draw them all again.
       for (const node of pool.values()) node.remove();
       pool.clear();
       measure();
       const moved = rebuild();
-      // The row with the focus is gone but others are still selected: one of them takes it.
-      if (selectedKey === null && picked.size) {
-        selectedKey = rows.find(r => picked.has(r.key))?.key ?? null;
-        render();
-      }
       if (dropped && !moved) emitSelect();
       if (hadFocus) focusRow();
       requestAnimationFrame(checkHeight);
@@ -401,6 +396,11 @@
       if (selectedKey !== null && !index.has(selectedKey)) {
         selectedKey = visibleAncestor(selectedKey);
         if (selectedKey !== null) picked.add(selectedKey);
+        moved = true;
+      }
+      // The row with the focus is gone but others are still selected: the first of them takes it.
+      if (selectedKey === null && picked.size) {
+        selectedKey = rows.find(r => picked.has(r.key))?.key ?? null;
         moved = true;
       }
       if (focusKey === null || !index.has(focusKey)) {

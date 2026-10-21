@@ -24,6 +24,8 @@ pub(crate) struct Inner<R: Runtime> {
     model: Mutex<Model>,
     save: Mutex<()>,
     after: Mutex<Option<Sender<Job<R>>>>,
+    // Jobs sent to the worker and not finished yet.
+    pending: std::sync::atomic::AtomicUsize,
     pub config: Config<R>,
     pub started: AtomicBool,
 }
@@ -34,6 +36,7 @@ impl<R: Runtime> Inner<R> {
             model: Mutex::new(Model::new(&config.window_prefix)),
             save: Mutex::new(()),
             after: Mutex::new(None),
+            pending: std::sync::atomic::AtomicUsize::new(0),
             config,
             started: AtomicBool::new(false),
         }
@@ -97,37 +100,23 @@ pub(crate) fn all_windows<R: Runtime>(app: &AppHandle<R>) -> Vec<WindowTabs> {
 thread_local! {
     // Set while the app's change hook runs, so changes it makes do not call it again.
     static IN_HOOK: Cell<bool> = const { Cell::new(false) };
-    // True while the plugin's on_event runs on this thread.
-    static IN_EVENT: Cell<bool> = const { Cell::new(false) };
+
 }
 
-// Marks the plugin's on_event as running on this thread, until dropped.
-pub(crate) struct InEvent(bool);
-
-impl InEvent {
-    pub(crate) fn enter() -> Self {
-        InEvent(IN_EVENT.with(|e| e.replace(true)))
-    }
-}
-
-impl Drop for InEvent {
-    fn drop(&mut self) {
-        let was = self.0;
-        IN_EVENT.with(|e| e.set(was));
-    }
-}
-
-// Tauri calls a plugin's on_event while it holds its plugin lock, and
-// opening a window takes that same lock, so a window opened inside the
-// handler waits forever (the Dock click and ⌘N froze the app).
+// Tauri calls a plugin's on_event, and its plain (not async) commands, while
+// it holds its plugin lock, and opening a window takes that same lock, so a
+// window opened there waits forever (the Dock click and ⌘N froze the app).
 // run_on_main_thread is no way out: on the main thread it runs at once. The
 // work goes to one worker thread instead, which runs it as soon as the
 // handler has returned, one job after the other (a second ⌘T adds a tab to
 // the window the first one opened). A job that panics is caught, so the
 // worker keeps going; a worker that is gone is replaced.
 pub(crate) fn after_event<R: Runtime>(app: &AppHandle<R>, job: impl FnOnce(&AppHandle<R>) + Send + 'static) {
-    let mut worker = inner(app).after_events();
+    use std::sync::atomic::Ordering;
+    let state = inner(app);
+    let mut worker = state.after_events();
     let mut job: Job<R> = Box::new(job);
+    state.pending.fetch_add(1, Ordering::SeqCst);
     for _ in 0..2 {
         if worker.is_none() {
             let (tx, rx) = std::sync::mpsc::channel::<Job<R>>();
@@ -135,30 +124,47 @@ pub(crate) fn after_event<R: Runtime>(app: &AppHandle<R>, job: impl FnOnce(&AppH
             std::thread::spawn(move || {
                 for job in rx {
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&app)));
+                    inner(&app).pending.fetch_sub(1, Ordering::SeqCst);
                 }
             });
             *worker = Some(tx);
         }
         match worker.as_ref().map(|tx| tx.send(job)) {
-            Some(Ok(())) | None => return,
+            Some(Ok(())) => return,
+            None => break,
             Some(Err(std::sync::mpsc::SendError(back))) => {
                 job = back;
                 *worker = None;
             }
         }
     }
+    state.pending.fetch_sub(1, Ordering::SeqCst);
 }
 
-// Tells the app (its on_change hook) that window `label` changed. Inside the
-// plugin's on_event the hook runs a moment later, on the worker: a hook may
-// open a window (see after_event).
+// Waits, at most `limit`, for the worker to finish what it was given: the app
+// is quitting, and its hook should still hear the last changes.
+pub(crate) fn drain<R: Runtime>(app: &AppHandle<R>, limit: std::time::Duration) {
+    let until = std::time::Instant::now() + limit;
+    while inner(app).pending.load(std::sync::atomic::Ordering::SeqCst) > 0 && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+// Tells the app (its on_change hook) that window `label` changed. The hook
+// runs a moment later, on the worker, in order: a change can come from inside
+// the plugin's on_event or a page's command, where a hook that opened a window
+// would freeze the app (see after_event). Changes the hook itself makes do not
+// call it again.
 pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    let Some(hook) = &inner(app).config.on_change else { return };
-    if IN_EVENT.with(|e| e.get()) {
-        let label = label.to_string();
-        after_event(app, move |app| changed(app, &label));
+    if inner(app).config.on_change.is_none() || IN_HOOK.with(|h| h.get()) {
         return;
     }
+    let label = label.to_string();
+    after_event(app, move |app| run_hook(app, &label));
+}
+
+fn run_hook<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    let Some(hook) = &inner(app).config.on_change else { return };
     if IN_HOOK.with(|h| h.replace(true)) {
         return;
     }
@@ -247,9 +253,17 @@ pub(crate) fn create_window<R: Runtime>(
         let ids: Vec<u64> = tabs.into_iter().map(|t| m.create_tab(t)).collect();
         (m.create_win(ids.clone()), ids)
     };
-    if let Err(e) = open_window(app, &label, frame, focused) {
-        state.model().remove_win(&label);
-        return Err(e);
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| open_window(app, &label, frame, focused))) {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => {
+            state.model().remove_win(&label);
+            return Err(e);
+        }
+        // The app's window hook panicked: no window, so no record of one.
+        Err(panic) => {
+            state.model().remove_win(&label);
+            std::panic::resume_unwind(panic);
+        }
     }
     changed(app, &label);
     Ok((label, ids))

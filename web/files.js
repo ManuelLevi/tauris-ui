@@ -119,7 +119,8 @@
     // component only) or "none"
     dropArea: "window",
     // ask before onDelete: true (the component asks), false (the app asks), or
-    // a function (file, files) => the question (files: all of them, when several go at once)
+    // a function (file) => the question. Several files at once are asked about
+    // with labels.confirmDeleteMany.
     confirmDelete: true,
     // how a date shows in the Added column; the default is short ("21 Oct")
     formatDate: null,
@@ -530,7 +531,6 @@
         for (const k of lost) sel.delete(k);
         if (lostFocus) selId = null;
         if (anchor != null && !have.has(anchor)) anchor = selId;
-        if (typeof opt.onSelect === "function") opt.onSelect(selId == null ? null : fileById(selId), list.filter(f => sel.has(keyOf(f.id))));
       }
       drawHead();
       shown = visible();
@@ -553,12 +553,10 @@
       // The file with the focus hidden by a search: the focus goes to a selected file that is shown.
       if (selId != null && !rows.has(selId)) {
         const visible = shown.find(f => sel.has(keyOf(f.id)));
-        if (visible) {
-          selId = keyOf(visible.id);
-          if (typeof opt.onSelect === "function") opt.onSelect(current(), selection());
-        }
+        if (visible) selId = keyOf(visible.id);
       }
       paintSelection(false);
+      report();
     }
 
     function current() {
@@ -588,12 +586,23 @@
     // The selection becomes these keys, with the focus on `focus`.
     function setSelection(keys, focus, scroll = true) {
       if (signal.aborted) return;
-      const next = new Set(keys);
-      const changed = focus !== selId || next.size !== sel.size || [...next].some(k => !sel.has(k));
-      sel = next;
+      sel = new Set(keys);
       selId = focus;
       paintSelection(scroll);
-      if (changed && typeof opt.onSelect === "function") opt.onSelect(current(), selection());
+      report();
+    }
+
+    // onSelect hears what the person can act on (the file with the focus and the
+    // selected files shown) each time that changes, whatever changed it.
+    let reported = "|";
+    function report() {
+      if (signal.aborted || typeof opt.onSelect !== "function") return;
+      const file = current();
+      const files = selection();
+      const now = `${file ? keyOf(file.id) : ""}|${files.map(f => keyOf(f.id)).join("\u0000")}`;
+      if (now === reported) return;
+      reported = now;
+      opt.onSelect(file, files);
     }
 
     // One file alone (null: none).
@@ -743,7 +752,7 @@
       const key = keyOf(file.id);
       if (deleting.has(key)) return;
       const question = opt.confirmDelete === false ? null
-        : typeof opt.confirmDelete === "function" ? opt.confirmDelete(file, [file]) : say(L().confirmDelete, file);
+        : typeof opt.confirmDelete === "function" ? opt.confirmDelete(file) : say(L().confirmDelete, file);
       if (question && !(await ask(String(question)))) return;
       if (deleting.has(key) || signal.aborted) return;
       // The next row takes the selection, as in a file manager.
@@ -770,7 +779,6 @@
         selId = anchor = k;
         draw();
         paintSelection(true);
-        if (typeof opt.onSelect === "function") opt.onSelect(current(), selection());
       } else {
         draw();
       }
@@ -784,11 +792,10 @@
       files = files.filter(f => !deleting.has(keyOf(f.id)));
       if (files.length < 2) return remove(files[0]);
       if (typeof opt.onDelete !== "function") return;
-      const question = opt.confirmDelete === false ? null
-        // An app's own question names the files only if it takes them (file, files); one written
-        // for a single file would name one while several go, so the library's question is used.
-        : typeof opt.confirmDelete === "function" && opt.confirmDelete.length >= 2 ? opt.confirmDelete(files[0], files)
-          : say(L().confirmDeleteMany, files);
+      // Several files are asked about with labels.confirmDeleteMany, never with the
+      // app's confirmDelete function: one written for a single file would name one
+      // while several go.
+      const question = opt.confirmDelete === false ? null : say(L().confirmDeleteMany, files);
       if (question && !(await ask(String(question)))) return;
       if (signal.aborted) return;
       const before = shown.slice();
@@ -822,7 +829,6 @@
       selId = anchor = k;
       draw();
       paintSelection(true);
-      if (typeof opt.onSelect === "function") opt.onSelect(current(), selection());
       if (!failed) message(say(L().deletedMany, files.filter(f => gone.has(keyOf(f.id)))), "ok");
       if (!root.contains(document.activeElement) || document.activeElement === document.body) focusList();
     }
@@ -1068,9 +1074,10 @@
         else select(k);
       };
       const all = (MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
-      if (all && several()) {
+      if (all) {
+        // Inside the list ⌘A is never the page's own Select All.
         e.preventDefault();
-        setSelection(shown.map(f => keyOf(f.id)), focusAmongShown(), false);
+        if (several()) setSelection(shown.map(f => keyOf(f.id)), focusAmongShown(), false);
       } else if (e.key === "ArrowDown") to(i < 0 ? 0 : i + 1);
       else if (e.key === "ArrowUp") to(i < 0 ? shown.length - 1 : i - 1);
       else if (e.key === "Home") to(0);

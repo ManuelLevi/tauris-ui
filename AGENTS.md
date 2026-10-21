@@ -51,7 +51,7 @@ Do all of these, every time:
    - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`
    - window behaviour in `src/runtime_tests.rs` (real windows on Tauri's test runtime)
    - pure logic next to it (`#[cfg(test)]`)
-6. **Never open a window inside the plugin's `on_event`** (`src/lib.rs`), nor run app code there: Tauri holds its plugin lock and opening a window takes it, so the app freezes. Send the work through `after_event(app, |app| ...)` (the app's `on_change` hook already goes there during events). The test `the_event_handler_opens_no_window_itself` checks the source; `test/freeze_check` checks a real app (see below).
+6. **Never open a window inside the plugin's `on_event`** (`src/lib.rs`), nor run app code there: Tauri holds its plugin lock and opening a window takes it, so the app freezes. Send the work through `after_event(app, |app| ...)`. The same holds for plain (not async) page commands; the app's `on_change` hook always runs on the worker. The test `the_event_handler_opens_no_window_itself` checks the source; `test/freeze_check` checks a real app (see below).
 7. **A new page command needs four matching edits:**
    - the function in `src/commands.rs`
    - `generate_handler!` in `src/lib.rs`
@@ -107,8 +107,8 @@ Do all of these, every time:
 A window opened from the plugin's event handler freezes only the real event
 loop. `test/freeze_check` checks it in a real app: CI runs it on macOS at every
 push. After changing `on_event` in `src/lib.rs`, also run it here:
-`cd test/freeze_check && cargo run`. It must end with "OK" twice. A small
-window opens and closes on the screen while it runs.
+`cd test/freeze_check && cargo run`. It must end with "OK" four times. A
+small window opens and closes on the screen while it runs.
 
 Dragging a tab out of a window, and between windows, follows the real mouse.
 No test can drive that. After changing `src/drag.rs` or the drag code in

@@ -550,6 +550,19 @@ with sync_playwright() as p:
         check("on a Mac, Control-click (a right click) changes nothing", page.evaluate("st.selection().map(n => n.id)") == ["b49", "anna"])
     page.close()
 
+    # ---------- a second review ----------
+    page = fresh(browser)
+    page.evaluate("(" + SORT_TREE + ")({ multiple: true })")
+    page.evaluate("sortHost.id = 'sortHost'; window.selEv = []; st.on('select', e => selEv.push([e.node && e.node.id, e.nodes.map(n => n.id)])); 0")
+    page.evaluate("st.select(['b49', 'zoe', 'b169']); st.focus()")
+    page.evaluate("selEv.length = 0; const d = sortData(); d[0].children = d[0].children.filter(c => c.id !== 'b49'); st.setData(d)")
+    check("setData without the focused row: the focus and the selection move to the same row, said once",
+          page.evaluate("st.selected().id") == active_key(page) == "b169" and page.evaluate("selEv") == [["b169", ["b169", "zoe"]]],
+          (page.evaluate("st.selected().id"), active_key(page), page.evaluate("selEv")))
+    page.keyboard.press("ArrowDown")
+    check("and Down goes on from there", page.evaluate("st.selected().id") == "anna")
+    page.close()
+
     # ---------- one look for every component ----------
     page = fresh(browser)
     page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")

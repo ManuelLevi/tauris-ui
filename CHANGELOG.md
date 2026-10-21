@@ -8,6 +8,18 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.10 — 2026-10-21
+
+Fixes from a second review:
+- Fixed: an `on_change` hook that opened a window froze the app when the change came from a page (the + button, closing a tab): Tauri holds its plugin lock during plain page commands too. The hook now always runs a moment after the change, on the worker, in order; a quitting app waits for it (half a second at most) so it hears the last changes.
+- A window whose opening panicked (the app's window hook) no longer stays in the layout, where later tabs would go unseen.
+- Tree: after `setData` drops the focused row, the focus and the selection move to the same row, and `select` is fired once.
+- Files: `onSelect` hears every change of what can be acted on, including "nothing" when a search hides every selected file. Several files at once are asked about with `labels.confirmDeleteMany` (translate it there); the `confirmDelete` function is only for one file. ⌘A in the list never selects the page's text.
+- Sub-menus: a key pressed while one is about to open stops it; leaving the menu drops only a sub-menu about to open (towards its side, it still opens), and one about to close still closes.
+- README: the dark colours for an app that follows the system, and which keys need `multiple: true`.
+
+**Upgrade** (TypeScript apps only): copy `web/files.d.ts` over the app's copy. An app whose `on_change` hook relied on running at once now gets it a moment later.
+
 ## 0.4.9 — 2026-10-21
 
 Fixes from a review of 0.4.7 and 0.4.8:

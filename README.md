@@ -32,6 +32,9 @@ Set a few `--tauris-*` colours once, and the tabs, the tree, the files table and
   --tauris-sel-fg: #ffffff;
   --tauris-focus: rgb(38 117 191 / 0.32); /* focus rings */
 }
+@media (prefers-color-scheme: dark) {     /* an app that follows the system: the dark ones */
+  :root { --tauris-bg: #2f3234; --tauris-chrome: #34373a; --tauris-fg: #dfe1e5; /* ... */ }
+}
 ```
 
 Set them on `:root` (on another element they do not reach the components). Which component follows which:
@@ -582,7 +585,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 | `header`, `search` | `true` | The header row, and its search field (shown once there are files) |
 | `multiple` | `false` | ⌘-click (Ctrl-click) and Shift-click select several files. Turn it on when the app's own actions (a File › Delete) use `selection()` |
 | `dropArea` | `"window"` | Where a drop adds files: `"window"`, `"element"` (over the component only: use it when two are shown at once) or `"none"` |
-| `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function: its own question. For several files at once it gets `(file, files)` only if it takes two parameters; otherwise the component asks "Delete 3 files?" itself |
+| `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function `(file) => question`: its own question for one file. Several files at once are asked about with `labels.confirmDeleteMany` (`files => "Delete 3 files?"`) |
 | `formatDate` | short | `(date, file) => text` for the Added column |
 | `pick` | the system's | `(title) => Promise<paths>` behind Add files… |
 | `labels` | English | Any word or sentence it shows (`web/files.d.ts` lists them), e.g. `{ add: "Ajouter…", dropHint: "Up to 50 MB per file" }` |
@@ -597,7 +600,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 
 **Methods:** `setFiles(files)`, `update(options)`, `select(id)` (an array selects several), `selected()`, `selection()`, `selectAll()`, `add()` (as Add files…, for a File menu), `addPaths(paths)`, `open(id)`, `rename(id)`, `remove(id)`, `search(text)`, `dragDrop(event)` (to feed drag-and-drop events yourself), `busy(text)`, `message(text, kind)`, `focus()`, `focusSearch()`, `destroy()`. Helpers: `TaurisFiles.kindOf(file)`, `TaurisFiles.formatSize(bytes)`.
 
-**Keyboard:** Up, Down, Home, End, PageUp and PageDown move, with Shift to select along the way; ⌘A selects every file; a letter jumps to the next name starting with it; Enter opens; F2 renames (Enter saves, Escape cancels); Delete or ⌘⌫ deletes after the question; Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
+**Keyboard:** Up, Down, Home, End, PageUp and PageDown move (with `multiple: true`, Shift selects along the way and ⌘A selects every file); a letter jumps to the next name starting with it; Enter opens; F2 renames (Enter saves, Escape cancels); Delete or ⌘⌫ deletes after the question; Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
 
 Types are in `web/files.d.ts`: copy it into a TypeScript app.
 
@@ -717,10 +720,10 @@ Types are in `web/terminal.d.ts`: copy it into a TypeScript app.
 ```
 cargo fmt --check && cargo clippy --all-targets && cargo test   # the model, the windows on Tauri's test runtime, saving, the command lists
 python test/run.py [shots-dir]             # the tabs page side: 105 checks in headless Chrome, nothing on screen
-python test/tree_run.py [shots-dir]        # the tree view: 134 checks, including the pixels of its lines and boxes
+python test/tree_run.py [shots-dir]        # the tree view: 136 checks, including the pixels of its lines and boxes
 python test/terminal_run.py [shots-dir]    # the terminal: 95 checks, including its gaps and bars by pixel
-python test/files_run.py [shots-dir]       # the files component: 138 checks, with drops and the picker stood in for
-python test/menus_run.py [shots-dir]       # the menus: 88 checks, mouse and keyboard
+python test/files_run.py [shots-dir]       # the files component: 140 checks, with drops and the picker stood in for
+python test/menus_run.py [shots-dir]       # the menus: 91 checks, mouse and keyboard
 cargo clippy --all-targets --features files && cargo test --features files   # the Rust side of the files component
 cd examples/basic/src-tauri && cargo build
 ```
@@ -732,7 +735,7 @@ cd examples/basic/src-tauri && cargo build
 - The page tests run in Chrome. Tauri on macOS uses WebKit; the tabs suite has also been run in WebKit.
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
 - The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
-- A window opened from the plugin's event handler (the Dock click, ⌘N, or an `on_change` hook while a window closes) freezes only the real event loop. `test/freeze_check` does all three in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. Inside those events the `on_change` hook runs a moment later, on a worker thread.
+- A window opened from the plugin's event handler (the Dock click, ⌘N, or an `on_change` hook while a window closes) freezes only the real event loop. `test/freeze_check` does all three in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. The `on_change` hook runs a moment after each change, on a worker thread, so it may open windows; a quitting app waits for it (half a second at most).
 - A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing

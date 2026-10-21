@@ -127,8 +127,9 @@ impl<R: Runtime> Config<R> {
 
     /// Called with a window's label after anything about its tabs changes:
     /// opened, closed, moved, activated, or a title or field updated (from
-    /// Rust or from the page). It runs with no lock held and may use
-    /// `app.tabs()`; changes it makes do not call it again.
+    /// Rust or from the page). It runs a moment after the change, on a worker
+    /// thread, one call after the other, with no lock held: it may use
+    /// `app.tabs()` and open windows. Changes it makes do not call it again.
     pub fn on_change(mut self, hook: impl Fn(&AppHandle<R>, &str) + Send + Sync + 'static) -> Self {
         self.on_change = Some(Arc::new(hook));
         self

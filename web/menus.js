@@ -243,6 +243,8 @@
         // Moving with the keys leaves a sub-menu opened by the mouse behind: it closes.
         const to = n => {
           e.preventDefault();
+          clearTimeout(lv.timer);
+          lv.opening = null;
           if (lv.child) closeSub(lv);
           if (list.length) go(lv, list[(n + list.length) % list.length]);
         };
@@ -287,6 +289,8 @@
           const order = list.slice(from).concat(list.slice(0, from));
           const hit = order.find(node => text(node).startsWith(typed));
           if (hit) {
+            clearTimeout(lv.timer);
+            lv.opening = null;
             if (lv.child && lv.child.row !== hit) closeSub(lv);
             go(lv, hit);
           }
@@ -321,12 +325,23 @@
       menu.addEventListener("pointerenter", () => {
         if (parent) clearTimeout(parent.timer);
       }, { signal });
-      // Leaving the menu drops what was about to happen, except a sub-menu about
-      // to open when the mouse leaves beside its item, on its way there.
+      // Leaving the menu drops a sub-menu about to open, unless the mouse leaves
+      // beside its item, on the side where it opens. A sub-menu about to close
+      // still closes.
       menu.addEventListener("pointerleave", e => {
         lv.hover = null;
-        const r = lv.opening?.getBoundingClientRect();
-        if (!r || e.clientY < r.top - 4 || e.clientY > r.bottom + 4) clearTimeout(lv.timer);
+        if (lv.opening) {
+          const item = lv.opening.getBoundingClientRect();
+          const box = menu.getBoundingClientRect();
+          const vw = document.documentElement.clientWidth || window.innerWidth;
+          const opensLeft = box.right + box.width > vw - 4;
+          const beside = e.clientY >= item.top - 4 && e.clientY <= item.bottom + 4;
+          const towards = opensLeft ? e.clientX <= box.left + 2 : e.clientX >= box.right - 2;
+          if (!(beside && towards)) {
+            clearTimeout(lv.timer);
+            lv.opening = null;
+          }
+        }
         if (!lv.child) menu.focus({ preventScroll: true });
       }, { signal });
       menu.addEventListener("click", e => {

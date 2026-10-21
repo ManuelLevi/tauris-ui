@@ -391,9 +391,9 @@ with sync_playwright() as p:
     check("an app's own question written for one file never stands for several: the library asks about all of them",
           page.inner_text(".tf-ask-text") == "Delete 3 files? This cannot be undone.")
     page.keyboard.press("Escape")
-    page.evaluate("demo.files.update({ confirmDelete: (f, files) => `Remove ${files.length} from the project?` })")
+    page.evaluate("demo.files.update({ labels: { confirmDeleteMany: files => `Remove ${files.length} from the project?` } })")
     page.keyboard.press("Delete")
-    check("an app's question that takes (file, files) is asked about all of them", page.inner_text(".tf-ask-text") == "Remove 3 from the project?")
+    check("for several files the app words its question with labels.confirmDeleteMany", page.inner_text(".tf-ask-text") == "Remove 3 from the project?")
     page.keyboard.press("Escape")
     page.evaluate("demo.files.update({ confirmDelete: true })")
     page.click(".tf-file:nth-child(3) .tf-c-name", modifiers=["ControlOrMeta"])
@@ -417,6 +417,19 @@ with sync_playwright() as p:
     page.fill(".tf-q", "")
     page.evaluate("demo.files.select([1, 2, 3]); demo.files.update({ multiple: false })")
     check("turning multiple off keeps the file with the focus only", len(sel_names()) == 1)
+    page.close()
+
+    # ---------- a second review ----------
+    page = fresh(browser)
+    page.evaluate("window.picks = []; demo.files.update({ onSelect: (f, all) => picks.push([f ? f.name : null, all.map(x => x.name)]) })")
+    page.click(".tf-file:nth-child(4) .tf-c-name")
+    page.fill(".tf-q", "pdf")
+    check("a search that hides every selected file tells the app: nothing to act on", page.evaluate("picks.at(-1)") == [None, []], page.evaluate("picks"))
+    page.fill(".tf-q", "")
+    page.evaluate("demo.files.update({ multiple: false })")
+    page.focus(".tf-list")
+    page.keyboard.press("ControlOrMeta+a")
+    check("⌘A in the list never selects the page's text", page.evaluate("String(window.getSelection())") == "")
     page.close()
 
     # ---------- the row's buttons, double-click, the row menu ----------

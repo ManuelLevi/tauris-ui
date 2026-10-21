@@ -101,12 +101,15 @@ fn on_change_fires_and_does_not_call_itself_again() {
     });
     let app = app(config);
     app.tabs().start().unwrap();
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
     let before = calls.load(Ordering::SeqCst);
     app.tabs().open(NewTab::new("X")).unwrap();
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
     assert_eq!(calls.load(Ordering::SeqCst), before + 1);
     // Page-side changes reach the hook too.
     let id = app.tabs().windows()[0].tabs[0].id;
     windows::update(app.handle(), id, "renamed".into(), Fields::new(), false);
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
     assert_eq!(calls.load(Ordering::SeqCst), before + 2);
 }
 
@@ -250,8 +253,10 @@ fn on_change_hears_about_a_window_closing() {
     let app = app(quiet().on_change(move |_, label| log.lock().unwrap().push(label.to_string())));
     app.tabs().start().unwrap();
     let second = app.tabs().new_window().unwrap();
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
     heard.lock().unwrap().clear();
     windows::forget_window(app.handle(), &second);
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
     assert_eq!(*heard.lock().unwrap(), vec![second]);
 }
 
@@ -280,10 +285,11 @@ fn a_panicking_hook_is_called_again_next_time() {
             panic!("the app's hook failed once");
         }
     }));
+    // The hook runs on the worker: the panic is caught there, and the next change still reaches it.
     let handle = app.handle().clone();
-    let first = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| windows::changed(&handle, "x")));
-    assert!(first.is_err());
     windows::changed(&handle, "x");
+    windows::changed(&handle, "x");
+    windows::drain(&handle, std::time::Duration::from_secs(2));
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
@@ -410,25 +416,66 @@ fn eventually(what: &str, ok: impl Fn() -> bool) {
     panic!("{what} did not happen within 2s");
 }
 
-// Inside the plugin's on_event the app's hook runs on the worker, a moment
-// later: a hook that opens a window there would freeze the app.
+// The app's hook never runs where the change happened: that can be inside the
+// plugin's on_event or a page's command, where Tauri holds its plugin lock and
+// a hook that opened a window would freeze the app. It runs on the worker, in order.
 #[test]
-fn inside_an_event_the_hook_runs_after_it() {
-    let calls = Arc::new(AtomicUsize::new(0));
+fn the_hook_runs_after_the_change_in_order() {
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = calls.clone();
-    let app = app(quiet().on_change(move |_, _| {
-        seen.fetch_add(1, Ordering::SeqCst);
+    let app = app(quiet().on_change(move |_, label| {
+        seen.lock().unwrap().push(label.to_string());
     }));
     app.tabs().start().unwrap();
-    let before = calls.load(Ordering::SeqCst);
-    {
-        let _inside = windows::InEvent::enter();
-        windows::changed(app.handle(), "tabs-1");
-        assert_eq!(calls.load(Ordering::SeqCst), before, "the hook ran inside the event");
-    }
-    eventually("the hook after the event", || calls.load(Ordering::SeqCst) == before + 1);
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
+    calls.lock().unwrap().clear();
+    // Hold the hook back, as a page's command would be holding Tauri's lock.
+    let gate = Arc::new(std::sync::Mutex::new(()));
+    let held = gate.lock().unwrap();
+    let g = gate.clone();
+    windows::after_event(app.handle(), move |_| drop(g.lock()));
     windows::changed(app.handle(), "tabs-1");
-    assert_eq!(calls.load(Ordering::SeqCst), before + 2, "outside an event the hook runs at once");
+    windows::changed(app.handle(), "tabs-2");
+    assert!(calls.lock().unwrap().is_empty(), "the hook ran where the change happened");
+    drop(held);
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
+    assert_eq!(*calls.lock().unwrap(), ["tabs-1", "tabs-2"]);
+}
+
+// Quitting waits (a moment at most) for the hook to hear the last changes.
+#[test]
+fn quitting_waits_for_the_last_hook_calls() {
+    let app = app(quiet());
+    let done = Arc::new(AtomicUsize::new(0));
+    let d = done.clone();
+    windows::after_event(app.handle(), move |_| {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        d.fetch_add(1, Ordering::SeqCst);
+    });
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
+    assert_eq!(done.load(Ordering::SeqCst), 1);
+}
+
+// A window whose opening panicked (the app's window hook) leaves no record
+// behind, so later tabs do not go into a window nobody sees.
+#[test]
+fn a_window_that_failed_to_open_leaves_no_record() {
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let f = fail.clone();
+    let app = app(quiet().window(move |w| {
+        if f.load(Ordering::SeqCst) {
+            panic!("the app's window hook failed");
+        }
+        w
+    }));
+    app.tabs().start().unwrap();
+    fail.store(true, Ordering::SeqCst);
+    windows::after_event(app.handle(), |app| {
+        let _ = app.tabs().new_window();
+    });
+    windows::drain(app.handle(), std::time::Duration::from_secs(2));
+    assert_eq!(app.tabs().window_count(), 1);
+    assert_eq!(app.tabs().windows().len(), 1);
 }
 
 // A job that panics does not stop the ones after it (⌘N, ⌘T, the Dock click).
