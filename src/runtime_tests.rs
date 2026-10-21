@@ -307,6 +307,7 @@ fn restored_windows_reach_on_change() {
         count.fetch_add(1, Ordering::SeqCst);
     }));
     second.tabs().start().unwrap();
+    windows::drain(second.handle(), std::time::Duration::from_secs(2));
     assert_eq!(heard.load(Ordering::SeqCst), 1);
 }
 
