@@ -592,6 +592,18 @@ with sync_playwright() as p:
     check("high-contrast mode keeps the boxes and the selection drawn", adjust == ["none", "none"], adjust)
     page.close()
 
+    # --- the terminal as the plugin delivers it: no stylesheet until it is used ---
+    term_js = (WEB / "terminal.js").read_text().replace('"__TAURIS_TERMINAL_CSS__"', json.dumps((WEB / "terminal.css").read_text()))
+    page = browser.new_page(viewport={"width": 600, "height": 300})
+    page.on("pageerror", lambda e: failures.append(f"page error: {e}"))
+    page.add_init_script(term_js)
+    page.goto((HERE / "page.html").as_uri())
+    check("no terminal stylesheet is added until the terminal is used", page.evaluate("document.adoptedStyleSheets.length") == 0)
+    page.evaluate("const d = document.createElement('div'); d.innerHTML = '<div class=\"tm-band\">SIGN ON</div>'; document.body.append(d); TaurisTerminal.mount(d)")
+    band = page.evaluate("getComputedStyle(document.querySelector('.tm-band')).fontFamily")
+    check("using the terminal adds its stylesheet", page.evaluate("document.adoptedStyleSheets.length") == 1 and "Mono" in band, band)
+    page.close()
+
     browser.close()
 
 print()

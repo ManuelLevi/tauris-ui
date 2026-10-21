@@ -1,7 +1,8 @@
 # For agents: using and changing tauris-ui
 
 This folder is the one set of UI components for every Tauri app that uses it:
-tabs (`TaurisTabs`) and a tree view / configuration editor (`TaurisTree`). An
+tabs (`TaurisTabs`), a tree view / configuration editor (`TaurisTree`) and an
+optional terminal look (`TaurisTerminal`). An
 app never has its own tab or tree code: it uses this library, and a fix made
 here reaches every app at its next build. Below, `<library>` means the folder
 this file is in.
@@ -61,6 +62,7 @@ Do all of these, every time:
    cargo fmt --check && cargo clippy --all-targets && cargo test   # must print no warnings
    python test/run.py                         # headless; nothing touches the screen
    python test/tree_run.py
+   python test/terminal_run.py
    (cd examples/basic/src-tauri && cargo build)
    python scripts/doctor.py examples/basic
    ```
@@ -86,7 +88,8 @@ Do all of these, every time:
 | `web/tabs.d.ts` | Types for the tabs' page side |
 | `web/tree.js`, `web/tree.css`, `web/tree.d.ts` | The tree view: script, look (`--tv-*` variables), types |
 | `docs/tree-view.md` | The design brief every tree view is built to |
-| `test/` | Headless tests: tabs (`run.py`, with a stand-in for Rust), tree (`tree_run.py`, `tree_demo.html`) |
+| `web/terminal.js`, `web/terminal.css`, `web/terminal.d.ts` | The terminal look: helpers, classes (`--tm-*` variables), types |
+| `test/` | Headless tests: tabs (`run.py`, with a stand-in for Rust), tree (`tree_run.py`, `tree_demo.html`), terminal (`terminal_run.py`, `terminal_demo.html`) |
 | `examples/basic/` | The smallest complete app |
 | `scripts/doctor.py` | Checks an app's setup and version requirement |
 

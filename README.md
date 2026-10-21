@@ -6,6 +6,7 @@ UI components for Tauri 2 desktop apps. One library for every app.
 |---|---|---|
 | [Tabs](#tabs) | `TaurisTabs.mount(strip)` | Browser-style tabs that can leave their window and come back, remembered between runs |
 | [Tree view](#tree-view) | `TaurisTree.mount(element, { data })` | A dense tree and configuration editor: compact rows, dotted guide lines, aligned columns, in-place editing |
+| [Terminal](#terminal) | `TaurisTerminal.mount(element)` | An optional Bloomberg-style look: amber on black, monospace, dense tables, function keys, a command line and a message log |
 
 The plugin delivers every component's script and stylesheet to every page. A component's stylesheet is added only when a page mounts it, so a component you don't use changes nothing.
 
@@ -392,12 +393,75 @@ Types are in `web/tree.d.ts`: copy it into a TypeScript app. `mount<{ ...your va
 
 **The look:** every size and colour is a `--tv-*` variable at the top of `web/tree.css`, with the same layer rules as the tabs (set them outside every `@layer` block). The default row height of 18 px keeps the dotted lines exact. With an odd row height, a dot can stop a pixel short of a box.
 
+## Terminal
+
+An optional look for an app or a part of one: amber on black, IBM Plex Mono at 12/18 px, square corners, 1 px gaps between panes. It changes nothing outside the element you mark as a terminal (`.tm`), and its stylesheet is added only when a page uses it. Like the tree, it lives in the page: the plugin delivers it, and it needs no capability.
+
+Most of it is CSS classes on your own markup. Every class is listed at the top of `web/terminal.css`; every colour and size is a `--tm-*` variable. Open `test/terminal_demo.html` in a browser to see every part.
+
+| Part | Markup | Behaviour from `TaurisTerminal` |
+|---|---|---|
+| The screen | `.tm-screen`, panes in `.tm-panes` > `.tm-pane` | `mount(el)` marks the root and keeps every `[data-tm-clock]` and `[data-tm-date]` inside it current |
+| Command line | an empty element | `commandLine(el, { prompt, onSubmit })`: prompt, block cursor, clock. Enter sends, Escape clears, Up and Down step through history |
+| Title band | `.tm-band` on a pane | `pane(el)` returns `ok()`, `error()` and `reset()`, turning the band green, red or amber |
+| Form | `.tm-form` > `.tm-form-line` with `.tm-label` and `input.tm-field`; `input.tm-check` draws `[X]` / `[ ]` | |
+| Function keys | `.tm-key` (`.tm-go`, `.tm-cancel`, `.tm-yellow`), as `role="button"` | Enter and Space press a focused key. `aria-keyshortcuts="F8"` makes F8 press it from anywhere, and `aria-disabled="true"` turns it off |
+| Table | `table.tm-table`, `.tm-num` for numbers, `meter.tm-bar` for a segmented bar | |
+| Message log | an empty list | `log(el)` returns `add(text, "ok" \| "warn" \| "error")` and `clear()`, with timestamps, a flash on new rows and auto-scroll. It is `role="log"`, and text is added as text only |
+| Legend | `.tm-legend` along the bottom | |
+| Text colours | `.tm-ok`, `.tm-warn`, `.tm-error`, `.tm-off`, `.tm-value`, `.tm-dim` | |
+
+```tsx
+import { useEffect, useRef } from "react";
+
+export default function Desk() {
+  const root = useRef<HTMLDivElement>(null);
+  const line = useRef<HTMLDivElement>(null);
+  const messages = useRef<HTMLOListElement>(null);
+  const pane = useRef<HTMLElement>(null);
+  const log = useRef<TaurisTerminalLog>();
+
+  useEffect(() => {
+    const term = TaurisTerminal.mount(root.current!);
+    log.current = TaurisTerminal.log(messages.current!);
+    const band = TaurisTerminal.pane(pane.current!);
+    const cmd = TaurisTerminal.commandLine(line.current!, {
+      prompt: "ATLAS>",
+      onSubmit: command => { log.current!.add(`RUN ${command}`, "ok"); band.ok(); },
+    });
+    return () => { cmd.destroy(); term.destroy(); };
+  }, []);
+
+  return (
+    <div ref={root} className="tm tm-screen">
+      <div ref={line} />
+      <div className="tm-panes">
+        <section ref={pane} className="tm-pane">
+          <h2 className="tm-band"><span>MESSAGES</span><span data-tm-clock /></h2>
+          <ol ref={messages} />
+        </section>
+      </div>
+      <footer className="tm-legend">
+        <span className="tm-key tm-yellow" role="button" tabIndex={0} aria-keyshortcuts="F9"
+              onClick={() => log.current?.clear()}>CLR LOG</span>
+        <span>= F9</span>
+      </footer>
+    </div>
+  );
+}
+```
+
+Types are in `web/terminal.d.ts`: copy it into a TypeScript app.
+
+**The font:** under a strict content policy an app cannot load IBM Plex Mono from the web, and the look falls back to the system's monospace. To bundle the font, see the header of `web/terminal.js` (for example `@fontsource/ibm-plex-mono`).
+
 ## Tests
 
 ```
 cargo fmt --check && cargo clippy --all-targets && cargo test   # the model, the windows on Tauri's test runtime, saving, the command lists
-python test/run.py [shots-dir]             # the tabs page side: 101 checks in headless Chrome, nothing on screen
+python test/run.py [shots-dir]             # the tabs page side: 103 checks in headless Chrome, nothing on screen
 python test/tree_run.py [shots-dir]        # the tree view: 97 checks, including the pixels of its lines and boxes
+python test/terminal_run.py [shots-dir]    # the terminal: 94 checks, including its gaps and bars by pixel
 cd examples/basic/src-tauri && cargo build
 ```
 

@@ -1,5 +1,5 @@
-//! UI components for Tauri 2 desktop apps: browser-style tabs and a dense
-//! tree view / configuration editor.
+//! UI components for Tauri 2 desktop apps: browser-style tabs, a dense tree
+//! view / configuration editor, and an optional terminal look.
 //!
 //! The plugin injects each component's page script and stylesheet into every
 //! page; a component's stylesheet is added only when a page mounts it.
@@ -11,6 +11,9 @@
 //! - **Tree view** (`TaurisTree.mount(...)` in the page): compact rows, dotted
 //!   connector lines, +/- boxes, aligned columns and in-place editors. It lives
 //!   entirely in the page.
+//! - **Terminal** (`TaurisTerminal.mount(...)` in the page): an optional
+//!   Bloomberg-style look (amber on black, monospace, dense tables, function
+//!   keys, a command line and a message log). It lives entirely in the page.
 //!
 //! ```ignore
 //! use tauris_ui::{Config, NewTab, TabsExt};
@@ -64,6 +67,8 @@ const SCRIPT: &str = include_str!("../web/tabs.js");
 const STYLE: &str = include_str!("../web/tabs.css");
 const TREE_SCRIPT: &str = include_str!("../web/tree.js");
 const TREE_STYLE: &str = include_str!("../web/tree.css");
+const TERMINAL_SCRIPT: &str = include_str!("../web/terminal.js");
+const TERMINAL_STYLE: &str = include_str!("../web/terminal.css");
 
 // The page scripts carry their stylesheets and the version, so one crate
 // delivers everything. Each component adds its stylesheet only when a page
@@ -79,7 +84,9 @@ fn page_script<R: Runtime>(config: &Config<R>) -> String {
         .replace("__TAURIS_TABS_VERSION__", VERSION)
         .replace("\"__TAURIS_TABS_CAN_DRAG_OUT__\"", if platform::CAN_DRAG_OUT { "true" } else { "false" });
     let tree = TREE_SCRIPT.replace("\"__TAURIS_TREE_CSS__\"", &serde_json::to_string(TREE_STYLE).unwrap_or_default());
-    format!("{tabs}\n;\n{tree}")
+    let terminal = TERMINAL_SCRIPT
+        .replace("\"__TAURIS_TERMINAL_CSS__\"", &serde_json::to_string(TERMINAL_STYLE).unwrap_or_default());
+    format!("{tabs}\n;\n{tree}\n;\n{terminal}")
 }
 
 /// The plugin. Register it with `.plugin(tauris_ui::init(config))`.

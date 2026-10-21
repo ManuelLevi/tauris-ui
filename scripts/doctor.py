@@ -152,12 +152,13 @@ def main():
     text = "\n".join(read(p) for p in files)
     uses_tabs = "TaurisTabs" in text or bool(re.search(r"\.tabs\(\)", rust))
     uses_tree = "TaurisTree" in text
-    used = [name for name, on in (("tabs", uses_tabs), ("tree view", uses_tree)) if on]
+    uses_terminal = "TaurisTerminal" in text
+    used = [name for name, on in (("tabs", uses_tabs), ("tree view", uses_tree), ("terminal", uses_terminal)) if on]
     if used:
         ok("components in use: " + ", ".join(used))
     elif files:
         bad("no page mounts a tauris-ui component",
-            'TaurisTabs.mount(document.getElementById("strip")) or TaurisTree.mount(element, { data })')
+            'TaurisTabs.mount(document.getElementById("strip")), TaurisTree.mount(element, { data }) or TaurisTerminal.mount(element)')
     else:
         bad("found no page files (looked in frontendDist, src/ and index.html)", "check build.frontendDist in tauri.conf.json")
 
@@ -185,6 +186,8 @@ def main():
             bad("app.tabs().start() is never called", "call app.tabs().start()? in .setup(...)")
         if "default_menu(" in rust or "file_menu(" in rust or "menu_ids::" in rust:
             ok("the menu has the tab items (\u2318T \u2318N \u2318W)")
+        elif re.search(r"\.tabs\(\)\s*\.\s*(close_active|new_tab|new_window)\(", rust):
+            ok("the app's own menu calls app.tabs() for the tab items")
         else:
             note("no tauris_ui::default_menu / file_menu / menu_ids: \u2318T and \u2318W only work if your own menu calls app.tabs()")
 
@@ -223,18 +226,19 @@ def main():
             note("the strip is fixed at the top: give the page padding-top: var(--tt-strip-h)")
 
     # 4. the page's CSS and copies of the library's files
-    for name, word in (("tabs.js", "TaurisTabs"), ("tree.js", "TaurisTree")):
+    for name, word in (("tabs.js", "TaurisTabs"), ("tree.js", "TaurisTree"), ("terminal.js", "TaurisTerminal")):
         if any(p.name == name and word in read(p) for p in files):
             bad(f"the app has its own copy of the library's {name}", "delete it: the plugin injects the page script")
     if re.search(r"@layer[^;{]*tauris-ui", text):
         bad("the app's CSS declares the tauris-ui layer",
             "remove it: it can put the library under the app's reset, and values set inside it lose anyway")
     elif re.search(r"@layer\s+[\w-]", text):
-        note("the app's CSS uses layers: set the --tt-* and --tv-* variables outside every @layer block, or the library's defaults win")
+        note("the app's CSS uses layers: set the --tt-*, --tv-* and --tm-* variables outside every @layer block, or the library's defaults win")
 
     # TypeScript: an up-to-date copy of each component's types
     if (tauri.parent / "tsconfig.json").is_file():
-        for name, word, on in (("tabs.d.ts", "TaurisTabs", uses_tabs), ("tree.d.ts", "TaurisTree", uses_tree)):
+        for name, word, on in (("tabs.d.ts", "TaurisTabs", uses_tabs), ("tree.d.ts", "TaurisTree", uses_tree),
+                               ("terminal.d.ts", "TaurisTerminal", uses_terminal)):
             if not on:
                 continue
             types = LIBRARY / "web" / name

@@ -27,6 +27,7 @@ them.
    cargo fmt --check && cargo clippy --all-targets && cargo test
    python test/run.py            # needs Python 3.11+, playwright and Google Chrome
    python test/tree_run.py
+   python test/terminal_run.py
    (cd examples/basic/src-tauri && cargo build)
    python scripts/doctor.py examples/basic
    ```

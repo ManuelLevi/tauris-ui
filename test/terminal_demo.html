@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminal</title>
+<!-- The demo takes IBM Plex Mono from the web; an app bundles it (see web/terminal.js). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../web/terminal.css">
+<style>
+  /* The page around the terminal; the terminal itself comes from terminal.css. */
+  html, body { height: 100%; margin: 0; background: #000; }
+  .demo-panes { grid-template-columns: minmax(0, 460px) minmax(0, 1fr); }
+  .banner {
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--tm-line-2);
+  }
+  .banner b {
+    display: block;
+    font: 600 24px/1 var(--tm-font);
+    letter-spacing: 0.24em;
+    color: var(--tm-white);
+  }
+  .banner small {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1;
+    letter-spacing: 0.06em;
+    color: var(--tm-amber-dim);
+  }
+  @media (max-width: 860px) {
+    .demo-panes { grid-template-columns: minmax(0, 1fr); grid-auto-flow: row; }
+  }
+</style>
+</head>
+<body>
+<div id="term" class="tm tm-screen">
+  <div id="cmd"></div>
+
+  <main class="tm-panes demo-panes">
+    <section id="signon" class="tm-pane" aria-labelledby="signon-title">
+      <h2 class="tm-band"><span id="signon-title">SIGN ON</span><span>ATLAS 2.4.0</span></h2>
+      <div class="tm-pane-body">
+        <div class="banner"><b>ATLAS</b><small>DOCUMENTS · SYNC · VAULT · PEOPLE</small></div>
+        <form id="login" class="tm-form" novalidate>
+          <label class="tm-form-line"><span class="tm-label">USERNAME</span><input id="user" class="tm-field" name="username" value="j.okafor" autocomplete="username" spellcheck="false"></label>
+          <label class="tm-form-line"><span class="tm-label">PASSWORD</span><input id="pass" class="tm-field" name="password" type="password" value="harbour-lights" autocomplete="current-password"></label>
+          <label class="tm-form-line"><span class="tm-label">REMEMBER</span><input id="remember" class="tm-check" type="checkbox" checked><span class="tm-note">KEEP ME SIGNED IN ON THIS MAC</span></label>
+          <div class="tm-form-line">
+            <span class="tm-label"></span>
+            <span id="go" class="tm-key tm-go" role="button" tabindex="0">GO</span><span class="tm-note">SIGN IN</span>
+            <span id="cancel" class="tm-key tm-cancel" role="button" tabindex="0">CANCEL</span><span class="tm-note">CLEAR</span>
+          </div>
+        </form>
+        <p id="status" class="tm-status" aria-live="polite">ENTER CREDENTIALS AND PRESS &lt;GO&gt;</p>
+      </div>
+    </section>
+
+    <section id="monitor" class="tm-pane" aria-labelledby="monitor-title">
+      <h2 class="tm-band"><span id="monitor-title">SYSTEM MONITOR</span><span data-tm-clock></span></h2>
+      <div class="tm-scroll">
+        <table class="tm-table">
+          <thead><tr><th>SUBSYSTEM</th><th>STATE</th><th>DETAIL</th><th class="tm-num">LOAD MS</th><th>PROFILE</th></tr></thead>
+          <tbody>
+            <tr><td>CORE</td><td class="tm-ok">UP</td><td>Build 2.4.0 · Tauri 2</td><td class="tm-num">0.9</td><td><meter class="tm-bar" min="0" max="13.5" value="0.9" aria-label="Core load time"></meter></td></tr>
+            <tr><td>SYNC</td><td class="tm-ok">UP</td><td>3 peers · 0 queued</td><td class="tm-num">6.4</td><td><meter class="tm-bar" min="0" max="13.5" value="6.4" aria-label="Sync load time"></meter></td></tr>
+            <tr><td>INDEX</td><td class="tm-ok">UP</td><td>48,213 documents</td><td class="tm-num">9.2</td><td><meter class="tm-bar" min="0" max="13.5" value="9.2" aria-label="Index load time"></meter></td></tr>
+            <tr><td>STORAGE</td><td class="tm-ok">UP</td><td>1.8 GB of 20 GB</td><td class="tm-num">13.5</td><td><meter class="tm-bar" min="0" max="13.5" value="13.5" aria-label="Storage load time"></meter></td></tr>
+            <tr><td>VAULT</td><td class="tm-warn">SEALED</td><td>86 entries · AES-256-GCM</td><td class="tm-num">11.1</td><td><meter class="tm-bar" min="0" max="13.5" value="11.1" aria-label="Vault load time"></meter></td></tr>
+            <tr><td>SESSION</td><td id="session-state" class="tm-off">NONE</td><td id="session-detail">Awaiting sign on</td><td class="tm-num">—</td><td></td></tr>
+          </tbody>
+          <tfoot><tr><td>TOTAL</td><td></td><td>61.3 MB resident in memory</td><td class="tm-num">41.1</td><td></td></tr></tfoot>
+        </table>
+      </div>
+      <h2 class="tm-band"><span>MESSAGES</span><span id="count">0</span></h2>
+      <ol id="log" class="tm-log"></ol>
+    </section>
+  </main>
+
+  <footer class="tm-legend">
+    <span class="tm-key tm-go">GO</span><span>= ENTER</span>
+    <span class="tm-key tm-cancel">CANCEL</span><span>= ESC</span>
+    <span class="tm-key">TAB</span><span>NEXT FIELD</span>
+    <span class="tm-grow"></span>
+    <span id="help" class="tm-key tm-yellow" role="button" tabindex="0" aria-keyshortcuts="F1">HELP</span><span>= F1</span>
+    <span id="clear" class="tm-key tm-yellow" role="button" tabindex="0" aria-keyshortcuts="F9">CLR LOG</span><span>= F9</span>
+    <span id="live" class="tm-key tm-yellow" role="button" tabindex="0" aria-pressed="true">LIVE ON</span>
+  </footer>
+</div>
+
+<script src="../web/terminal.js"></script>
+<script>
+  "use strict";
+  const $ = id => document.getElementById(id);
+
+  const term = TaurisTerminal.mount($("term"));
+  const signon = TaurisTerminal.pane($("signon"));
+  const messages = TaurisTerminal.log($("log"));
+
+  // The count in the MESSAGES band.
+  let count = 0;
+  function say(text, kind) {
+    messages.add(text, kind);
+    $("count").textContent = String(++count);
+  }
+  function clearLog() {
+    messages.clear();
+    count = 0;
+    $("count").textContent = "0";
+  }
+
+  // ---------- the command line ----------
+
+  const COMMANDS = {
+    SIGNON: () => { $("user").focus(); say("SIGN ON  ENTER CREDENTIALS"); },
+    HELP: () => say("COMMANDS  SIGNON  STATUS  CLEAR  HELP"),
+    STATUS: () => say("3 PEERS · 48,213 DOCUMENTS · VAULT SEALED", "ok"),
+    CLEAR: clearLog,
+  };
+  const cmd = TaurisTerminal.commandLine($("cmd"), {
+    prompt: "ATLAS>",
+    onSubmit: text => {
+      const run = COMMANDS[text.toUpperCase()];
+      if (run) run();
+      else say(`ERR 10  UNKNOWN COMMAND ${text.toUpperCase()}`, "error");
+    },
+  });
+  cmd.value = "SIGNON";
+
+  // ---------- sign on ----------
+
+  const form = $("login"), user = $("user"), pass = $("pass"), status = $("status");
+  let busy = false;
+
+  function show(text, kind) {
+    status.textContent = text;
+    status.className = kind ? `tm-status tm-${kind}` : "tm-status";
+  }
+  function session(state, kind, detail) {
+    $("session-state").textContent = state;
+    $("session-state").className = `tm-${kind}`;
+    $("session-detail").textContent = detail;
+  }
+  function idle() {
+    busy = false;
+    signon.reset();
+    show("ENTER CREDENTIALS AND PRESS <GO>");
+  }
+
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    if (busy) return;
+    const missing = !user.value.trim() ? user : !pass.value ? pass : null;
+    if (missing) {
+      const what = missing === user ? "01  ENTER YOUR USERNAME" : "02  ENTER YOUR PASSWORD";
+      signon.error();
+      show(`ERR ${what}`, "error");
+      say(`ERR ${what}`, "error");
+      missing.focus();
+      setTimeout(() => { if (!busy) idle(); }, 1800);
+      return;
+    }
+    busy = true;
+    signon.reset();
+    show("VERIFYING", "warn");
+    say(`SIGN ON REQUESTED  ${user.value.trim().toUpperCase()}`);
+    session("CHECK", "warn", "Verifying credentials");
+    setTimeout(() => {
+      signon.ok();
+      show("AUTHENTICATED", "ok");
+      say("CREDENTIALS VERIFIED", "ok");
+      session("OPEN", "ok", `Signed in as ${user.value.trim()}`);
+      setTimeout(idle, 2400);
+    }, 700);
+  });
+  // Two fields and no submit button: Enter in a field sends the form here.
+  form.addEventListener("keydown", e => {
+    if (e.key === "Enter" && e.target.classList.contains("tm-field")) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  function cancel() {
+    if (busy) return;
+    pass.value = "";
+    pass.focus();
+    say("PASSWORD CLEARED");
+  }
+  $("go").addEventListener("click", () => form.requestSubmit());
+  $("cancel").addEventListener("click", cancel);
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !e.defaultPrevented) cancel();
+  });
+
+  // ---------- legend keys ----------
+
+  $("help").addEventListener("click", () => say("HELP  TYPE A COMMAND AND PRESS <GO>  ·  F9 CLEARS THE LOG"));
+  $("clear").addEventListener("click", clearLog);
+
+  // A live feed of what the app's subsystems report; LIVE turns it off and on.
+  const FEED = [
+    ["SYNC  12 FILES UPLOADED  2.1 MB"],
+    ["INDEX  248 DOCUMENTS REINDEXED  1.9 S"],
+    ["SYNC  PEER STUDIO-MINI CONNECTED", "ok"],
+    ["VAULT  AUTO-LOCK IN 10 MIN", "warn"],
+    ["STORAGE  SNAPSHOT 2026-10-21 SAVED", "ok"],
+  ];
+  let feedAt = 0, feedTimer = 0;
+  function live(on) {
+    clearInterval(feedTimer);
+    feedTimer = on ? setInterval(() => say(...FEED[feedAt++ % FEED.length]), 4000) : 0;
+    $("live").setAttribute("aria-pressed", String(on));
+    $("live").textContent = on ? "LIVE ON" : "LIVE OFF";
+  }
+  $("live").addEventListener("click", () => live($("live").getAttribute("aria-pressed") !== "true"));
+
+  say("MEMORY PRELOAD COMPLETE  41.1 MS", "ok");
+  say("VAULT SEALED UNTIL SIGN ON");
+  say("READY FOR SIGN ON");
+  live(true);
+  pass.focus({ preventScroll: true });
+  pass.setSelectionRange(pass.value.length, pass.value.length);
+
+  // For the headless check (test/terminal_run.py).
+  window.demo = { term, cmd, signon, messages, live };
+</script>
+</body>
+</html>

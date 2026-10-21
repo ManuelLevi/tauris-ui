@@ -1,0 +1,549 @@
+/* tauris-ui terminal look: an amber-on-black, Bloomberg-style screen.
+ *
+ * Opt-in. Every rule is scoped under .tm, the element the app marks as a
+ * terminal, so nothing outside it changes. The --tm-* variables below only
+ * hold values; nothing reads them outside .tm.
+ *
+ * Most rules sit in the tauris-ui cascade layer, so any rule in your own
+ * (unlayered) stylesheet wins without a stronger selector. Change the look by
+ * setting --tm-* variables outside every @layer block, or override any .tm-*
+ * class. The form fields sit outside the layer on purpose (see the end).
+ *
+ * The parts (all inside .tm):
+ *   .tm-screen        a full-height column: command line, panes, legend
+ *   .tm-cmd           the command line row: .tm-prompt, .tm-typed, .tm-cursor,
+ *                     .tm-grow, and spans with data-tm-date / data-tm-clock
+ *                     (terminal.js fills those every second)
+ *   .tm-panes         panes side by side with 1px gaps
+ *   .tm-pane          one pane; .tm-band is its title band, .tm-pane-body pads it.
+ *                     data-tm-state="ok" | "error" on a pane colours its bands,
+ *                     on a band only that band
+ *   .tm-form          form lines: .tm-form-line > .tm-label + input.tm-field (+ a third
+ *                     column), or .tm-label + input.tm-check (type=checkbox) + .tm-note
+ *   .tm-key           a function key: grey; .tm-go green, .tm-cancel red,
+ *                     .tm-yellow yellow. role="button" tabindex="0" makes it a
+ *                     button; without a role it is a static legend chip
+ *   .tm-table         a dense table; .tm-num right-aligns a cell; tfoot is the
+ *                     totals row; meter.tm-bar is the segmented bar
+ *   .tm-log           the message log (terminal.js adds the rows)
+ *   .tm-status        a status line with a "> " prompt
+ *   .tm-legend        the key legend strip at the bottom
+ *   text colours      .tm-ok green, .tm-warn yellow, .tm-error red, .tm-off grey,
+ *                     .tm-value white, .tm-dim dim amber
+ *
+ * The font: IBM Plex Mono when the app has it, otherwise the system's own
+ * monospace. Under a strict content policy an app cannot load it from the
+ * web; bundle it instead (see web/terminal.js).
+ */
+@layer tauris-ui {
+  :root {
+    /* type */
+    --tm-font: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+    --tm-font-size: 12px;
+    --tm-line-h: 18px;
+    --tm-field-font-size: 13px;
+    --tm-key-font-size: 11px;
+
+    /* sizes */
+    --tm-gap: 1px;                  /* between panes */
+    --tm-pad-x: 10px;               /* left and right of the command line and legend */
+    --tm-cmd-h: 22px;
+    --tm-cursor-w: 7px;
+    --tm-cursor-h: 13px;
+    --tm-band-h: 18px;
+    --tm-band-pad: 8px;
+    --tm-body-pad: 12px 14px 14px;  /* inside .tm-pane-body */
+    --tm-body-gap: 12px;
+    --tm-label-w: 92px;             /* the label column of a form line */
+    --tm-aside-w: 40px;             /* the third column of a form line */
+    --tm-line-gap: 8px;
+    --tm-line-min-h: 24px;
+    --tm-form-gap: 6px;
+    --tm-field-h: 22px;
+    --tm-field-pad: 6px;
+    --tm-focus-bar: 2px;            /* the yellow bar left of a focused field */
+    --tm-key-h: 20px;
+    --tm-key-min-w: 56px;
+    --tm-key-pad: 6px;
+    --tm-key-radius: 2px;           /* keys only; nothing else is rounded */
+    --tm-head-h: 20px;              /* table header row */
+    --tm-row-h: 21px;               /* table rows */
+    --tm-cell-pad: 8px;
+    --tm-bar-h: 8px;
+    --tm-bar-seg: 5px;              /* one segment of the bar */
+    --tm-bar-space: 2px;            /* the space after it */
+    --tm-time-w: 68px;              /* the time column of the log */
+    --tm-log-pad: 6px 8px;
+    --tm-log-min-h: 110px;
+    --tm-legend-h: 26px;
+
+    /* motion */
+    --tm-blink: 1s;
+    --tm-flash-time: 1.2s;
+    --tm-band-time: 0.2s;
+    --tm-bar-time: 0.7s;
+
+    /* colours */
+    --tm-bg: #000;
+    --tm-chrome: #101010;           /* the legend strip */
+    --tm-line: #262626;             /* gaps between panes, rules */
+    --tm-line-2: #3a3a3a;           /* table header and totals rules */
+    --tm-row: #0e0e0e;              /* row rules and row hover */
+    --tm-amber: #ffa424;
+    --tm-amber-dim: #a26a1c;
+    --tm-white: #f2f2f2;
+    --tm-grey: #8c8c8c;
+    --tm-field: #0a1f4f;
+    --tm-field-2: #14327c;          /* field rule, focused field */
+    --tm-green: #3ed66b;
+    --tm-red: #ff4438;
+    --tm-yellow: #ffe14d;
+    --tm-key: #5a5a5a;
+    --tm-ink: #000;                 /* text on amber, green and yellow */
+    --tm-ink-light: #fff;           /* text on red and grey */
+    --tm-key-shade: rgb(0 0 0 / 0.35);
+    --tm-flash: rgb(255 164 36 / 0.22);
+    --tm-select: rgb(255 164 36 / 0.35);
+  }
+
+  /* ---------- the screen ---------- */
+
+  .tm {
+    background: var(--tm-bg);
+    color: var(--tm-amber);
+    font-family: var(--tm-font);
+    font-size: var(--tm-font-size);
+    line-height: var(--tm-line-h);
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    color-scheme: dark;
+  }
+
+  .tm ::selection { background: var(--tm-select); }
+
+  .tm-screen {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .tm-screen > .tm-panes { flex: 1 1 auto; }
+  .tm-screen > .tm-cmd,
+  .tm-screen > .tm-legend { flex: none; }
+
+  .tm-grow { flex: 1 1 auto; }
+
+  /* ---------- command line ---------- */
+
+  .tm-cmd {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-sizing: border-box;
+    height: var(--tm-cmd-h);
+    padding: 0 var(--tm-pad-x);
+    border-bottom: 1px solid var(--tm-line);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .tm-prompt { flex: none; font-weight: 600; }
+  .tm-typed { color: var(--tm-yellow); }
+  .tm-cmd [data-tm-date],
+  .tm-cmd [data-tm-clock] { flex: none; color: var(--tm-white); }
+
+  .tm-cursor {
+    flex: none;
+    width: var(--tm-cursor-w);
+    height: var(--tm-cursor-h);
+    background: var(--tm-yellow);
+    animation: tm-blink var(--tm-blink) steps(1) infinite;
+  }
+
+  /* the typed command of commandLine(): a field with the block cursor at the caret */
+  .tm-cmd-entry {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--tm-line-h);
+  }
+
+  .tm-cmd-entry > .tm-cursor {
+    position: absolute;
+    top: calc((var(--tm-line-h) - var(--tm-cursor-h)) / 2);
+    left: calc(var(--tm-caret, 0) * 1ch - var(--tm-scroll, 0px));
+    pointer-events: none;
+    /* over a character the block shows it in black */
+    mix-blend-mode: difference;
+  }
+
+  @keyframes tm-blink { 50% { opacity: 0; } }
+
+  /* ---------- panes and title bands ---------- */
+
+  .tm-panes {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: var(--tm-gap);
+    min-height: 0;
+    background: var(--tm-line);
+  }
+
+  .tm-pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--tm-bg);
+  }
+
+  .tm-band {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    flex: none;
+    box-sizing: border-box;
+    height: var(--tm-band-h);
+    margin: 0;
+    padding: 0 var(--tm-band-pad);
+    font: 600 var(--tm-font-size) / var(--tm-band-h) var(--tm-font);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    overflow: hidden;
+    color: var(--tm-ink);
+    background: var(--tm-amber);
+    transition: background-color var(--tm-band-time);
+  }
+
+  .tm-band > :last-child:not(:first-child) { font-weight: 500; }
+  .tm-pane > .tm-band:not(:first-child) { margin-top: 8px; }
+
+  .tm-pane[data-tm-state="ok"] > .tm-band,
+  .tm-band[data-tm-state="ok"] { background: var(--tm-green); }
+
+  .tm-pane[data-tm-state="error"] > .tm-band,
+  .tm-band[data-tm-state="error"] { color: var(--tm-ink-light); background: var(--tm-red); }
+
+  .tm-pane-body {
+    display: grid;
+    align-content: start;
+    gap: var(--tm-body-gap);
+    padding: var(--tm-body-pad);
+  }
+
+  /* ---------- form lines ---------- */
+
+  .tm-form {
+    display: grid;
+    gap: var(--tm-form-gap);
+    margin: 0;
+  }
+
+  .tm-form-line {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--tm-label-w) minmax(0, 1fr) var(--tm-aside-w);
+    align-items: center;
+    gap: var(--tm-line-gap);
+    min-height: var(--tm-line-min-h);
+  }
+
+  .tm-form-line:has(> .tm-check) {
+    grid-template-columns: var(--tm-label-w) auto minmax(0, 1fr);
+    cursor: pointer;
+  }
+
+  /* a line of keys: no label column needed, keys and their notes in a row */
+  .tm-form-line:has(> .tm-key) {
+    display: flex;
+    margin-top: 6px;
+  }
+
+  .tm-form-line:has(> .tm-key) > .tm-label:first-child { flex: none; width: var(--tm-label-w); }
+
+  .tm-label { font-weight: 500; }
+  .tm-note { color: var(--tm-grey); }
+
+  .tm-status {
+    min-height: var(--tm-line-h);
+    margin: 0;
+    padding: 0 6px;
+    color: var(--tm-grey);
+  }
+
+  .tm-status::before { content: "> "; color: var(--tm-amber); }
+
+  /* ---------- function keys ---------- */
+
+  .tm-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    box-sizing: border-box;
+    min-width: var(--tm-key-min-w);
+    height: var(--tm-key-h);
+    padding: 0 var(--tm-key-pad);
+    font: 600 var(--tm-key-font-size) / 1 var(--tm-font);
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    color: var(--tm-ink-light);
+    background: var(--tm-key);
+    border-radius: var(--tm-key-radius);
+    box-shadow: inset 0 -2px 0 var(--tm-key-shade);
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
+
+  .tm-key.tm-go { color: var(--tm-ink); background: var(--tm-green); }
+  .tm-key.tm-cancel { color: var(--tm-ink-light); background: var(--tm-red); }
+  .tm-key.tm-yellow { color: var(--tm-ink); background: var(--tm-yellow); }
+  /* a toggle key that is off */
+  .tm-key[aria-pressed="false"] { color: var(--tm-white); background: var(--tm-key); }
+
+  .tm-key[role="button"] { cursor: pointer; }
+  .tm-key[role="button"]:hover { filter: brightness(1.12); }
+  .tm-key[role="button"]:active,
+  .tm-key.tm-pressed { transform: translateY(1px); box-shadow: none; }
+  .tm-key:focus-visible { outline: 1px solid var(--tm-white); outline-offset: 2px; }
+
+  .tm-key[aria-disabled="true"] {
+    opacity: 0.45;
+    filter: none;
+    transform: none;
+    cursor: default;
+  }
+
+  /* ---------- dense data table ---------- */
+
+  .tm-scroll { overflow: auto; }
+
+  .tm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: inherit;
+    line-height: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tm-table :where(th) {
+    box-sizing: border-box;
+    height: var(--tm-head-h);
+    padding: 0 var(--tm-cell-pad);
+    font-weight: 500;
+    text-align: left;
+    white-space: nowrap;
+    color: var(--tm-amber-dim);
+    border-bottom: 1px solid var(--tm-line-2);
+  }
+
+  .tm-table :where(td) {
+    box-sizing: border-box;
+    height: var(--tm-row-h);
+    padding: 0 var(--tm-cell-pad);
+    white-space: nowrap;
+    color: var(--tm-white);
+    border-bottom: 1px solid var(--tm-row);
+  }
+
+  .tm-table :where(tbody td:first-child) { color: var(--tm-amber); }
+  .tm-table :where(tbody tr:hover > td) { background: var(--tm-row); }
+
+  .tm-table :where(tfoot td) {
+    font-weight: 600;
+    color: var(--tm-amber);
+    border-top: 1px solid var(--tm-line-2);
+  }
+
+  .tm-table :where(.tm-num) { text-align: right; }
+
+  /* the segmented bar: <meter class="tm-bar" min="0" max="100" value="45"> */
+  .tm-bar {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: var(--tm-bar-h);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    animation: tm-grow var(--tm-bar-time) steps(14) 0.2s both;
+  }
+
+  .tm-bar::-webkit-meter-bar {
+    height: var(--tm-bar-h);
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  .tm-bar::-webkit-meter-optimum-value,
+  .tm-bar::-webkit-meter-suboptimum-value,
+  .tm-bar::-webkit-meter-even-less-good-value {
+    border-radius: 0;
+    background: repeating-linear-gradient(90deg, var(--tm-amber) 0 var(--tm-bar-seg),
+      transparent var(--tm-bar-seg) calc(var(--tm-bar-seg) + var(--tm-bar-space)));
+  }
+
+  .tm-bar::-moz-meter-bar {
+    border-radius: 0;
+    background: repeating-linear-gradient(90deg, var(--tm-amber) 0 var(--tm-bar-seg),
+      transparent var(--tm-bar-seg) calc(var(--tm-bar-seg) + var(--tm-bar-space)));
+  }
+
+  @keyframes tm-grow { from { clip-path: inset(0 100% 0 0); } }
+
+  /* ---------- message log ---------- */
+
+  .tm-log {
+    flex: 1 1 auto;
+    box-sizing: border-box;
+    min-height: var(--tm-log-min-h);
+    margin: 0;
+    padding: var(--tm-log-pad);
+    overflow: auto;
+    list-style: none;
+  }
+
+  .tm-log > li {
+    display: grid;
+    grid-template-columns: var(--tm-time-w) minmax(0, 1fr);
+    gap: 8px;
+    color: var(--tm-white);
+  }
+
+  .tm-log > li > :last-child { overflow-wrap: anywhere; }
+  .tm-log time { color: var(--tm-amber-dim); }
+  .tm-log > .tm-new { animation: tm-flash var(--tm-flash-time) ease-out; }
+
+  @keyframes tm-flash { from { background: var(--tm-flash); } }
+
+  /* ---------- key legend strip ---------- */
+
+  .tm-legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-sizing: border-box;
+    height: var(--tm-legend-h);
+    padding: 0 var(--tm-pad-x);
+    white-space: nowrap;
+    overflow: hidden;
+    color: var(--tm-grey);
+    background: var(--tm-chrome);
+    border-top: 1px solid var(--tm-line);
+  }
+
+  .tm-legend > .tm-key { min-width: 0; }
+  .tm-legend > :not(.tm-key, .tm-grow) { margin-right: 10px; }
+
+  /* the hidden attribute still hides a part, whatever its display */
+  .tm [hidden] { display: none; }
+
+  /* ---------- text colours ---------- */
+
+  .tm .tm-ok { color: var(--tm-green); }
+  .tm .tm-warn { color: var(--tm-yellow); }
+  .tm .tm-error { color: var(--tm-red); }
+  .tm .tm-off { color: var(--tm-grey); }
+  .tm .tm-value { color: var(--tm-white); }
+  .tm .tm-dim { color: var(--tm-amber-dim); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tm-cursor,
+    .tm-bar,
+    .tm-log > .tm-new { animation: none; }
+    .tm-band { transition: none; }
+  }
+}
+
+/* The fields are real form fields, so they sit outside the layer on purpose:
+   an app's plain `input { ... }` rule (starter templates have one) must not
+   restyle them. These selectors weigh no more than `input`, so any class rule
+   the app writes still wins. */
+:where(.tm) input:where(.tm-field) {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--tm-field-h);
+  margin: 0;
+  padding: 0 var(--tm-field-pad);
+  font: 400 var(--tm-field-font-size) / var(--tm-field-h) var(--tm-font);
+  letter-spacing: normal;
+  color: var(--tm-white);
+  background: var(--tm-field);
+  border: 0;
+  border-bottom: 1px solid var(--tm-field-2);
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
+  transition: none;
+  caret-color: var(--tm-yellow);
+}
+
+:where(.tm) input:where(.tm-field)[type="password"] { letter-spacing: 0.2em; }
+:where(.tm) input:where(.tm-field)::placeholder { color: var(--tm-grey); opacity: 1; }
+
+:where(.tm) input:where(.tm-field):focus {
+  background: var(--tm-field-2);
+  box-shadow: inset var(--tm-focus-bar) 0 0 var(--tm-yellow);
+}
+
+/* the text checkbox: [X] or [ ] */
+:where(.tm) input:where(.tm-check) {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-block;
+  box-sizing: content-box;
+  width: 3ch;
+  height: var(--tm-line-h);
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--tm-white);
+  background: none;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
+  transition: none;
+  cursor: pointer;
+}
+
+:where(.tm) input:where(.tm-check)::before {
+  content: "[ ]";
+  display: block;
+  line-height: var(--tm-line-h);
+  white-space: pre;
+}
+
+:where(.tm) input:where(.tm-check):checked::before { content: "[X]"; }
+:where(.tm) input:where(.tm-check):focus-visible { outline: 1px solid var(--tm-yellow); }
+
+/* the command line's field: it looks like typed text; the caret is the block cursor */
+:where(.tm) input:where(.tm-cmd-input) {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: normal;
+  color: var(--tm-yellow);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
+  transition: none;
+  caret-color: transparent;
+}

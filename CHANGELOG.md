@@ -8,6 +8,21 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.1 — 2026-10-21
+
+- New, optional component: the **terminal** look (`TaurisTerminal`):
+  - amber on black, IBM Plex Mono, square corners, 1px gaps between panes
+  - a command line with a block cursor and clock
+  - title bands that turn green or red
+  - form lines with `[X]` checkboxes
+  - function keys bound to F1 to F12
+  - dense tables with segmented bars
+  - a message log with timestamps and a flash on new rows
+  - a key legend
+
+  It changes nothing outside the element marked `.tm`, and its stylesheet is added only when a page uses it. Types are in `web/terminal.d.ts`, tests in `test/terminal_run.py`.
+- `doctor.py` knows the terminal, and accepts an app's own menu that calls `app.tabs()` for ⌘T and ⌘W.
+
 ## 0.4.0 — 2026-10-21
 
 First public release. UI components for Tauri 2 desktop apps:
