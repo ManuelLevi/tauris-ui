@@ -1,0 +1,20 @@
+# A check that needs the real event loop (macOS): see src/main.rs.
+[package]
+name = "tauris-ui-freeze-check"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Not part of any workspace above it.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauris-ui = { path = "../..", version = "0.4" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+dispatch2 = "0.3"

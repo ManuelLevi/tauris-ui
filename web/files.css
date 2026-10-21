@@ -1,0 +1,645 @@
+/* tauris-ui files: the look of the shared-files table.
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --tf-* variables outside every @layer block (on :root or on the
+ * component's element), or override any .tf-* class. The defaults follow the
+ * system's light or dark mode.
+ *
+ * The parts (files.js draws them all, inside the element marked .tf):
+ *   .tf-head          the header: .tf-chip, .tf-title, .tf-sub (count and size),
+ *                     .tf-add, .tf-search
+ *   .tf-panel         the framed area: .tf-list (the table, role="grid"), and over
+ *                     it .tf-empty, .tf-nomatch, .tf-drop (files hovering: a ring),
+ *                     .tf-busy (adding) and .tf-veil > .tf-ask (the delete question)
+ *   .tf-headrow       the column headers; .tf-sort sorts, .tf-arrow is ▲ / ▼
+ *   .tf-file          a file's row; [aria-selected="true"] is the selected one,
+ *                     .tf-fresh flashes once after it was added
+ *   .tf-kind          the type badge; data-kind="PDF" | "IMG" | "DOC" | ... colours it
+ *   .tf-acts          the row's buttons (.tf-ib), shown on hover and selection
+ *   .tf-status        messages, when the app gives no onMessage
+ *
+ * Give the element a height (or put it in a grid or flex row that has one):
+ * the list scrolls inside it.
+ */
+@layer tauris-ui {
+  :root {
+    /* type */
+    --tf-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --tf-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --tf-font-size: 13px;
+    --tf-title-size: 15px;
+    --tf-small: 12px;                /* the count, the headers, the buttons */
+    --tf-table-size: 12.5px;
+
+    /* sizes */
+    --tf-gap: 8px;                   /* between the header and the list */
+    --tf-head-row-h: 23px;
+    --tf-row-h: 25px;
+    --tf-cell-pad: 7px;
+    --tf-kind-w: 30px;               /* the type badge */
+    --tf-kind-h: 18px;
+    /* The columns keep their widths, with or without rows: the name takes the rest. */
+    --tf-size-w: 84px;               /* the Size column */
+    --tf-added-w: 88px;
+    --tf-by-w: 110px;
+    /* --tf-acts-w: the row's buttons. Unset, it fits how many there are (26px each). */
+    --tf-control-h: 26px;            /* the search field and the big buttons */
+    --tf-button-h: 22px;             /* "Add files…" */
+    --tf-search-w: 320px;
+    --tf-radius: 4px;
+    --tf-panel-min-h: 120px;
+
+    /* colours */
+    --tf-fg: #1e1f22;
+    --tf-dim: #666a77;
+    --tf-faint: #a3a6ad;
+    --tf-bg: #ffffff;                /* the list and the fields */
+    --tf-chrome: #e9e9eb;            /* the column headers */
+    --tf-border: #c4c6cc;
+    --tf-border-2: #adb0b7;          /* the buttons */
+    --tf-sep: #d3d5da;
+    --tf-grid: #ececef;              /* between rows */
+    --tf-badge-bg: #f6f6f8;
+    --tf-hover: #e6e8ec;
+    --tf-row-hover: #f1f5fb;
+    --tf-accent: #2675bf;
+    --tf-accent-2: #1d63a5;
+    --tf-accent-ink: #2675bf;        /* the accent as text and lines, readable on --tf-bg */
+    --tf-on-accent: #ffffff;
+    --tf-focus: rgb(38 117 191 / 0.32);
+    --tf-sel-bg: #2675bf;
+    --tf-sel-fg: #ffffff;
+    --tf-sel-line: rgb(255 255 255 / 0.55);
+    --tf-sel-hover: rgb(255 255 255 / 0.18);
+    --tf-flash: #dbe6f4;             /* a row just added */
+    --tf-danger: #d1453b;
+    --tf-veil: rgb(0 0 0 / 0.08);
+    --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+    --tf-drop-bg: color-mix(in srgb, var(--tf-accent) 7%, var(--tf-bg));
+
+    /* the type badges */
+    --tf-kind-pdf: #b4232a;
+    --tf-kind-img: #0f7a63;
+    --tf-kind-xls: #1d7a3a;
+    --tf-kind-doc: #2560a8;
+    --tf-kind-ppt: #b0561a;
+    --tf-kind-aud: #7a4bc4;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --tf-fg: #dfe1e5;
+      --tf-dim: #adb0b8;
+      --tf-faint: #6f737a;
+      --tf-bg: #2f3234;
+      --tf-chrome: #34373a;
+      --tf-border: #5e6165;
+      --tf-border-2: #6b6e73;
+      --tf-sep: #515356;
+      --tf-grid: #3a3d40;
+      --tf-badge-bg: #36393c;
+      --tf-hover: #4c5052;
+      --tf-row-hover: #3b4148;
+      --tf-accent: #3570b0;
+      --tf-accent-2: #2c5f98;
+      --tf-accent-ink: #6aa6e0;
+      --tf-focus: rgb(74 136 199 / 0.45);
+      --tf-sel-bg: #2f65ca;
+      --tf-flash: #4b6eaf;
+      --tf-danger: #e5625a;
+      --tf-veil: rgb(0 0 0 / 0.3);
+      --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
+      --tf-kind-pdf: #f07a72;
+      --tf-kind-img: #4cc3a3;
+      --tf-kind-xls: #5ccb69;
+      --tf-kind-doc: #6aa6e0;
+      --tf-kind-ppt: #e8955a;
+      --tf-kind-aud: #b597f0;
+    }
+  }
+
+  /* ---------- frame ---------- */
+
+  .tf {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: var(--tf-gap);
+    min-width: 0;
+    min-height: 0;
+    box-sizing: border-box;
+    color: var(--tf-fg);
+    font: var(--tf-font-size) / 1.3 var(--tf-font);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* without the header or the message line, no empty row and no gap for it */
+  .tf.tf-no-status { grid-template-rows: auto minmax(0, 1fr); }
+  .tf.tf-no-head { grid-template-rows: minmax(0, 1fr) auto; }
+  .tf.tf-no-head.tf-no-status { grid-template-rows: minmax(0, 1fr); }
+
+  .tf *,
+  .tf *::before,
+  .tf *::after { box-sizing: border-box; }
+
+  /* the hidden attribute still hides a part, whatever its display */
+  .tf [hidden] { display: none; }
+
+  .tf svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .tf-icon { display: inline-flex; flex: none; }
+
+  /* ---------- header ---------- */
+
+  .tf-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: var(--tf-control-h); /* the same height with or without the search field */
+  }
+
+  .tf-chip {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--tf-chip);
+  }
+
+  .tf-title {
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--tf-title-size);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tf-sub {
+    font-size: var(--tf-small);
+    color: var(--tf-dim);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tf-grow { flex: 1; }
+
+  .tf-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: min(var(--tf-search-w), 100%);
+    height: var(--tf-control-h);
+    padding: 0 8px;
+    color: var(--tf-dim);
+    background: var(--tf-bg);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-radius);
+    cursor: text;
+  }
+
+  .tf-search:focus-within { border-color: var(--tf-accent); box-shadow: 0 0 0 2px var(--tf-focus); }
+  .tf-search svg { width: 13px; height: 13px; stroke-width: 1.4; }
+
+  /* ---------- buttons ---------- */
+
+  .tf-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: var(--tf-button-h);
+    padding: 0 8px;
+    font-size: var(--tf-small);
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--tf-fg);
+    background: var(--tf-bg);
+    border: 1px solid var(--tf-border-2);
+    border-radius: var(--tf-radius);
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s, box-shadow 0.12s;
+  }
+
+  .tf-btn:hover { background: var(--tf-hover); }
+  .tf-btn:focus { outline: none; }
+  .tf-btn:focus-visible { box-shadow: 0 0 0 2px var(--tf-focus); }
+  .tf-btn:active { transform: translateY(0.5px); }
+  .tf-btn[aria-disabled="true"] { opacity: 0.5; transform: none; }
+  .tf-btn[aria-disabled="true"]:hover { background: var(--tf-bg); }
+  .tf-btn svg { width: 13px; height: 13px; margin: 0 0 0 -2px; stroke-width: 1.5; }
+
+  .tf-btn.tf-primary,
+  .tf-btn.tf-danger {
+    min-width: 72px;
+    height: var(--tf-control-h);
+    padding: 0 12px;
+    font-size: var(--tf-font-size);
+    font-weight: 600;
+    color: var(--tf-on-accent);
+    background: var(--tf-accent);
+    border-color: var(--tf-accent-2);
+  }
+
+  .tf-btn.tf-primary:hover { background: var(--tf-accent-2); }
+  .tf-btn.tf-danger { background: var(--tf-danger); border-color: var(--tf-danger); }
+  .tf-btn.tf-danger:hover { background: color-mix(in srgb, var(--tf-danger) 85%, #000); }
+  .tf-btn.tf-primary[aria-disabled="true"]:hover { background: var(--tf-accent); }
+
+  .tf-ask-acts .tf-btn:not(.tf-danger) { min-width: 72px; height: var(--tf-control-h); padding: 0 12px; font-size: var(--tf-font-size); }
+
+  /* the small buttons of a row */
+  .tf-ib {
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 22px;
+    color: var(--tf-dim);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    cursor: default;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+  }
+
+  .tf-ib:hover { color: var(--tf-fg); background: var(--tf-hover); border-color: var(--tf-border); }
+  .tf-ib:active { transform: translateY(0.5px); }
+  .tf-ib:focus { outline: none; }
+  .tf-ib.tf-ib-delete:hover { color: var(--tf-danger); }
+  .tf-ib svg { width: 14px; height: 14px; stroke-width: 1.3; }
+
+  /* ---------- the list ---------- */
+
+  .tf-panel {
+    position: relative;
+    min-height: var(--tf-panel-min-h);
+    overflow: hidden;
+    background: var(--tf-bg);
+    border: 1px solid var(--tf-border);
+  }
+
+  .tf-panel:has(> .tf-list:focus-visible) { box-shadow: 0 0 0 2px var(--tf-focus); }
+
+  .tf-list {
+    height: 100%;
+    overflow: auto;
+    scroll-padding-top: var(--tf-head-row-h);
+    font-size: var(--tf-table-size);
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
+
+  .tf-list:focus { outline: none; }
+
+  .tf-table {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+  }
+
+  .tf-thead { display: table-header-group; }
+  .tf-tbody { display: table-row-group; }
+  .tf-row { display: table-row; }
+
+  .tf-th,
+  .tf-cell {
+    display: table-cell;
+    vertical-align: middle;
+    padding: 0 var(--tf-cell-pad);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tf-th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: var(--tf-head-row-h);
+    font-size: var(--tf-small);
+    font-weight: 600;
+    text-align: left;
+    color: var(--tf-dim);
+    background: var(--tf-chrome);
+    border-right: 1px solid var(--tf-sep);
+    border-bottom: 1px solid var(--tf-border);
+  }
+
+  .tf-th:last-child { border-right: 0; }
+
+  .tf-cell {
+    height: var(--tf-row-h);
+    border-bottom: 1px solid var(--tf-grid);
+    transition: background-color 0.1s, color 0.1s;
+  }
+
+  .tf-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+
+  .tf-sort:hover { color: var(--tf-fg); }
+  .tf-sort:focus { outline: none; }
+  .tf-sort:focus-visible { border-radius: 2px; box-shadow: 0 0 0 2px var(--tf-focus); }
+  .tf-arrow { font-size: 8px; color: var(--tf-accent-ink); }
+
+  .tf-c-kind { width: calc(var(--tf-kind-w) + var(--tf-cell-pad) + 7px); padding-right: 0; }
+  .tf-c-size { width: var(--tf-size-w); text-align: right; font-variant-numeric: tabular-nums; }
+  .tf-th.tf-c-size { text-align: right; }
+  .tf-c-added { width: var(--tf-added-w); font-variant-numeric: tabular-nums; }
+  .tf-c-by { width: var(--tf-by-w); color: var(--tf-dim); }
+  .tf-c-acts { width: var(--tf-acts-w, calc(var(--tf-acts-n, 4) * 26px + 6px)); padding: 0 4px; text-align: right; }
+
+  .tf-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tf-kind {
+    display: inline-grid;
+    place-items: center;
+    width: var(--tf-kind-w);
+    height: var(--tf-kind-h);
+    font: 600 9.5px / 1 var(--tf-mono);
+    letter-spacing: 0.04em;
+    color: var(--tf-k, var(--tf-dim));
+    background: var(--tf-badge-bg);
+    border: 1px solid var(--tf-k-line, var(--tf-border));
+    border-radius: 3px;
+  }
+
+  .tf-kind[data-kind="PDF"] { --tf-k: var(--tf-kind-pdf); }
+  .tf-kind:is([data-kind="IMG"], [data-kind="VID"]) { --tf-k: var(--tf-kind-img); }
+  .tf-kind[data-kind="XLS"] { --tf-k: var(--tf-kind-xls); }
+  .tf-kind[data-kind="DOC"] { --tf-k: var(--tf-kind-doc); }
+  .tf-kind[data-kind="PPT"] { --tf-k: var(--tf-kind-ppt); }
+  .tf-kind[data-kind="AUD"] { --tf-k: var(--tf-kind-aud); }
+  .tf-kind:is([data-kind="PDF"], [data-kind="IMG"], [data-kind="VID"], [data-kind="XLS"], [data-kind="DOC"], [data-kind="PPT"], [data-kind="AUD"]) {
+    --tf-k-line: color-mix(in srgb, var(--tf-k) 35%, transparent);
+  }
+
+  .tf-file:hover .tf-cell { background: var(--tf-row-hover); }
+
+  .tf-file[aria-selected="true"] .tf-cell {
+    color: var(--tf-sel-fg);
+    background: var(--tf-sel-bg);
+  }
+
+  .tf-file[aria-selected="true"] .tf-c-by { color: color-mix(in srgb, var(--tf-sel-fg) 85%, transparent); }
+
+  .tf-file[aria-selected="true"] .tf-kind {
+    color: var(--tf-sel-fg);
+    background: transparent;
+    border-color: var(--tf-sel-line);
+  }
+
+  .tf-file.tf-fresh .tf-cell { animation: tf-flash 1.2s ease-out; }
+
+  @keyframes tf-flash {
+    from { background: var(--tf-flash); }
+  }
+
+  .tf-acts {
+    display: inline-flex;
+    gap: 2px;
+    vertical-align: middle;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+
+  .tf-file:hover .tf-acts,
+  .tf-file[aria-selected="true"] .tf-acts,
+  .tf-file:focus-within .tf-acts { opacity: 1; }
+
+  .tf-file[aria-selected="true"] .tf-ib { color: var(--tf-sel-fg); }
+  .tf-file[aria-selected="true"] .tf-ib:hover { background: var(--tf-sel-hover); border-color: transparent; }
+
+  .tf-renaming { overflow: visible; }
+
+  /* ---------- empty, no match ---------- */
+
+  .tf-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    align-content: start;
+    justify-items: center;
+    gap: 8px;
+    padding: 28px 24px;
+    text-align: center;
+    color: var(--tf-dim);
+  }
+
+  .tf-empty-title { font-size: 14px; font-weight: 600; color: var(--tf-fg); }
+  .tf-empty-text { max-width: 46ch; }
+
+  .tf-nomatch {
+    position: absolute;
+    top: calc(var(--tf-head-row-h) + 16px);
+    right: 0;
+    left: 0;
+    padding: 0 16px;
+    text-align: center;
+    color: var(--tf-dim);
+    pointer-events: none;
+  }
+
+  /* ---------- dropping, adding, the delete question ---------- */
+
+  /* A solid ring round the whole list, as a desktop app marks a drop target.
+     An outline, not a shadow: Windows high contrast keeps outlines. */
+  .tf-drop {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 6px;
+    color: var(--tf-accent-ink);
+    background: var(--tf-drop-bg);
+    border-radius: 2px;
+    outline: 2px solid var(--tf-accent-ink);
+    outline-offset: -2px;
+    pointer-events: none;
+    animation: tf-fade 0.12s ease-out both;
+  }
+
+  .tf-drop svg { width: 30px; height: 30px; stroke-width: 1.4; }
+  .tf-drop-title { font-size: 14px; font-weight: 600; }
+  .tf-drop-hint { font-size: var(--tf-small); color: var(--tf-dim); }
+
+  .tf-busy {
+    position: absolute;
+    top: 44%;
+    left: 50%;
+    z-index: 5;
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+    padding: 12px 18px;
+    font-size: var(--tf-small);
+    color: var(--tf-dim);
+    white-space: nowrap;
+    background: var(--tf-bg);
+    border: 1px solid var(--tf-border);
+    border-radius: 6px;
+    box-shadow: var(--tf-shadow);
+    transform: translate(-50%, -50%);
+    animation: tf-in 0.14s ease-out both;
+  }
+
+  /* the segmented bar: 20 segments, a light running along them */
+  .tf-seg {
+    display: grid;
+    grid-template-columns: repeat(20, 1fr);
+    gap: 2px;
+    width: 160px;
+    height: 3px;
+  }
+
+  .tf-seg i {
+    background: var(--tf-sep);
+    animation: tf-seg 1.2s steps(1) infinite;
+    animation-delay: calc(var(--tf-i, 0) * 60ms);
+  }
+
+  @keyframes tf-seg {
+    0%, 40% { background: var(--tf-accent); }
+    41%, 100% { background: var(--tf-sep); }
+  }
+
+  .tf-veil {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: var(--tf-veil);
+    animation: tf-fade 0.12s ease-out both;
+  }
+
+  .tf-ask {
+    display: grid;
+    gap: 14px;
+    width: min(380px, 100%);
+    padding: 16px 16px 12px;
+    background: var(--tf-bg);
+    border: 1px solid var(--tf-border-2);
+    border-radius: 6px;
+    box-shadow: var(--tf-shadow);
+    animation: tf-in 0.14s ease-out both;
+  }
+
+  .tf-ask-text { line-height: 1.4; overflow-wrap: anywhere; }
+  .tf-ask-acts { display: flex; justify-content: flex-end; gap: 6px; }
+
+  @keyframes tf-in {
+    from { opacity: 0; transform: translateY(3px); }
+  }
+
+  .tf-busy { animation-name: tf-in-centred; }
+
+  @keyframes tf-in-centred {
+    from { opacity: 0; transform: translate(-50%, calc(-50% + 3px)); }
+  }
+
+  @keyframes tf-fade {
+    from { opacity: 0; }
+  }
+
+  /* ---------- messages ---------- */
+
+  .tf-status {
+    min-height: 16px;
+    font-size: var(--tf-small);
+    color: var(--tf-dim);
+  }
+
+  .tf-status[data-kind="error"] { color: var(--tf-danger); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tf-drop,
+    .tf-busy,
+    .tf-veil,
+    .tf-ask,
+    .tf-file.tf-fresh .tf-cell { animation: none; }
+    .tf-seg i { animation-duration: 0s; animation-iteration-count: 1; }
+    .tf-btn,
+    .tf-ib,
+    .tf-cell,
+    .tf-acts { transition: none; }
+  }
+
+  /* Windows high contrast: the system's colours for the selection and the drop zone. */
+  @media (forced-colors: active) {
+    .tf-file[aria-selected="true"] .tf-cell { forced-color-adjust: none; color: HighlightText; background: Highlight; }
+    .tf-drop { outline-color: Highlight; }
+    .tf-panel:has(> .tf-list:focus-visible) { outline: 2px solid Highlight; }
+  }
+}
+
+/* The fields are real form fields, so they sit outside the layer on purpose:
+   an app's plain `input { ... }` rule (starter templates have one) must not
+   restyle them. These selectors weigh no more than `input:focus`, so any
+   class rule the app writes still wins. */
+input:where(.tf-q) {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font: var(--tf-font-size) var(--tf-font);
+  color: var(--tf-fg);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
+  transition: none;
+}
+
+input:where(.tf-q):focus { border-color: transparent; outline: 0; box-shadow: none; }
+input:where(.tf-q)::placeholder { color: var(--tf-faint); opacity: 1; }
+input:where(.tf-q)::-webkit-search-cancel-button { cursor: default; }
+
+input:where(.tf-rename) {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  display: block;
+  width: calc(100% + 2 * (var(--tf-cell-pad) - 3px));
+  height: calc(var(--tf-row-h) - 4px);
+  margin: 0 calc(-1 * (var(--tf-cell-pad) - 3px));
+  padding: 0 calc(var(--tf-cell-pad) - 4px);
+  font: var(--tf-table-size) var(--tf-font);
+  color: var(--tf-fg);
+  background: var(--tf-bg);
+  border: 1px solid var(--tf-accent);
+  border-radius: 3px;
+  outline: 0;
+  box-shadow: 0 0 0 2px var(--tf-focus);
+  transition: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+input:where(.tf-rename):focus { border-color: var(--tf-accent); outline: 0; box-shadow: 0 0 0 2px var(--tf-focus); }

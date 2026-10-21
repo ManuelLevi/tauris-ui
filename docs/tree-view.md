@@ -25,3 +25,4 @@ structural precision that older desktop interfaces often had.
 | Information density | Low | Very high |
 | Screen utilization | Lots of empty space | Many entries visible |
 | Overall feel | Touch-oriented interface | Precision desktop instrument |
+| Sorting | A fixed order, or a sort that scatters groups | A header click sorts siblings, groups stay together; numbers as numbers, empty values last |

@@ -1,5 +1,6 @@
 //! UI components for Tauri 2 desktop apps: browser-style tabs, a dense tree
-//! view / configuration editor, and an optional terminal look.
+//! view / configuration editor, a shared-files table, in-window menus, and an
+//! optional terminal look.
 //!
 //! The plugin injects each component's page script and stylesheet into every
 //! page; a component's stylesheet is added only when a page mounts it.
@@ -14,6 +15,13 @@
 //! - **Terminal** (`TaurisTerminal.mount(...)` in the page): an optional
 //!   Bloomberg-style look (amber on black, monospace, dense tables, function
 //!   keys, a command line and a message log). It lives entirely in the page.
+//! - **Files** (`TaurisFiles.mount(...)` in the page, [`files`] in Rust): a
+//!   place's shared files as a dense, sortable table, with drag and drop. The
+//!   app stores the files; the `files` feature adds the system's pickers and
+//!   opening a file with its default app.
+//! - **Menus** (`TaurisMenu.bar(...)`, `.button(...)`, `.open(...)` in the
+//!   page): an in-window menu bar, toolbar buttons with a ▾ menu, and
+//!   right-click menus. They live entirely in the page.
 //!
 //! ```ignore
 //! use tauris_ui::{Config, NewTab, TabsExt};
@@ -37,6 +45,7 @@
 mod commands;
 mod config;
 mod drag;
+pub mod files;
 mod menu;
 mod model;
 mod persist;
@@ -69,6 +78,10 @@ const TREE_SCRIPT: &str = include_str!("../web/tree.js");
 const TREE_STYLE: &str = include_str!("../web/tree.css");
 const TERMINAL_SCRIPT: &str = include_str!("../web/terminal.js");
 const TERMINAL_STYLE: &str = include_str!("../web/terminal.css");
+const FILES_SCRIPT: &str = include_str!("../web/files.js");
+const FILES_STYLE: &str = include_str!("../web/files.css");
+const MENUS_SCRIPT: &str = include_str!("../web/menus.js");
+const MENUS_STYLE: &str = include_str!("../web/menus.css");
 
 // The page scripts carry their stylesheets and the version, so one crate
 // delivers everything. Each component adds its stylesheet only when a page
@@ -86,7 +99,11 @@ fn page_script<R: Runtime>(config: &Config<R>) -> String {
     let tree = TREE_SCRIPT.replace("\"__TAURIS_TREE_CSS__\"", &serde_json::to_string(TREE_STYLE).unwrap_or_default());
     let terminal = TERMINAL_SCRIPT
         .replace("\"__TAURIS_TERMINAL_CSS__\"", &serde_json::to_string(TERMINAL_STYLE).unwrap_or_default());
-    format!("{tabs}\n;\n{tree}\n;\n{terminal}")
+    let files =
+        FILES_SCRIPT.replace("\"__TAURIS_FILES_CSS__\"", &serde_json::to_string(FILES_STYLE).unwrap_or_default());
+    let menus =
+        MENUS_SCRIPT.replace("\"__TAURIS_MENUS_CSS__\"", &serde_json::to_string(MENUS_STYLE).unwrap_or_default());
+    format!("{tabs}\n;\n{tree}\n;\n{terminal}\n;\n{files}\n;\n{menus}")
 }
 
 /// The plugin. Register it with `.plugin(tauris_ui::init(config))`.
@@ -107,6 +124,8 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
             commands::close_window,
             commands::move_to_new_window,
             commands::close_asked,
+            commands::pick_files,
+            commands::save_dialog,
         ])
         .js_init_script(script)
         // A page that (re)loads has not mounted the strip yet: nothing to ask.
@@ -138,13 +157,14 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
                 WindowEvent::Destroyed => windows::forget_window(app, label),
                 _ => {}
             },
+            // ⌘T opens a window when none is open; ⌘N always does.
             RunEvent::MenuEvent(e) => match e.id().as_ref() {
-                menu::NEW_TAB => {
+                menu::NEW_TAB => after_event(app, |app| {
                     let _ = app.tabs().new_tab();
-                }
-                menu::NEW_WINDOW => {
+                }),
+                menu::NEW_WINDOW => after_event(app, |app| {
                     let _ = app.tabs().new_window();
-                }
+                }),
                 menu::CLOSE_TAB => app.tabs().close_active(),
                 menu::CLOSE_WINDOW => windows::close_window(app),
                 _ => {}
@@ -157,11 +177,37 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
             RunEvent::Reopen { has_visible_windows: false, .. }
                 if windows::inner(app).started.load(std::sync::atomic::Ordering::SeqCst) =>
             {
-                let _ = persist::restore(app);
+                after_event(app, |app| {
+                    let _ = persist::restore(app);
+                });
             }
             _ => {}
         })
         .build()
+}
+
+// Tauri calls a plugin's on_event while it holds its plugin lock, and
+// opening a window takes that same lock, so a window opened inside the
+// handler waits forever (the Dock click and ⌘N froze the app).
+// run_on_main_thread is no way out: on the main thread it runs at once. The
+// work goes to one worker thread instead, which opens the window as soon as
+// the handler has returned, and does the jobs in order (a second ⌘T adds a
+// tab to the window the first one opened).
+fn after_event<R: Runtime>(app: &AppHandle<R>, job: impl FnOnce(&AppHandle<R>) + Send + 'static) {
+    let mut worker = windows::inner(app).after_events();
+    if worker.is_none() {
+        let (tx, rx) = std::sync::mpsc::channel::<windows::Job<R>>();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            for job in rx {
+                job(&app);
+            }
+        });
+        *worker = Some(tx);
+    }
+    if let Some(tx) = worker.as_ref() {
+        let _ = tx.send(Box::new(job));
+    }
 }
 
 /// What an app does with its tabs from Rust. Get it with `app.tabs()`.

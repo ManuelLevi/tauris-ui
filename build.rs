@@ -12,6 +12,8 @@ const COMMANDS: &[&str] = &[
     "close_window",
     "move_to_new_window",
     "close_asked",
+    "pick_files",
+    "save_dialog",
 ];
 
 fn main() {

@@ -1,0 +1,302 @@
+/* tauris-ui in-window menus: the menu bar, menu buttons and pop-up menus.
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --tmn-* variables outside every @layer block, or override any .tmn-*
+ * class. The defaults follow the system's light or dark mode.
+ *
+ * The parts:
+ *   .tmn-bar          the menu bar (TaurisMenu.bar adds it): .tmn-title per menu
+ *   .tmn-menu         an open menu, hung from <body>: .tmn-item rows with
+ *                     .tmn-label and .tmn-shortcut, .tmn-sep lines, .tmn-check
+ *                     (the ✓ column) and .tmn-chip (an item's colour)
+ *   .tmn-caret        on a menu button: the ▾ after its text
+ *   .tmn-toolbar      optional: a toolbar row, with .tmn-tool buttons and
+ *                     .tmn-tool-sep lines between groups. Any element can be a
+ *                     menu button; .tmn-tool is only the look.
+ */
+@layer tauris-ui {
+  :root {
+    --tmn-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --tmn-font-size: 13px;
+    --tmn-fg: #1e1f22;
+    --tmn-disabled: #a3a6ad;
+    --tmn-focus: rgb(38 117 191 / 0.32);
+    /* the bar */
+    --tmn-bar-h: 24px;
+    --tmn-bar-bg: #f2f2f3;
+    --tmn-bar-line: #d3d5da;
+    --tmn-title-pad: 9px;
+    --tmn-title-open-bg: #dbe6f4;     /* the title under the mouse or with its menu open */
+    /* a menu */
+    --tmn-menu-min-w: 220px;
+    --tmn-menu-bg: #ffffff;
+    --tmn-menu-border: #adb0b7;
+    --tmn-menu-radius: 4px;
+    --tmn-menu-pad: 4px;              /* above the first item and below the last */
+    --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+    --tmn-item-h: 24px;
+    --tmn-item-pad: 12px;
+    --tmn-item-gap: 24px;             /* between a label and its shortcut */
+    --tmn-item-on-bg: #2675bf;        /* the item under the mouse or chosen by the keyboard */
+    --tmn-item-on-fg: #ffffff;
+    --tmn-danger: #d1453b;
+    --tmn-shortcut-opacity: 0.7;
+    --tmn-sep: #d3d5da;
+    --tmn-chip-size: 10px;
+    /* the toolbar look */
+    --tmn-tool-h: 26px;
+    --tmn-tool-font-size: 12px;
+    --tmn-tool-hover-bg: #e6e8ec;
+    --tmn-tool-border: #c4c6cc;
+    --tmn-tool-on-bg: #dbe6f4;        /* pressed, or with its menu open */
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --tmn-fg: #dfe1e5;
+      --tmn-disabled: #6f737a;
+      --tmn-focus: rgb(74 136 199 / 0.45);
+      --tmn-bar-bg: #3c3f41;
+      --tmn-bar-line: #515356;
+      --tmn-title-open-bg: #4b6eaf;
+      --tmn-menu-bg: #2f3234;
+      --tmn-menu-border: #6b6e73;
+      --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
+      --tmn-item-on-bg: #3570b0;
+      --tmn-danger: #f07a72;
+      --tmn-sep: #515356;
+      --tmn-tool-hover-bg: #4c5052;
+      --tmn-tool-border: #5e6165;
+      --tmn-tool-on-bg: #4b6eaf;
+    }
+  }
+
+  /* ---------- the bar ---------- */
+
+  .tmn-bar {
+    display: flex;
+    align-items: stretch;
+    box-sizing: border-box;
+    height: var(--tmn-bar-h);
+    padding: 0 4px;
+    color: var(--tmn-fg);
+    background: var(--tmn-bar-bg);
+    border-bottom: 1px solid var(--tmn-bar-line);
+    font: var(--tmn-font-size) var(--tmn-font);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .tmn-title {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--tmn-title-pad);
+    white-space: nowrap;
+    cursor: default;
+  }
+
+  .tmn-title:hover,
+  .tmn-title[aria-expanded="true"] { background: var(--tmn-title-open-bg); }
+  .tmn-title:focus { outline: none; }
+  .tmn-title:focus-visible { outline: 2px solid var(--tmn-focus); outline-offset: -2px; }
+  .tmn-title[aria-disabled="true"] { color: var(--tmn-disabled); background: none; }
+
+  /* ---------- a menu ---------- */
+
+  .tmn-menu {
+    position: fixed;
+    z-index: 2147483000;
+    box-sizing: border-box;
+    min-width: var(--tmn-menu-min-w);
+    max-width: calc(100vw - 8px);
+    padding: var(--tmn-menu-pad) 0;
+    overflow-y: auto;
+    color: var(--tmn-fg);
+    background: var(--tmn-menu-bg);
+    border: 1px solid var(--tmn-menu-border);
+    border-radius: var(--tmn-menu-radius);
+    box-shadow: var(--tmn-menu-shadow);
+    font: var(--tmn-font-size) var(--tmn-font);
+    line-height: normal;
+    text-align: left;
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+    animation: tmn-in 0.09s ease-out both;
+  }
+
+  @keyframes tmn-in {
+    from { opacity: 0; transform: translateY(-2px); }
+  }
+
+  .tmn-menu:focus { outline: none; }
+
+  .tmn-item {
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    height: var(--tmn-item-h);
+    padding: 0 var(--tmn-item-pad);
+    white-space: nowrap;
+  }
+
+  .tmn-item:focus {
+    outline: none;
+    color: var(--tmn-item-on-fg);
+    background: var(--tmn-item-on-bg);
+  }
+
+  .tmn-item.tmn-danger:not(:focus) { color: var(--tmn-danger); }
+  .tmn-item[aria-disabled="true"] { color: var(--tmn-disabled); }
+
+  .tmn-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tmn-shortcut {
+    flex: none;
+    min-width: 18px;
+    margin-left: var(--tmn-item-gap);
+    font-size: calc(var(--tmn-font-size) - 1px);
+    text-align: right;
+    opacity: var(--tmn-shortcut-opacity);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tmn-check {
+    flex: none;
+    width: 16px;
+    margin-left: -4px;
+    font-size: 12px;
+  }
+
+  .tmn-chip {
+    flex: none;
+    width: var(--tmn-chip-size);
+    height: var(--tmn-chip-size);
+    margin-right: 7px;
+    border-radius: 2px;
+    background: var(--tmn-chip);
+  }
+
+  .tmn-item:focus .tmn-chip { box-shadow: 0 0 0 1px var(--tmn-item-on-fg); }
+
+  .tmn-sep {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--tmn-sep);
+  }
+
+  /* ---------- menu buttons and the toolbar look ---------- */
+
+  .tmn-caret::after {
+    content: "";
+    flex: none;
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    margin: 0 2px 0 6px;
+    border: solid currentColor;
+    border-width: 0 1.3px 1.3px 0;
+    opacity: 0.6;
+    transform: translateY(-2px) rotate(45deg);
+  }
+
+  .tmn-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 6px;
+    color: var(--tmn-fg);
+    background: var(--tmn-bar-bg);
+    border-bottom: 1px solid var(--tmn-bar-line);
+    font: var(--tmn-tool-font-size) var(--tmn-font);
+  }
+
+  .tmn-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    box-sizing: border-box;
+    height: var(--tmn-tool-h);
+    padding: 0 8px;
+    color: inherit;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font: var(--tmn-tool-font-size) var(--tmn-font);
+    white-space: nowrap;
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: background-color 0.1s, border-color 0.1s;
+  }
+
+  .tmn-tool:hover { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
+  .tmn-tool:focus { outline: none; }
+  .tmn-tool:focus-visible { box-shadow: 0 0 0 2px var(--tmn-focus); }
+  .tmn-tool:active { transform: translateY(0.5px); }
+
+  .tmn-tool[aria-expanded="true"],
+  .tmn-tool[aria-pressed="true"] { background: var(--tmn-tool-on-bg); border-color: var(--tmn-tool-border); }
+
+  .tmn-tool[aria-disabled="true"],
+  .tmn-tool:disabled { color: var(--tmn-disabled); background: transparent; border-color: transparent; transform: none; }
+
+  .tmn-tool svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .tmn-tool-sep {
+    width: 1px;
+    height: 18px;
+    margin: 0 6px;
+    background: var(--tmn-bar-line);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tmn-menu { animation: none; }
+    .tmn-tool { transition: none; }
+  }
+
+  /* Windows high contrast: the system's colours for the chosen item. */
+  @media (forced-colors: active) {
+    .tmn-menu { border-color: CanvasText; }
+    .tmn-item:focus { forced-color-adjust: none; color: HighlightText; background: Highlight; }
+    .tmn-title[aria-expanded="true"] { outline: 1px solid Highlight; }
+  }
+}
+
+/* A toolbar button can be a real <button>: these rules sit outside the layer
+   so an app's plain `button { ... }` rule (starter templates have one) does
+   not restyle it. They weigh no more than `button:hover`, so any class rule
+   the app writes still wins. */
+button:where(.tmn-tool) {
+  margin: 0;
+  padding: 0 8px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  box-shadow: none;
+  outline: none;
+  font: var(--tmn-tool-font-size) var(--tmn-font);
+  transition: background-color 0.1s, border-color 0.1s;
+}
+
+button:where(.tmn-tool):hover { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
+button:where(.tmn-tool):active { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
+button:where(.tmn-tool):focus-visible { box-shadow: 0 0 0 2px var(--tmn-focus); }
+button:where(.tmn-tool)[aria-expanded="true"],
+button:where(.tmn-tool)[aria-pressed="true"] { background: var(--tmn-tool-on-bg); border-color: var(--tmn-tool-border); }
+button:where(.tmn-tool):disabled { color: var(--tmn-disabled); background: transparent; border-color: transparent; }

@@ -8,6 +8,55 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.7 — 2026-10-21
+
+- Fixed: the app froze (macOS "not responding") on a Dock click with no window open, on File › New Window (⌘N), and on File › New Tab (⌘T) with no window open. Tauri holds its plugin lock while the plugin's event handler runs, and opening a window takes that lock. These now open their window just after the handler returns, one after the other, in order.
+- `test/freeze_check`: a small app that clicks the Dock and presses ⌘N for real (macOS), because no headless test can show this freeze. Run it with `cd test/freeze_check && cargo run` after changing the plugin's event handler.
+
+## 0.4.6 — 2026-10-21
+
+- Tree view: **sortable columns.** With `sortable: true` (or a first `sort: { key, up }`), a click on a column's header sorts by it and a second click turns it round (▲ / ▼); Enter and Space do the same on a focused header.
+  - Rows sort among their siblings, so groups stay groups.
+  - Numbers sort as numbers; text sorts as people read it ("Brian 49" before "Brian 169"); empty values go last both ways.
+  - Per column: `sortable: false`, `sortValue: node => ...` (sort by something other than the text shown), `compare: (a, b) => ...`.
+  - A `sort` event (`{ key, up }`, or null), `sort(key, up)` and `sorting()`. `setData` keeps the order; selection and focus stay on their node. 3,200 rows sort in a few milliseconds.
+
+  A tree without these options is unchanged: its header has no buttons.
+
+  **Upgrade** (TypeScript apps only): copy `web/tree.d.ts` over the app's copy; `doctor.py` points to it.
+- Files: the header keeps its height (26px) with or without the search field, so the list no longer moves when the first file arrives or the last one goes.
+
+## 0.4.5 — 2026-10-21
+
+- Files: the columns keep their widths with every row, one row or none (a search that matches nothing no longer squeezes them); the name takes the rest. `--tf-size-w`, `--tf-added-w`, `--tf-by-w` and `--tf-acts-w` set them; the buttons' column fits how many buttons there are.
+- Files: `onMenuOpen({ label, how })` and `onMenuClose({ label, chosen })` for the row's menu (right click, Shift+F10), as the menus' `onOpen` and `onClose`.
+
+## 0.4.4 — 2026-10-21
+
+- Files: with `onMessage` (the app shows the messages) or `header: false`, the list takes the room of the part that is not shown, with no empty gap above or below it.
+
+## 0.4.3 — 2026-10-21
+
+- Menus: `onOpen({ label, how })` and `onClose({ label, chosen })` on `TaurisMenu.bar` and `TaurisMenu.button`, for a sound or anything else. `chosen` is true when an item was picked. Going from one menu of the bar to the next (Left, Right, pointing at another title) fires neither. `TaurisMenu.open`'s `onClose` gets the same `{ label, chosen }`.
+- Files: the drop zone is a solid 2px ring round the whole list, as a desktop app marks a drop target, instead of a dashed box.
+- Files: `--tf-accent-ink`, the accent as text and lines (the drop zone, the sort arrow). In dark mode it is lighter, so "Drop to add to …" is readable (about 5:1 instead of 2.5:1).
+
+## 0.4.2 — 2026-10-21
+
+- New, optional component: **files** (`TaurisFiles`), a place's shared files as a dense table:
+  - a type badge, the name, size, date added and who added it; sort by any column (▲ / ▼)
+  - Open, Save a copy…, Rename and Delete on the row, on a right click and from the keyboard (Enter, F2, ⌘⌫)
+  - search, a header with the count and total size, an empty state and a "no match" line
+  - **Add files…** with the system's picker, and files dropped on the window, with a dashed drop zone
+  - a segmented bar while files are added, renaming in place, a question before deleting
+  - every word can be changed (`labels`); light and dark; `--tf-*` variables
+
+  The app keeps the files: the component hands it every action (`onAdd`, `onOpen`, `onSaveAs`, `onRename`, `onDelete`). Types are in `web/files.d.ts`, tests in `test/files_run.py`.
+- `tauris_ui::files` in Rust: `inspect` (refuses folders, missing and oversized files in a sentence), `mime_for`, `safe_name`, `size_text`. With the new `files` feature: `pick_files`, `save_dialog` and `open_path`, and the page's `TaurisFiles.pick` and `TaurisFiles.saveDialog` (new page commands `pick_files` and `save_dialog`, in `tauris-ui:default`). The feature uses the dialog plugin, which the app registers.
+- New, optional component: **menus** (`TaurisMenu`): an in-window menu bar, toolbar buttons with a ▾ menu, and menus at a point, with a desktop app's keyboard (arrows, Home, End, letters, Left and Right across the bar, Escape back to where focus was). Items have shortcut hints, colour chips, ✓, red and disabled states. Types are in `web/menus.d.ts`, tests in `test/menus_run.py`.
+- `doctor.py` knows both: the `files` feature, the dialog plugin, and the capability a window needs for the picker.
+- Terminal: a Space that went down on something else (a menu item) no longer presses the key that has the focus when it comes up.
+
 ## 0.4.1 — 2026-10-21
 
 - New, optional component: the **terminal** look (`TaurisTerminal`):

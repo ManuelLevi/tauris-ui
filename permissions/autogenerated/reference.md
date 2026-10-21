@@ -1,6 +1,6 @@
 ## Default Permission
 
-Lets a window use the tab strip: read its tabs, open, close, move and drag them.
+Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.
 
 #### This default permission set includes the following:
 
@@ -17,6 +17,8 @@ Lets a window use the tab strip: read its tabs, open, close, move and drag them.
 - `allow-close-window`
 - `allow-move-to-new-window`
 - `allow-close-asked`
+- `allow-pick-files`
+- `allow-save-dialog`
 
 ## Permission Table
 
@@ -264,6 +266,32 @@ Denies the open_tab command without any pre-configured scope.
 <tr>
 <td>
 
+`tauris-ui:allow-pick-files`
+
+</td>
+<td>
+
+Enables the pick_files command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-pick-files`
+
+</td>
+<td>
+
+Denies the pick_files command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tauris-ui:allow-report-strip`
 
 </td>
@@ -283,6 +311,32 @@ Enables the report_strip command without any pre-configured scope.
 <td>
 
 Denies the report_strip command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:allow-save-dialog`
+
+</td>
+<td>
+
+Enables the save_dialog command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-save-dialog`
+
+</td>
+<td>
+
+Denies the save_dialog command without any pre-configured scope.
 
 </td>
 </tr>

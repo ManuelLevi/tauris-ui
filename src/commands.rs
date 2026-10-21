@@ -128,6 +128,27 @@ pub async fn move_to_new_window<R: Runtime>(
     windows::move_to_new_window(&app, tab).map(|_| ()).map_err(|e| e.to_string())
 }
 
+// The system's file picker for the files component: only the paths the
+// person chose come back ([] if they cancel).
+#[tauri::command]
+pub async fn pick_files<R: Runtime>(
+    window: WebviewWindow<R>,
+    title: Option<String>,
+    multiple: Option<bool>,
+) -> Result<Vec<String>, String> {
+    crate::files::pick_for_page(window, title, multiple.unwrap_or(true)).await
+}
+
+// The system's save dialog with a name filled in: the chosen path, or null.
+#[tauri::command]
+pub async fn save_dialog<R: Runtime>(
+    window: WebviewWindow<R>,
+    title: Option<String>,
+    name: Option<String>,
+) -> Result<Option<String>, String> {
+    crate::files::save_for_page(window, title, name).await
+}
+
 #[tauri::command]
 pub async fn drag_out<R: Runtime>(
     window: WebviewWindow<R>,

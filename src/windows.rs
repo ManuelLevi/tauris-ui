@@ -5,6 +5,7 @@ use crate::model::{Fields, Frame, Model, NewTab, Tab};
 use serde::Serialize;
 use std::cell::Cell;
 use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::Sender;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
@@ -16,9 +17,13 @@ pub(crate) const CLOSE_WINDOW_REQUEST: &str = "tauris-ui:close-window-request";
 // hung; the next press of the close button closes the window.
 pub(crate) const UNANSWERED: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Work for the app's handle, run after an event handler has returned.
+pub(crate) type Job<R> = Box<dyn FnOnce(&AppHandle<R>) + Send>;
+
 pub(crate) struct Inner<R: Runtime> {
     model: Mutex<Model>,
     save: Mutex<()>,
+    after: Mutex<Option<Sender<Job<R>>>>,
     pub config: Config<R>,
     pub started: AtomicBool,
 }
@@ -28,6 +33,7 @@ impl<R: Runtime> Inner<R> {
         Inner {
             model: Mutex::new(Model::new(&config.window_prefix)),
             save: Mutex::new(()),
+            after: Mutex::new(None),
             config,
             started: AtomicBool::new(false),
         }
@@ -37,6 +43,12 @@ impl<R: Runtime> Inner<R> {
     // save and a forget) never overlap.
     pub fn save_lock(&self) -> MutexGuard<'_, ()> {
         self.save.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    // The worker that runs, one after the other, what the plugin's event
+    // handler must not do itself (see after_event in lib.rs).
+    pub fn after_events(&self) -> MutexGuard<'_, Option<Sender<Job<R>>>> {
+        self.after.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     // A panic elsewhere must not lock every later caller out of the tabs.

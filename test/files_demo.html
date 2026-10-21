@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>tauris-ui files and menus</title>
+<!-- Open this file in a browser to try the files component and the menus. A
+     stand-in for Tauri answers the picker, and "Drop a file" / "Drop a folder"
+     in the Help menu play a drag and drop. In an app the plugin adds the
+     stylesheets; here they are linked. -->
+<link rel="stylesheet" href="../web/files.css">
+<link rel="stylesheet" href="../web/menus.css">
+<style>
+  :root { color-scheme: light dark; --page: #f2f2f3; --line: #d3d5da; --dim: #666a77; }
+  @media (prefers-color-scheme: dark) { :root { --page: #3c3f41; --line: #515356; --dim: #adb0b8; } }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; grid-template-rows: 24px 34px minmax(0, 1fr) 22px; background: var(--page);
+    font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  #work { min-height: 0; padding: 8px; }
+  #files { height: 100%; }
+  #status { display: flex; align-items: center; gap: 6px; padding: 0 10px; font-size: 12px; color: var(--dim); border-top: 1px solid var(--line); }
+  #status[data-kind="error"] { color: #d1453b; }
+</style>
+</head>
+<body>
+<nav id="menubar"></nav>
+<div id="toolbar" class="tmn-toolbar">
+  <span id="home" class="tmn-tool" role="button" tabindex="0" aria-pressed="false">Home</span>
+  <span class="tmn-tool-sep"></span>
+  <span id="tb-projects" class="tmn-tool">Projects</span>
+  <span id="tb-docs" class="tmn-tool" aria-pressed="true">Documents</span>
+</div>
+<main id="work"><div id="files"></div></main>
+<footer id="status" role="status"><span id="msg">Ready</span></footer>
+
+<script>
+// A stand-in for Tauri: the picker, the save dialog and drag-and-drop events.
+(() => {
+  const listeners = {};
+  window.__calls = [];
+  window.__pick = ["/Users/m/Q3 board deck.pdf", "/Users/m/Studio floor plan.png"];
+  window.__emit = (name, payload) => (listeners[name] || []).forEach(fn => fn({ event: name, payload }));
+  window.__TAURI__ = {
+    core: {
+      invoke: async (command, args) => {
+        window.__calls.push([command, args]);
+        await new Promise(r => setTimeout(r, 20));
+        if (command === "plugin:tauris-ui|pick_files") return window.__pick.slice();
+        if (command === "plugin:tauris-ui|save_dialog") return window.__cancelSave ? null : `/Users/m/Downloads/${args.name}`;
+        throw `${command} not found`;
+      },
+    },
+    event: {
+      listen: async (name, fn) => {
+        (listeners[name] ||= []).push(fn);
+        return () => { listeners[name] = listeners[name].filter(f => f !== fn); };
+      },
+    },
+  };
+})();
+</script>
+<script src="../web/menus.js"></script>
+<script src="../web/files.js"></script>
+<script>
+// The app: files kept in memory, as an app would keep them on its server.
+const SIZES = { "Q3 board deck.pdf": 2516582, "Studio floor plan.png": 389120, "Term sheet.docx": 120000 };
+let nextId = 100;
+const day = n => new Date(Date.now() - n * 86400000).toISOString().replace("T", " ");
+// Each project keeps its own files; `store` is the open one's.
+const stores = { "Northwind Launch": [
+  { id: 1, name: "Launch plan.pptx", size: 4718592, added: day(1), by: "sophie" },
+  { id: 2, name: "Budget 2027.xlsx", size: 88064, added: day(3), by: "manuel" },
+  { id: 3, name: "Brand assets.zip", size: 23068672, added: day(9), by: "sophie" },
+  { id: 4, name: "Kickoff notes.md", size: 6144, added: day(14), by: "joão" },
+  { id: 5, name: "Customer interview — Maria Okafor, Lisbon office, recorded with consent.m4a", size: 13002342, added: day(20), by: "manuel" },
+  { id: 6, name: "Site visit.mov", size: 152043520, added: "2025-11-04", by: "joão" },
+  { id: 7, name: "Contract — signed.pdf", size: 412000, added: day(40), by: "manuel" },
+  { id: 8, name: "Moodboard.heic", size: 3355443, added: day(2), by: "sophie" },
+], "Seed Round 2026": [], "Health": [], "Open Loops": [] };
+let project = "Northwind Launch";
+let store = stores[project];
+const keep = list => { store = list; stores[project] = list; files.setFiles(list); };
+const status = document.getElementById("msg");
+const say = (text, kind) => { status.textContent = text; status.parentElement.dataset.kind = kind; };
+const wait = ms => new Promise(r => setTimeout(r, ms));
+window.uploadMs = 500;
+
+const files = TaurisFiles.mount(document.getElementById("files"), {
+  title: "Northwind Launch",
+  subtitle: "Documents",
+  color: "#2a78d6",
+  files: store,
+  labels: { dropHint: "Up to 50 MB per file", emptyText: "Shared files for this project live here: contracts, decks, plans, photos. Drop files anywhere on this window, or add them." },
+  onMessage: say,
+  onAdd: async paths => {
+    await wait(window.uploadMs);
+    const added = [];
+    for (const p of paths) {
+      const name = p.split("/").pop();
+      if (!name.includes(".")) {
+        if (added.length) keep(store.concat(added));
+        throw `${name} is a folder. Add files, not folders.` + (added.length ? ` ${added.length} added before that.` : "");
+      }
+      added.push({ id: ++nextId, name, size: SIZES[name] ?? 120000, added: new Date().toISOString(), by: "you" });
+    }
+    keep(store.concat(added));
+    return added;
+  },
+  onOpen: async file => { await wait(80); window.opened = file.name; },
+  onSaveAs: async file => {
+    const path = await TaurisFiles.saveDialog({ title: `Save a copy of ${file.name}`, name: file.name });
+    if (!path) return false;
+    window.savedTo = path;
+  },
+  onRename: async (file, name) => {
+    await wait(40);
+    if (store.some(f => f.id !== file.id && f.name === name)) throw `There is already a file called ${name}.`;
+    keep(store.map(f => (f.id === file.id ? { ...f, name } : f)));
+  },
+  onDelete: async file => {
+    await wait(40);
+    keep(store.filter(f => f.id !== file.id));
+  },
+});
+
+// The menus: a menu bar, and toolbar buttons that open menus.
+let shown = { size: true, added: true, by: true };
+const columns = () => ["kind", "name", ...["size", "added", "by"].filter(c => shown[c])];
+const toggle = col => () => { shown[col] = !shown[col]; files.update({ columns: columns() }); };
+const sortBy = key => () => files.update({ sort: { key, up: key === "name" } });
+const bar = TaurisMenu.bar(document.getElementById("menubar"), { menus: [
+  { label: "File", items: () => [
+    { label: "Add files…", shortcut: "⌘O", action: () => files.add() },
+    { label: "New folder…", disabled: true },
+    "-",
+    { label: "Open", shortcut: "↩", disabled: !files.selected(), action: () => files.open(files.selected().id) },
+    { label: "Rename", shortcut: "F2", disabled: !files.selected(), action: () => files.rename(files.selected().id) },
+    { label: "Delete", shortcut: "⌘⌫", danger: true, disabled: !files.selected(), action: () => files.remove(files.selected().id) },
+  ] },
+  { label: "Edit", items: [
+    { label: "Undo", shortcut: "⌘Z", disabled: true },
+    { label: "Redo", shortcut: "⇧⌘Z", disabled: true },
+    "-",
+    { label: "Find…", shortcut: "⌘F", action: () => files.focusSearch() },
+  ] },
+  { label: "View", items: () => [
+    { label: "Size", checked: shown.size, action: toggle("size") },
+    { label: "Added", checked: shown.added, action: toggle("added") },
+    { label: "Added by", checked: shown.by, action: toggle("by") },
+    "-",
+    { label: "Sort by name", action: sortBy("name") },
+    { label: "Sort by size", action: sortBy("size") },
+    { label: "Sort by date added", action: sortBy("added") },
+  ] },
+  { label: "Window", disabled: true, items: [] },
+  { label: "Help", items: [
+    { label: "Drop a file", action: () => { __emit("tauri://drag-enter", { paths: ["/Users/m/Term sheet.docx"], position: { x: 400, y: 300 } }); setTimeout(() => __emit("tauri://drag-drop", { paths: ["/Users/m/Term sheet.docx"], position: { x: 400, y: 300 } }), 900); } },
+    { label: "Drop a folder", action: () => __emit("tauri://drag-drop", { paths: ["/Users/m/Contracts"], position: { x: 400, y: 300 } }) },
+  ] },
+] });
+
+const PROJECTS = [["Northwind Launch", "#2a78d6"], ["Seed Round 2026", "#eb6834"], ["Health", "#1baf7a"], ["Open Loops", "#eda100"]];
+TaurisMenu.button(document.getElementById("tb-projects"), {
+  items: () => PROJECTS.map(([name, color]) => ({ label: `Edit ${name}…`, color, action: () => say(`Edit ${name}`, "info") })),
+});
+TaurisMenu.button(document.getElementById("tb-docs"), {
+  items: () => PROJECTS.map(([name, color]) => ({
+    label: name, color, shortcut: String(stores[name].length),
+    action: () => { project = name; store = stores[name]; files.update({ title: name, color, files: store }); },
+  })),
+});
+document.getElementById("home").addEventListener("click", () => say("Home", "info"));
+window.demo = { files, bar, get store() { return store; } };
+</script>
+</body>
+</html>

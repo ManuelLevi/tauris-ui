@@ -403,6 +403,18 @@
           "markdownDescription": "Denies the open_tab command without any pre-configured scope."
         },
         {
+          "description": "Enables the pick_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pick-files",
+          "markdownDescription": "Enables the pick_files command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pick_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pick-files",
+          "markdownDescription": "Denies the pick_files command without any pre-configured scope."
+        },
+        {
           "description": "Enables the report_strip command without any pre-configured scope.",
           "type": "string",
           "const": "allow-report-strip",
@@ -413,6 +425,18 @@
           "type": "string",
           "const": "deny-report-strip",
           "markdownDescription": "Denies the report_strip command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_dialog command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-dialog",
+          "markdownDescription": "Enables the save_dialog command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_dialog command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-dialog",
+          "markdownDescription": "Denies the save_dialog command without any pre-configured scope."
         },
         {
           "description": "Enables the set_close_guard command without any pre-configured scope.",
@@ -451,10 +475,10 @@
           "markdownDescription": "Denies the window_state command without any pre-configured scope."
         },
         {
-          "description": "Lets a window use the tab strip: read its tabs, open, close, move and drag them.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-close-asked`",
+          "description": "Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Lets a window use the tab strip: read its tabs, open, close, move and drag them.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-close-asked`"
+          "markdownDescription": "Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`"
         }
       ]
     }

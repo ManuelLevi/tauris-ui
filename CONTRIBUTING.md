@@ -15,19 +15,22 @@ them.
 1. Keep it general. Anything one app needs becomes an option whose default
    changes nothing for others.
 2. Add or update a test:
-   - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`
+   - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`
    - window behaviour in `src/runtime_tests.rs`
    - pure logic next to the code
-3. Update the docs to match: `README.md`, `web/tabs.d.ts` or `web/tree.d.ts`, and `examples/basic`.
+3. Update the docs to match: `README.md`, the component's `web/*.d.ts`, and `examples/basic`.
 4. Add a line under **Unreleased** at the top of `CHANGELOG.md`. If apps must
    change something, write the exact steps under **Upgrade**. The maintainer
    sets the version when releasing.
 5. Run the checks. All of them must pass, with no warnings:
    ```
    cargo fmt --check && cargo clippy --all-targets && cargo test
+   cargo clippy --all-targets --features files && cargo test --features files
    python test/run.py            # needs Python 3.11+, playwright and Google Chrome
    python test/tree_run.py
    python test/terminal_run.py
+   python test/files_run.py
+   python test/menus_run.py
    (cd examples/basic/src-tauri && cargo build)
    python scripts/doctor.py examples/basic
    ```

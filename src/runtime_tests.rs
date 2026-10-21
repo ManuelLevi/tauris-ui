@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
-use tauri::App;
+use tauri::{App, Manager};
 
 fn app(config: Config<MockRuntime>) -> App<MockRuntime> {
     mock_builder().plugin(init(config)).build(mock_context(noop_assets())).expect("test app")
@@ -336,4 +336,66 @@ fn every_command_is_registered_and_allowed() {
     assert_eq!(built, defined, "build.rs COMMANDS");
     assert_eq!(handled, defined, "generate_handler! in lib.rs");
     assert_eq!(allowed, defined, "permissions/default.toml");
+}
+
+#[test]
+fn the_page_script_carries_every_component_and_its_stylesheet() {
+    let script = crate::page_script(&quiet());
+    for placeholder in ["TABS_CSS", "TABS_VERSION", "TREE_CSS", "TERMINAL_CSS", "FILES_CSS", "MENUS_CSS"] {
+        assert!(!script.contains(&format!("__TAURIS_{placeholder}__")), "{placeholder} is not filled in");
+    }
+    for global in ["TaurisTabs", "TaurisTree", "TaurisTerminal", "TaurisFiles", "TaurisMenu"] {
+        assert!(script.contains(&format!("window.{global} = ")), "{global} is missing");
+    }
+    for variable in ["--tt-strip-h", "--tv-row-h", "--tm-font", "--tf-row-h", "--tmn-item-h"] {
+        assert!(script.contains(variable), "the stylesheet with {variable} is missing");
+    }
+}
+
+// The page's file pickers say what the app is missing, instead of failing silently.
+#[test]
+fn the_file_pickers_say_what_the_app_is_missing() {
+    let app = app(quiet());
+    app.tabs().start().unwrap();
+    let window = app.get_webview_window("tabs-1").expect("a tab window");
+    let picked = tauri::async_runtime::block_on(crate::files::pick_for_page(window.clone(), None, true));
+    let saved = tauri::async_runtime::block_on(crate::files::save_for_page(window, None, Some("a.pdf".into())));
+    #[cfg(not(feature = "files"))]
+    let wanted = "\"files\" feature";
+    #[cfg(feature = "files")]
+    let wanted = "tauri_plugin_dialog::init()";
+    assert!(picked.unwrap_err().contains(wanted));
+    assert!(saved.unwrap_err().contains(wanted));
+}
+
+// With the dialog plugin registered, the pickers find it.
+#[cfg(feature = "files")]
+#[test]
+fn the_file_pickers_find_the_dialog_plugin() {
+    let app = mock_builder()
+        .plugin(init(quiet()))
+        .plugin(tauri_plugin_dialog::init())
+        .build(mock_context(noop_assets()))
+        .expect("test app");
+    assert!(crate::files::dialogs(app.handle()).is_ok());
+}
+
+// Tauri runs the plugin's on_event while it holds its plugin lock, and opening
+// a window takes that lock: a window opened inside the handler freezes the app
+// (the Dock click, ⌘N). Only the real event loop shows the freeze, so this
+// checks the source: whatever can open a window runs through after_event.
+#[test]
+fn the_event_handler_opens_no_window_itself() {
+    let source = include_str!("lib.rs");
+    let from = source.find(".on_event(|app, event|").expect("the plugin's on_event");
+    let to = from + source[from..].find(".build()").expect("the end of on_event");
+    let handler = &source[from..to];
+    let opens = ["new_tab()", "new_window()", "persist::restore(", "open_or_focus(", "create_window("];
+    let lines: Vec<&str> = handler.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(call) = opens.iter().find(|call| line.contains(*call)) {
+            let before = &lines[i.saturating_sub(2)..i];
+            assert!(before.iter().any(|l| l.contains("after_event(")), "{call} runs inside on_event: {line}");
+        }
+    }
 }

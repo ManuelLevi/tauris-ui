@@ -11,6 +11,11 @@
 // node.values[column.key]. A column with `editable: true` edits those values in
 // place. Only the rows in view are drawn, so thousands of rows stay fast.
 //
+// With `sortable: true` (or a first `sort`), a click on a column's header
+// sorts by it and a second click turns it round. Rows sort among their
+// siblings, so groups stay groups: numbers as numbers, text as people read it
+// ("Brian 49" before "Brian 169"), empty values last both ways.
+//
 // The look is the classic Qt / Windows tree: compact rows, small +/- boxes and
 // dotted connector lines. The lines follow one checkerboard across all rows,
 // so they join without a seam and meet the middle pixel of every box.
@@ -83,6 +88,13 @@
     icons: {},
     // rows drawn above and below the visible ones
     overscan: 8,
+    // a click on a column's header sorts by it, a second click turns it
+    // round; a column with `sortable: false` never sorts. null: on when
+    // `sort` is given.
+    sortable: null,
+    // the first order: { key, up }. key is a column's key ("label" for the
+    // first column unless it has a key of its own); up: true is A to Z.
+    sort: null,
     // add the stylesheet (false: bring your own)
     styles: true,
   };
@@ -125,9 +137,19 @@
         editable: Boolean(c.editable) && i > 0,
         align: c.align ?? null,
         className: c.className ?? "",
+        // what sorting calls the column, and how it sorts
+        id: c.key ?? (i === 0 ? "label" : typeof c.sortValue === "function" || typeof c.compare === "function" ? `column${i}` : null),
+        sortable: c.sortable !== false,
+        sortValue: typeof c.sortValue === "function" ? c.sortValue : null,
+        compare: typeof c.compare === "function" ? c.compare : null,
       }))
       : null;
     const widths = cols ? cols.map(c => c.width) : [];
+    // A plain tree sorts by its labels.
+    const sortCols = cols ?? [{ id: "label", label: "", sortable: true, sortValue: null, compare: null }];
+    const canSort = c => Boolean(c && c.sortable && c.id !== null);
+    const headersSort = cols !== null && (options.sortable === true || (options.sortable !== false && options.sort != null));
+    const clickable = c => headersSort && canSort(c);
 
     const life = new AbortController();
     const signal = life.signal;
@@ -150,7 +172,7 @@
     if (cols) root.classList.add("tv-columns");
     if (!opt.lines) root.classList.add("tv-nolines");
     const scroller = el("div", "tv-scroll");
-    const head = cols ? el("div", "tv-head", { "aria-hidden": "true" }, cols.map(headCell)) : null;
+    const head = cols ? el("div", "tv-head", { "aria-hidden": cols.some(clickable) ? null : "true" }, cols.map(headCell)) : null;
     const body = el("div", "tv-body", { role: "tree", "aria-label": opt.label });
     if (head) scroller.append(head);
     scroller.append(body);
@@ -170,6 +192,12 @@
     const pool = new Map();   // key -> drawn row element
     let frame = 0;
     let editing = null;
+    let sortBy = null;        // { ci, up }: the column sorted by; null keeps the data's order
+    let sorted = new Map();   // parent key (null at the top) -> its children in that order
+    {
+      const ci = opt.sort ? sortCols.findIndex(c => c.id === opt.sort.key && canSort(c)) : -1;
+      if (ci >= 0) sortBy = { ci, up: opt.sort.up !== false };
+    }
 
     // Sizes come from tree.css; see measure().
     let rowH = 18, indent = 16, box = 9, mid = 9, lineX = 8, headH = 0;
@@ -220,6 +248,7 @@
         console.warn(`[tauris-ui tree] every node needs its own id; repeated or missing: ${clashes.slice(0, 5).join(", ")}${clashes.length > 5 ? ", ..." : ""}`);
       }
       for (const k of [...expanded]) if (!nodes.has(k)) expanded.delete(k);
+      sorted = new Map(); // the order stays; the rows are sorted again
       if (selectedKey !== null && !nodes.has(selectedKey)) selectedKey = null;
       if (focusKey !== null && !nodes.has(focusKey)) focusKey = null;
       // The rows may be in a new order: draw them all again.
@@ -246,7 +275,8 @@
     // The visible rows, with what each needs for its connector lines.
     function flatten() {
       rows = [];
-      const walk = (items, depth, parent) => {
+      const walk = (all, depth, parent) => {
+        const items = ordered(all, parent ? parent.key : null);
         items.forEach((n, i) => {
           const k = keyOf(n.id);
           const kids = hasKids(n);
@@ -264,6 +294,74 @@
       walk(data, 0, null);
       index = new Map(rows.map((r, i) => [r.key, i]));
     }
+
+    // ---------- sorting ----------
+    // Siblings are sorted, once per order: the result is kept until the data
+    // or the order changes. An edit does not move its row (it would jump away
+    // under the editor); the next sort or setData puts it in its place.
+
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+    // What a node is sorted by: a number, a text, or null (empty, always last).
+    function sortValueOf(n, c, ci) {
+      let v = c.sortValue ? c.sortValue(n) : ci === 0 ? labelOf(n) : n.values?.[c.key];
+      if (!c.sortValue && ci > 0 && c.editable && v != null) {
+        const spec = editorOf(n, c);
+        if (spec.type === "select") v = choices(spec).find(o => o.value === v)?.label ?? v;
+      }
+      if (v instanceof Date) v = v.getTime();
+      if (typeof v === "boolean") v = v ? 1 : 0;
+      if (typeof v === "number") return Number.isFinite(v) ? v : null;
+      if (v == null) return null;
+      const text = String(v).trim();
+      return text === "" ? null : text;
+    }
+
+    function ordered(items, parentKey) {
+      if (!sortBy || items.length < 2) return items;
+      const done = sorted.get(parentKey);
+      if (done) return done;
+      const c = sortCols[sortBy.ci];
+      const dir = sortBy.up ? 1 : -1;
+      let out;
+      if (c.compare) {
+        out = items.map((n, i) => ({ n, i })).sort((a, b) => dir * c.compare(a.n, b.n) || a.i - b.i).map(x => x.n);
+      } else {
+        const keyed = items.map((n, i) => ({ n, i, v: sortValueOf(n, c, sortBy.ci) }));
+        keyed.sort((a, b) => {
+          if (a.v === null || b.v === null) return a.v === b.v ? a.i - b.i : a.v === null ? 1 : -1;
+          const numA = typeof a.v === "number";
+          const numB = typeof b.v === "number";
+          const r = numA && numB ? a.v - b.v : numA ? -1 : numB ? 1 : collator.compare(a.v, b.v);
+          return r * dir || a.i - b.i;
+        });
+        out = keyed.map(x => x.n);
+      }
+      sorted.set(parentKey, out);
+      return out;
+    }
+
+    // A new order: rows are drawn again; selection and focus stay on their nodes.
+    function applySort(next, announce = true) {
+      if (next === sortBy || (next && sortBy && next.ci === sortBy.ci && next.up === sortBy.up)) return;
+      finishEdit(true, false);
+      const hadFocus = body.contains(document.activeElement);
+      sortBy = next;
+      sorted = new Map();
+      for (const node of pool.values()) node.remove();
+      pool.clear();
+      rebuild();
+      const k = selectedKey ?? focusKey;
+      if (k !== null && index.has(k)) {
+        reveal(index.get(k));
+        render();
+      }
+      if (hadFocus) focusRow();
+      paintHead();
+      if (announce) emit("sort", sorting());
+    }
+
+    const sorting = () => (sortBy ? { key: sortCols[sortBy.ci].id, up: sortBy.up } : null);
 
     function visibleAncestor(k) {
       while (k !== null && !index.has(k)) k = parents.get(k) ?? null;
@@ -810,12 +908,53 @@
     function headCell(c, i) {
       const cell = el("div", `tv-hcell${c.align === "right" ? " tv-right" : c.align === "center" ? " tv-center" : ""}`, {}, el("span", "tv-htext", {}, c.label));
       cell.style.width = `var(--tv-c${i})`;
+      if (clickable(c)) {
+        // The header is a button: a click sorts, a second click turns it round.
+        cell.classList.add("tv-sortable");
+        cell.setAttribute("role", "button");
+        cell.tabIndex = 0;
+        cell.append(el("span", "tv-arrow", { "aria-hidden": "true" }));
+        const press = () => applySort({ ci: i, up: sortBy?.ci === i ? !sortBy.up : true });
+        let spaceDown = false;
+        cell.addEventListener("click", e => {
+          if (!e.target.closest(".tv-grip")) press();
+        }, { signal });
+        cell.addEventListener("keydown", e => {
+          if (e.altKey || e.ctrlKey || e.metaKey) return;
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (!e.repeat) press();
+          } else if (e.key === " ") {
+            e.preventDefault();
+            spaceDown = true;
+          }
+        }, { signal });
+        cell.addEventListener("keyup", e => {
+          if (e.key !== " ") return;
+          const was = spaceDown;
+          spaceDown = false;
+          if (was) press();
+        }, { signal });
+      }
       if (i < cols.length - 1) {
-        const grip = el("span", "tv-grip");
+        const grip = el("span", "tv-grip", { "aria-hidden": "true" });
         grip.addEventListener("pointerdown", e => startResize(e, i, grip), { signal });
         cell.append(grip);
       }
       return cell;
+    }
+
+    // The ▲ / ▼ and what a screen reader hears. (aria-sort belongs to tables;
+    // a tree's header says its order in the button's name.)
+    function paintHead() {
+      if (!head) return;
+      [...head.children].forEach((cell, i) => {
+        if (!cell.classList.contains("tv-sortable")) return;
+        const on = sortBy?.ci === i;
+        cell.querySelector(".tv-arrow").textContent = on ? (sortBy.up ? "▲" : "▼") : "";
+        cell.classList.toggle("tv-sorted", on);
+        cell.setAttribute("aria-label", on ? `${cols[i].label}, sorted ${sortBy.up ? "ascending" : "descending"}` : `Sort by ${cols[i].label}`);
+      });
     }
 
     // Dragging a column's right edge: one variable changes, header and rows follow.
@@ -843,6 +982,7 @@
     // ---------- start ----------
 
     applyWidths();
+    paintHead();
     setData(opt.data);
 
     return {
@@ -895,6 +1035,20 @@
       },
       /** Moves keyboard focus into the tree. */
       focus() { focusRow(); },
+      /** Sorts by a column's key ("label": the first column), up: true for A to Z. null: the data's
+       * own order. Fires "sort". Returns false for a column that cannot sort. */
+      sort(key, up = true) {
+        if (key === null || key === undefined) {
+          applySort(null);
+          return true;
+        }
+        const ci = sortCols.findIndex(c => c.id === key && canSort(c));
+        if (ci < 0) return false;
+        applySort({ ci, up: up !== false });
+        return true;
+      },
+      /** The order now: { key, up }, or null for the data's own order. */
+      sorting,
       on,
       destroy() {
         finishEdit(false, false);

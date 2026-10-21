@@ -5,3 +5,6 @@ examples/*/src-tauri/target/
 examples/*/src-tauri/gen/
 examples/*/src-tauri/Cargo.lock
 __pycache__/
+test/freeze_check/target/
+test/freeze_check/gen/
+test/freeze_check/Cargo.lock

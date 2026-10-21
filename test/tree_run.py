@@ -392,6 +392,114 @@ with sync_playwright() as p:
     check("collapse all leaves one row", page.evaluate("bigHost.querySelectorAll('.tv-row').length") == 1)
     page.close()
 
+    # ---------- sorting ----------
+    SORT_TREE = """opts => {
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:0;top:0;width:640px;height:300px;z-index:9';
+      document.body.append(host);
+      const day = (iso, shown) => ({ iso, shown });
+      const c = (id, label, score, added, note) => ({ id, label, values: { score, added: added && added.shown, iso: added && added.iso, note } });
+      window.sortData = () => [
+        { id: 'short', label: 'Shortlist', expanded: true, children: [
+          c('b169', 'Brian 169', 7, day('2026-10-21', '21 Oct 2026'), 'b'),
+          c('b49', 'Brian 49', 12, day('2026-01-03', '3 Jan 2026'), 'a'),
+          c('anna', 'anna', null, day('2026-03-15', '15 Mar 2026'), 'c'),
+          c('zoe', 'Zoe', 3, null, 'd'),
+        ] },
+        { id: 'rej', label: 'Rejected', expanded: true, children: [c('carl', 'Carl', 5, null, ''), c('bea', 'bea', '', null, '')] },
+      ];
+      window.sortHost = host;
+      window.st = TaurisTree.mount(host, { data: sortData(), label: 'Candidates', ...opts, columns: [
+        { label: 'Candidate', width: 200 }, { label: 'Score', key: 'score', width: 80, align: 'right' },
+        { label: 'Added', key: 'added', width: 120, sortValue: n => n.values?.iso },
+        { label: 'Note', key: 'note', sortable: false } ] });
+      window.sorts = [];
+      st.on('sort', e => sorts.push(e));
+      return 0;
+    }"""
+    order = lambda page: page.evaluate("[...sortHost.querySelectorAll('.tv-row')].sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top)).map(r => r.dataset.key)")
+    heads = lambda page: page.evaluate("[...sortHost.querySelectorAll('.tv-hcell')].map(c => [c.getAttribute('role'), c.tabIndex, c.querySelector('.tv-arrow')?.textContent ?? null])")
+    head_cell = lambda i: f"#sortHost .tv-hcell:nth-child({i})"
+
+    page = fresh(browser)
+    page.evaluate("(" + SORT_TREE + ")({ sortable: true })")
+    page.evaluate("sortHost.id = 'sortHost'")
+    check("sortable: the headers are buttons in the Tab order; a column with sortable: false is not",
+          heads(page) == [["button", 0, ""], ["button", 0, ""], ["button", 0, ""], [None, -1, None]]
+          and page.get_attribute("#sortHost .tv-head", "aria-hidden") is None, heads(page))
+    check("until a header is clicked, the data's own order", order(page) == ["short", "b169", "b49", "anna", "zoe", "rej", "carl", "bea"]
+          and page.evaluate("st.sorting()") is None)
+    page.click(head_cell(1))
+    check("Candidate: A to Z among siblings, numbers in names as numbers, groups stay groups",
+          order(page) == ["rej", "bea", "carl", "short", "anna", "b49", "b169", "zoe"], order(page))
+    check("the sorted header shows ▲ and says its order", heads(page)[0][2] == "▲"
+          and page.get_attribute(head_cell(1), "aria-label") == "Candidate, sorted ascending"
+          and page.get_attribute(head_cell(2), "aria-label") == "Sort by Score")
+    check("a sort event says the key and the direction", page.evaluate("sorts.splice(0)") == [{"key": "label", "up": True}])
+    page.click(head_cell(1))
+    check("a second click turns it round, ▼", order(page) == ["short", "zoe", "b169", "b49", "anna", "rej", "carl", "bea"]
+          and heads(page)[0][2] == "▼" and page.evaluate("sorts.splice(0)") == [{"key": "label", "up": False}], order(page))
+    page.click(head_cell(2))
+    check("Score: numbers as numbers, empty last; groups without values keep their order",
+          order(page) == ["short", "zoe", "b169", "b49", "anna", "rej", "carl", "bea"] and heads(page)[0][2] == "" and heads(page)[1][2] == "▲", order(page))
+    page.click(head_cell(2))
+    check("Score down: biggest first, empty still last", order(page) == ["short", "b49", "b169", "zoe", "anna", "rej", "carl", "bea"], order(page))
+    page.click(head_cell(3))
+    check("Added sorts by its sortValue (the ISO date), not the shown text", order(page)[:5] == ["short", "b49", "anna", "b169", "zoe"], order(page))
+    page.evaluate("sorts.length = 0")
+    page.click(head_cell(4))
+    check("a column with sortable: false does nothing", order(page)[:5] == ["short", "b49", "anna", "b169", "zoe"] and page.evaluate("sorts.length") == 0)
+    page.evaluate("sorts.length = 0")
+    page.focus(head_cell(2))
+    page.keyboard.press("Enter")
+    s1 = page.evaluate("st.sorting()")
+    page.keyboard.press("Space")
+    s2 = page.evaluate("st.sorting()")
+    check("from the keyboard: Enter sorts, Space turns it round", s1 == {"key": "score", "up": True} and s2 == {"key": "score", "up": False}, (s1, s2))
+    page.evaluate("document.querySelector('#sortHost .tv-hcell:nth-child(2)').dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }))")
+    check("a Space that went down elsewhere does not sort", page.evaluate("st.sorting()") == {"key": "score", "up": False})
+    page.evaluate("st.select('zoe'); st.focus()")
+    page.evaluate("st.sort('label', true)")
+    check("selection and focus stay on the same node after sorting",
+          page.evaluate("st.selected().id") == "zoe" and active_key(page) == "zoe" and order(page)[-1] == "zoe")
+    page.keyboard.press("ArrowUp")
+    check("and the keys move through the new order", page.evaluate("st.selected().id") == "b169")
+    page.evaluate("const d = sortData(); d[0].children.push({ id: 'aaron', label: 'Aaron', values: { score: 1 } }); st.setData(d)")
+    check("setData keeps the order", order(page)[:4] == ["rej", "bea", "carl", "short"] and order(page)[4] == "aaron" and page.evaluate("st.sorting()") == {"key": "label", "up": True})
+    check("sort() with a column that cannot sort is refused", page.evaluate("st.sort('note')") is False and page.evaluate("st.sorting()")["key"] == "label")
+    page.evaluate("st.sort(null)")
+    check("sort(null): back to the data's own order", order(page)[:6] == ["short", "b169", "b49", "anna", "zoe", "aaron"] and heads(page)[0][2] == "")
+    grip = rect(page, "#sortHost .tv-hcell .tv-grip")
+    page.mouse.move(grip["x"] + 3, grip["y"] + 8)
+    page.mouse.down()
+    page.mouse.move(grip["x"] + 30, grip["y"] + 8, steps=4)
+    page.mouse.up()
+    check("resizing a column does not sort it", page.evaluate("st.sorting()") is None)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("(" + SORT_TREE + ")({ sort: { key: 'score', up: false } })")
+    page.evaluate("sortHost.id = 'sortHost'")
+    check("a first sort: the tree opens in that order, and its headers sort",
+          order(page)[:5] == ["short", "b49", "b169", "zoe", "anna"] and heads(page)[1] == ["button", 0, "▼"], (order(page), heads(page)))
+    check("the demo's settings tree, with no sort options, is as before: no buttons in its header",
+          page.evaluate("document.querySelectorAll('#settings .tv-sortable').length") == 0
+          and page.get_attribute("#settings .tv-head", "aria-hidden") == "true")
+    perf = page.evaluate("""() => {
+      const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;width:500px;height:400px;z-index:10';
+      document.body.append(host);
+      const kids = []; let seed = 7;
+      for (let i = 0; i < 3200; i++) { seed = (seed * 48271) % 2147483647; kids.push({ id: 'c' + i, label: 'Candidate ' + (seed % 9000), values: { score: seed % 1000 } }); }
+      const t = TaurisTree.mount(host, { sortable: true, data: [{ id: 'all', label: 'All', expanded: true, children: kids }],
+        columns: [{ label: 'Name', width: 260 }, { label: 'Score', key: 'score' }] });
+      const a = performance.now(); t.sort('score', false); const bySore = performance.now() - a;
+      const b = performance.now(); t.sort('label'); const byName = performance.now() - b;
+      const rows = [...host.querySelectorAll('.tv-row')].sort((x, y) => parseFloat(x.style.top) - parseFloat(y.style.top)).map(r => r.querySelector('.tv-label').textContent);
+      return { bySore, byName, drawn: host.querySelectorAll('.tv-row').length, first: rows.slice(1, 3) }; }""")
+    check("3,200 rows: sorting takes under 60ms, and only the rows in view are drawn",
+          perf["bySore"] < 60 and perf["byName"] < 60 and perf["drawn"] < 60, perf)
+    page.close()
+
     # ---------- API ----------
     page = fresh(browser)
     page.evaluate("demo.files.collapseAll()")

@@ -35,6 +35,19 @@ declare global {
     editable?: boolean;
     align?: "left" | "right" | "center";
     className?: string;
+    /** false: a click on this header never sorts (when the tree sorts). */
+    sortable?: boolean;
+    /** What the column sorts by, instead of the value shown (e.g. an ISO date behind "21 Oct 2026").
+     * A number, a string, a Date or a boolean; null, undefined and "" are empty and go last. */
+    sortValue?: (node: TaurisTreeNode<V>) => unknown;
+    /** A whole comparison instead (A to Z order; the tree turns it round for Z to A). */
+    compare?: (a: TaurisTreeNode<V>, b: TaurisTreeNode<V>) => number;
+  }
+
+  /** An order: a column's key ("label" for the first column unless it has a key), up: true for A to Z. */
+  interface TaurisTreeSort {
+    key: string;
+    up: boolean;
   }
 
   interface TaurisTreeOptions<V extends object = Record<string, unknown>> {
@@ -49,6 +62,10 @@ declare global {
     icons?: Record<string, string>;
     /** Rows drawn above and below the visible ones. */
     overscan?: number;
+    /** A click on a column header sorts by it, a second click turns it round. Default: on when `sort` is given. */
+    sortable?: boolean | null;
+    /** The first order (and sortable headers). Default: the data's own order. */
+    sort?: { key: string; up?: boolean } | null;
     /** Add the stylesheet (false: bring your own). */
     styles?: boolean;
   }
@@ -60,6 +77,8 @@ declare global {
     change: { node: TaurisTreeNode<V>; column: keyof V & string; value: unknown };
     /** Enter or double-click on a row. */
     activate: { node: TaurisTreeNode<V> };
+    /** The order changed (a header, or sort()); null is the data's own order. */
+    sort: TaurisTreeSort | null;
   }
 
   interface TaurisTreeView<V extends object = Record<string, unknown>> {
@@ -78,6 +97,10 @@ declare global {
     /** Opens a cell's editor (the first editable column by default); false if it cannot. */
     edit(id: string | number, column?: keyof V & string): boolean;
     focus(): void;
+    /** Sorts by a column (up: true for A to Z); null goes back to the data's own order. False for a column that cannot sort. */
+    sort(key: string | null, up?: boolean): boolean;
+    /** The order now, or null for the data's own order. */
+    sorting(): TaurisTreeSort | null;
     /** Returns a function that stops listening. */
     on<K extends keyof TaurisTreeEvents<V>>(event: K, fn: (payload: TaurisTreeEvents<V>[K]) => void): () => void;
     /** Removes the tree and every listener; mount can then be called again. */

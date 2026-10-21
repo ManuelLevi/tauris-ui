@@ -139,6 +139,8 @@
     }
 
     // Keys are not <button>s: Enter presses them at once, Space on release, as a button does.
+    // Space presses only the key it went down on (a Space that chose a menu item is not a press).
+    let spaceOn = null;
     root.addEventListener("keydown", e => {
       const key = keyAt(e.target);
       if (!key || key !== e.target || key.getAttribute("role") !== "button" || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -147,12 +149,16 @@
         if (!e.repeat && !off(key)) press(key);
       } else if (e.key === " ") {
         e.preventDefault(); // no page scroll
+        spaceOn = key;
       }
     }, { signal });
 
     root.addEventListener("keyup", e => {
+      if (e.key !== " ") return;
       const key = keyAt(e.target);
-      if (!key || key !== e.target || key.getAttribute("role") !== "button" || e.key !== " ") return;
+      const down = spaceOn;
+      spaceOn = null;
+      if (!key || key !== e.target || key !== down || key.getAttribute("role") !== "button") return;
       e.preventDefault();
       if (!off(key)) press(key);
     }, { signal });

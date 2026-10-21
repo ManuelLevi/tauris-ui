@@ -6,6 +6,8 @@ UI components for Tauri 2 desktop apps. One library for every app.
 |---|---|---|
 | [Tabs](#tabs) | `TaurisTabs.mount(strip)` | Browser-style tabs that can leave their window and come back, remembered between runs |
 | [Tree view](#tree-view) | `TaurisTree.mount(element, { data })` | A dense tree and configuration editor: compact rows, dotted guide lines, aligned columns, in-place editing |
+| [Files](#files) | `TaurisFiles.mount(element, { files, onAdd })` | A place's shared files: a dense, sortable table with drag and drop, search, in-place renaming and the system's pickers |
+| [Menus](#menus) | `TaurisMenu.bar(nav, { menus })` | An in-window menu bar, toolbar buttons with a ▾ menu, and right-click menus, with a desktop app's keyboard |
 | [Terminal](#terminal) | `TaurisTerminal.mount(element)` | An optional Bloomberg-style look: amber on black, monospace, dense tables, function keys, a command line and a message log |
 
 The plugin delivers every component's script and stylesheet to every page. A component's stylesheet is added only when a page mounts it, so a component you don't use changes nothing.
@@ -352,6 +354,25 @@ const tree = TaurisTree.mount(document.getElementById("settings"), {
 tree.on("change", ({ node, column, value }) => console.log(node.id, column, value)); // save it in your app
 ```
 
+**Sorting.** With `sortable: true` (or a first `sort`), a click on a column's header sorts by it, and a second click turns it round (▲ / ▼). Enter and Space do the same on a focused header.
+- Rows sort among their siblings: groups stay groups, and children sort inside each group.
+- Numbers sort as numbers. Text sorts as people read it ("Brian 49" before "Brian 169"). Empty values go last both ways.
+- A column with `sortable: false` never sorts. `sortValue: node => ...` sorts by something other than the text shown (an ISO date behind "21 Oct 2026"), and `compare: (a, b) => ...` replaces the comparison.
+- Selection and focus stay on their node. `setData` keeps the order. An edit does not move its row until the next sort or `setData`.
+
+```js
+const tree = TaurisTree.mount(el, {
+  data, sort: saved ?? { key: "score", up: false },          // the first order; "label" is the first column
+  columns: [
+    { label: "Candidate", width: 220 },
+    { label: "Score", key: "score", align: "right" },
+    { label: "Added", key: "added", sortValue: n => n.values.addedIso },
+    { label: "Notes", key: "notes", sortable: false },
+  ],
+});
+tree.on("sort", order => remember(order));                   // { key, up }, or null for the data's own order
+```
+
 **A node** is `{ id, label, children?, icon?, values?, editor?, readOnly?, expanded? }`. Every node needs its own `id`; the console warns about repeats.
 - `icon` is one of the built-in names (`folder`, `file`, `code`, `doc`, `data`, `image`, `package`, `lock`) or a name you add with the `icons` option. A folder icon opens when its row does.
 - `editor` is `"text"`, `{ type: "number", min, max, step }`, `"checkbox"`, `{ type: "select", options }` or `"color"`. Without one, the value's own type decides: booleans get a checkbox, numbers a number field, everything else text.
@@ -361,11 +382,13 @@ tree.on("change", ({ node, column, value }) => console.log(node.id, column, valu
 | Option | Default | What it does |
 |---|---|---|
 | `data` | `[]` | The nodes |
-| `columns` | none | A plain tree, or `[{ label, width, key?, editable?, minWidth?, align?, className? }]` (`align`: `"left"`, `"right"` or `"center"`) |
+| `columns` | none | A plain tree, or `[{ label, width, key?, editable?, minWidth?, align?, className?, sortable?, sortValue?, compare? }]` (`align`: `"left"`, `"right"` or `"center"`) |
 | `label` | `"Tree"` | The tree's accessible name |
 | `lines` | `true` | The dotted guide lines |
 | `icons` | none | More icons by name, as SVG markup |
 | `overscan` | `8` | Rows drawn above and below the visible ones |
+| `sortable` | on when `sort` is given | A click on a column header sorts by it |
+| `sort` | none | The first order: `{ key, up }` |
 | `styles` | `true` | Add the stylesheet |
 
 **Keyboard** (as in Windows and Qt):
@@ -380,18 +403,206 @@ tree.on("change", ({ node, column, value }) => console.log(node.id, column, valu
 - While editing: Tab and Shift+Tab save and go to the row's next or previous editable value. Enter saves, and Escape cancels.
 - Typing a letter jumps to the next row starting with it.
 
-**Events:** `select`, `toggle`, `change` (`{ node, column, value }`, already written into `node.values`) and `activate`.
+**Events:** `select`, `toggle`, `change` (`{ node, column, value }`, already written into `node.values`), `activate`, and `sort` (`{ key, up }`, or `null`).
 
 **Methods:**
 - `setData(nodes)`
 - `expand(id)`, `collapse(id)`, `toggle(id)`, `expandAll()`, `collapseAll()`
 - `select(id)`, `selected()`, `get(id)`, `isExpanded(id)`
 - `edit(id, column?)`, `focus()`
+- `sort(key, up?)` (`null`: the data's own order), `sorting()`
 - `destroy()`
 
 Types are in `web/tree.d.ts`: copy it into a TypeScript app. `mount<{ ...your values }>` types your values.
 
 **The look:** every size and colour is a `--tv-*` variable at the top of `web/tree.css`, with the same layer rules as the tabs (set them outside every `@layer` block). The default row height of 18 px keeps the dotted lines exact. With an odd row height, a dot can stop a pixel short of a box.
+
+## Files
+
+A place's shared files (a project's, a client's, a folder's) as a dense table:
+- a type badge (PDF, IMG, DOC, XLS, PPT, ZIP, TXT…), the name (cut short with …), the size, the date added and who added it
+- click a header to sort (▲ / ▼); the selected row in the accent colour
+- Open, Save a copy…, Rename and Delete on the row under the mouse or selected, and on a right click
+- a search field, and a header with the count and the total size
+- **Add files…** opens the system's picker; files dropped on the window are added too, with a "Drop to add to …" ring round the list while they hover
+- a card with a segmented bar while files are being added, an empty state, and a "no match" line
+- renaming in place (the name without its extension selected), and a question before deleting
+- light and dark mode
+
+Open `test/files_demo.html` in a browser to try it with the menus below.
+
+**The app keeps the files** (on its server, in a folder): the component shows them and hands every action to the app. Only the actions the app gives appear.
+
+**Setup.** The page side comes with the plugin. Dropping files and the picker reach Tauri through `window.__TAURI__`, so `app.withGlobalTauri` must be true, and the window needs `tauris-ui:default` in a capability (the tab windows have it already). For the system's picker and save dialog, turn on the `files` feature and register the dialog plugin:
+
+```toml
+tauris-ui = { path = "../tauris-ui", version = "0.4", features = ["files"] }
+tauri-plugin-dialog = "2"
+```
+
+```rust
+tauri::Builder::default()
+    .plugin(tauris_ui::init(tauris_ui::Config::new()))
+    .plugin(tauri_plugin_dialog::init())
+```
+
+**In the page** (React; plain JavaScript is the same calls):
+
+```tsx
+import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useRef } from "react";
+
+type Doc = TaurisFile & { project: string };
+
+export default function Docs({ project, docs, say }: { project: { id: string; name: string; color: string }; docs: Doc[]; say: (text: string) => void }) {
+  const el = useRef<HTMLDivElement>(null);
+  const view = useRef<TaurisFilesView<Doc>>();
+
+  useEffect(() => {
+    view.current = TaurisFiles.mount<Doc>(el.current!, {
+      subtitle: "Documents",
+      labels: { dropHint: "Up to 50 MB per file" },
+      onOpen: doc => invoke("doc_open", { id: doc.id }),
+      onSaveAs: doc => invoke<boolean>("doc_save_as", { id: doc.id }),
+      onRename: (doc, name) => invoke("doc_rename", { id: doc.id, name }),
+      onDelete: doc => invoke("doc_delete", { id: doc.id }),
+      onMessage: text => say(text),
+    });
+    return () => view.current?.destroy();
+  }, []);
+
+  // The app's list is the truth: hand it over whenever it changes, with what depends on it.
+  useEffect(() => {
+    view.current?.update({
+      title: project.name,
+      color: project.color,
+      files: docs,
+      onAdd: paths => invoke<Doc[]>("doc_add", { project: project.id, paths }),
+    });
+  }, [project, docs]);
+
+  return <div ref={el} className="docs" />; // give it a height: the list scrolls inside
+}
+```
+
+**In Rust**, the app's commands store and open the files. `tauris_ui::files` has the parts every app needs:
+
+```rust
+use tauris_ui::files;
+
+#[tauri::command]
+async fn doc_add(project: String, paths: Vec<String>) -> Result<Vec<Doc>, String> {
+    let mut added = Vec::new();
+    for path in paths {
+        // A folder, a missing file or one over 50 MB comes back as a sentence the page shows:
+        // "Contracts is a folder. Add files, not folders."
+        let file = files::inspect(&path, Some(50 * 1024 * 1024))?;
+        added.push(upload(&project, &file.path, &file.name, file.mime).await?);
+    }
+    Ok(added)
+}
+
+#[tauri::command]
+async fn doc_open(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let path = download_to_cache(&app, &id).await?; // a local copy, named with files::safe_name
+    files::open_path(path)                           // the system's default app ("files" feature)
+}
+
+#[tauri::command]
+async fn doc_save_as(app: tauri::AppHandle, id: String, name: String) -> Result<bool, String> {
+    let Some(target) = files::save_dialog(&app, &format!("Save a copy of {name}"), &name).await? else {
+        return Ok(false); // cancelled: the page says nothing
+    };
+    std::fs::write(target, download(&id).await?).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+```
+
+- `inspect(path, max_bytes)` → `FileInfo { path, name, size, mime }`, or the sentence that says why not
+- `mime_for(name)`, `safe_name(name)` (a name every system can create), `size_text(bytes)` ("2.4 MB", as the page shows it)
+- with the `files` feature: `pick_files(&app, title)`, `save_dialog(&app, title, name)`, `open_path(path)`
+
+The page can open the system's picker and save dialog (`TaurisFiles.pick`, `TaurisFiles.saveDialog`): they return only what the person chose. It cannot open a path with its default app: a page that could open any path could start any program, so the app opens the files it knows from its own command.
+
+**Options:**
+
+| Option | Default | What it does |
+|---|---|---|
+| `files` | `[]` | `[{ id, name, size?, added?, by?, type?, kind? }]`; your own fields stay on them |
+| `title` | `"Files"` | The heading |
+| `place` | the title | The place in "Drop to add to …" and "No files in … yet" |
+| `subtitle` | none | A word before the count: "Documents · 3 files · 2.1 MB" |
+| `color` | none | A colour chip before the heading |
+| `columns` | all | Any of `kind`, `name`, `size`, `added`, `by`, in order |
+| `sort` | `{ key: "name", up: true }` | The first order. A new column starts A to Z for names, biggest and newest first for sizes and dates |
+| `header`, `search` | `true` | The header row, and its search field (shown once there are files) |
+| `dropArea` | `"window"` | Where a drop adds files: `"window"`, `"element"` (over the component only: use it when two are shown at once) or `"none"` |
+| `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function: its own question |
+| `formatDate` | short | `(date, file) => text` for the Added column |
+| `pick` | the system's | `(title) => Promise<paths>` behind Add files… |
+| `labels` | English | Any word or sentence it shows (`web/files.d.ts` lists them), e.g. `{ add: "Ajouter…", dropHint: "Up to 50 MB per file" }` |
+| `styles` | `true` | Add the stylesheet |
+
+**The app's side**, each optional, each may return a Promise. A rejection's text is shown to the person; a rejection with an empty text is a quiet "cancelled" and shows nothing:
+- `onAdd(paths)`: resolve with the new files; they are selected, flash once, and "Added 2 files to Health." is said
+- `onOpen(file)`, `onSaveAs(file)` (resolve `false` when the person cancels), `onRename(file, name)`, `onDelete(file)`
+- `onSelect(file | null)`
+- `onMenuOpen({ label, how })`, `onMenuClose({ label, chosen })`: the row's menu opened and closed, as the menus' `onOpen` and `onClose` (for a sound)
+- `onMessage(text, "info" | "ok" | "error")`: for the app's own status bar. Without it the component shows its messages under the list.
+
+**Methods:** `setFiles(files)`, `update(options)`, `select(id)`, `selected()`, `add()` (as Add files…, for a File menu), `addPaths(paths)`, `open(id)`, `rename(id)`, `remove(id)`, `search(text)`, `dragDrop(event)` (to feed drag-and-drop events yourself), `busy(text)`, `message(text, kind)`, `focus()`, `focusSearch()`, `destroy()`. Helpers: `TaurisFiles.kindOf(file)`, `TaurisFiles.formatSize(bytes)`.
+
+**Keyboard:** Up, Down, Home, End, PageUp and PageDown move; a letter jumps to the next name starting with it; Enter opens; F2 renames (Enter saves, Escape cancels); Delete or ⌘⌫ deletes after the question; Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
+
+Types are in `web/files.d.ts`: copy it into a TypeScript app.
+
+**The look:** every size and colour is a `--tf-*` variable at the top of `web/files.css` (set them outside every `@layer` block). An app with its own colour tokens maps them: `--tf-accent: var(--accent); --tf-bg: var(--field);`. `--tf-accent-ink` is the accent as text and lines (the drop zone, the sort arrow): keep it readable on `--tf-bg`. The columns have fixed widths, so they stay put while searching: `--tf-size-w`, `--tf-added-w`, `--tf-by-w` and `--tf-acts-w` change them, and the name takes the rest. The defaults follow the system's light or dark mode; an app with its own light/dark switch sets the variables for each.
+
+## Menus
+
+An in-window menu bar, toolbar buttons with a ▾ that open a menu, and menus at a point (a right click), with the keyboard of a desktop app:
+- Enter, Space or Down opens a menu; Up opens it at its last item
+- Up, Down, Home and End move; a letter (or a few, quickly) jumps to an item
+- Left and Right go from one menu of the bar to the next
+- Enter or Space chooses; Escape closes and puts the focus back where it was
+- shortcut hints, items that are off, ✓ items, colour chips and red items
+
+```js
+const bar = TaurisMenu.bar(document.getElementById("menubar"), { menus: [
+  { label: "File", items: () => [                       // a function: made each time the menu opens
+    { label: "New project…", shortcut: "⌘N", action: newProject },
+    { label: "Add files…", disabled: !current, action: () => files.add() },
+    "-",
+    { label: "Sign out", action: signOut },
+  ] },
+  { label: "View", items: () => [{ label: "Status bar", checked: showStatus, action: toggleStatus }] },
+] });
+
+// A toolbar button (any element; .tmn-tool is the toolbar look) that opens a menu under it.
+TaurisMenu.button(document.getElementById("tb-docs"), {
+  items: () => projects.map(p => ({ label: p.name, color: p.color, shortcut: String(p.docs), action: () => openDocs(p) })),
+});
+
+// A right-click menu.
+row.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  TaurisMenu.open([{ label: "Open", action: open }, "-", { label: "Delete", danger: true, action: remove }], { x: e.clientX, y: e.clientY });
+});
+```
+
+In React, make the bar once (`useEffect(() => { const b = TaurisMenu.bar(nav.current!, { menus }); return () => b.destroy(); }, [])`) and give items as functions that read the app's current state, or call `bar.setMenus(menus)` when it changes.
+
+**An item** is `{ label, shortcut?, disabled?, checked?, color?, danger?, action? }`, or `"-"` for a line; `null` and `false` are skipped. The action runs after the menu has closed and the focus is back where it was, so Edit › Copy acts on the field the person was in. Shortcuts are shown, not bound: the app binds its own keys.
+
+**For a sound** (or anything else), `bar` and `button` take `onOpen({ label, how })` (`how` is `"mouse"` or `"keyboard"`) and `onClose({ label, chosen })`. `chosen` is true when an item was picked, false for Escape, a click outside, or the title or button again. Going from one menu of the bar to the next fires neither: the bar stays open.
+
+```js
+TaurisMenu.bar(nav, { menus, onOpen: () => sound.open(), onClose: ({ chosen }) => { if (!chosen) sound.close(); } });
+```
+
+**Methods:** `bar(...)` returns `setMenus`, `open(index)`, `close`, `focus`, `destroy`; `button(...)` returns `setItems`, `open`, `close`, `destroy`; `TaurisMenu.open(items, { x, y })` returns `close`; `TaurisMenu.close()` closes whichever is open.
+
+Types are in `web/menus.d.ts`. **The look:** `--tmn-*` variables at the top of `web/menus.css`. `.tmn-toolbar`, `.tmn-tool` (`aria-pressed="true"` for the current view) and `.tmn-tool-sep` give a toolbar the same look; they are optional.
 
 ## Terminal
 
@@ -460,8 +671,11 @@ Types are in `web/terminal.d.ts`: copy it into a TypeScript app.
 ```
 cargo fmt --check && cargo clippy --all-targets && cargo test   # the model, the windows on Tauri's test runtime, saving, the command lists
 python test/run.py [shots-dir]             # the tabs page side: 103 checks in headless Chrome, nothing on screen
-python test/tree_run.py [shots-dir]        # the tree view: 97 checks, including the pixels of its lines and boxes
-python test/terminal_run.py [shots-dir]    # the terminal: 94 checks, including its gaps and bars by pixel
+python test/tree_run.py [shots-dir]        # the tree view: 118 checks, including the pixels of its lines and boxes
+python test/terminal_run.py [shots-dir]    # the terminal: 95 checks, including its gaps and bars by pixel
+python test/files_run.py [shots-dir]       # the files component: 114 checks, with drops and the picker stood in for
+python test/menus_run.py [shots-dir]       # the menus: 72 checks, mouse and keyboard
+cargo clippy --all-targets --features files && cargo test --features files   # the Rust side of the files component
 cd examples/basic/src-tauri && cargo build
 ```
 
@@ -471,6 +685,9 @@ cd examples/basic/src-tauri && cargo build
 - The close button sits inside its tab, as in browsers. Screen readers reach it through the tab's menu (Shift+F10) and Delete.
 - The page tests run in Chrome. Tauri on macOS uses WebKit; the tabs suite has also been run in WebKit.
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
+- The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
+- A window opened from the plugin's event handler (the Dock click, ⌘N) freezes only the real event loop, so `test/freeze_check` checks it by hand on macOS: `cd test/freeze_check && cargo run`.
+- A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing
 

@@ -354,6 +354,22 @@
     text-overflow: ellipsis;
   }
 
+  /* a header that sorts is a button; the sorted one has ▲ or ▼ after its text */
+  .tv-sortable { cursor: default; }
+  .tv-sortable:hover,
+  .tv-sorted { color: var(--tv-fg); }
+  .tv-sortable:focus { outline: none; }
+  .tv-sortable:focus-visible { outline: 1px solid var(--tv-focus); outline-offset: -1px; }
+
+  .tv-arrow {
+    flex: none;
+    margin-left: 4px;
+    font-size: 7px;
+    color: var(--tv-focus);
+  }
+
+  .tv-arrow:empty { display: none; }
+
   /* drag a column's right edge to resize it */
   .tv-grip {
     position: absolute;

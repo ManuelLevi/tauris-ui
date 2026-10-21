@@ -82,6 +82,23 @@ def page_files(tauri, conf):
     return found
 
 
+def capabilities(tauri, app):
+    """Every capability: (where it is, what it says)."""
+    caps = []
+    for path in sorted((tauri / "capabilities").glob("*")):
+        try:
+            if path.suffix == ".json":
+                caps.append((path, json.loads(read(path))))
+            elif path.suffix == ".toml":
+                caps.append((path, tomllib.loads(read(path))))
+        except (json.JSONDecodeError, tomllib.TOMLDecodeError):
+            bad(f"{path.name} cannot be read", "fix the file")
+    for inline in app.get("security", {}).get("capabilities", []):
+        if isinstance(inline, dict):
+            caps.append((tauri / "tauri.conf.json", inline))
+    return caps
+
+
 def find_src_tauri(root):
     if (root / "tauri.conf.json").is_file():
         return root
@@ -153,12 +170,16 @@ def main():
     uses_tabs = "TaurisTabs" in text or bool(re.search(r"\.tabs\(\)", rust))
     uses_tree = "TaurisTree" in text
     uses_terminal = "TaurisTerminal" in text
-    used = [name for name, on in (("tabs", uses_tabs), ("tree view", uses_tree), ("terminal", uses_terminal)) if on]
+    uses_files = "TaurisFiles" in text
+    uses_menus = "TaurisMenu" in text
+    used = [name for name, on in (("tabs", uses_tabs), ("tree view", uses_tree), ("terminal", uses_terminal),
+                                  ("files", uses_files), ("menus", uses_menus)) if on]
     if used:
         ok("components in use: " + ", ".join(used))
     elif files:
         bad("no page mounts a tauris-ui component",
-            'TaurisTabs.mount(document.getElementById("strip")), TaurisTree.mount(element, { data }) or TaurisTerminal.mount(element)')
+            'TaurisTabs.mount(document.getElementById("strip")), TaurisTree.mount(element, { data }), TaurisFiles.mount(element), '
+            'TaurisMenu.bar(nav, { menus }) or TaurisTerminal.mount(element)')
     else:
         bad("found no page files (looked in frontendDist, src/ and index.html)", "check build.frontendDist in tauri.conf.json")
 
@@ -191,18 +212,7 @@ def main():
         else:
             note("no tauris_ui::default_menu / file_menu / menu_ids: \u2318T and \u2318W only work if your own menu calls app.tabs()")
 
-        caps = []
-        for path in sorted((tauri / "capabilities").glob("*")):
-            try:
-                if path.suffix == ".json":
-                    caps.append((path, json.loads(read(path))))
-                elif path.suffix == ".toml":
-                    caps.append((path, tomllib.loads(read(path))))
-            except (json.JSONDecodeError, tomllib.TOMLDecodeError):
-                bad(f"{path.name} cannot be read", "fix the file")
-        for inline in app.get("security", {}).get("capabilities", []):
-            if isinstance(inline, dict):
-                caps.append((tauri / "tauri.conf.json", inline))
+        caps = capabilities(tauri, app)
         granting = [(p, c) for p, c in caps if "tauris-ui:default" in json.dumps(c.get("permissions", []))]
         if not granting:
             bad("no capability grants tauris-ui:default",
@@ -225,20 +235,51 @@ def main():
         if files and "--tt-strip-h" not in text:
             note("the strip is fixed at the top: give the page padding-top: var(--tt-strip-h)")
 
-    # 4. the page's CSS and copies of the library's files
-    for name, word in (("tabs.js", "TaurisTabs"), ("tree.js", "TaurisTree"), ("terminal.js", "TaurisTerminal")):
+    # 4. files: drops and the picker reach Tauri from the page; the picker needs the feature and the dialog plugin
+    if uses_files:
+        if not uses_tabs:
+            if app.get("withGlobalTauri") is True:
+                ok("withGlobalTauri is on (the files component hears drops through it)")
+            else:
+                bad("app.withGlobalTauri is not true, so dropped files are never heard",
+                    'set "app": { "withGlobalTauri": true } in tauri.conf.json')
+            if any("tauris-ui:default" in json.dumps(c.get("permissions", [])) for _, c in capabilities(tauri, app)):
+                ok("a capability grants tauris-ui:default (the system's picker)")
+            else:
+                bad("no capability grants tauris-ui:default, so Add files… cannot open the system's picker",
+                    'add "tauris-ui:default" to "permissions" in src-tauri/capabilities/default.json')
+        features = spec.get("features", []) if isinstance(spec, dict) else []
+        if "files" in features:
+            ok('the "files" feature is on (the system\'s picker and save dialog)')
+            if "tauri_plugin_dialog::init(" in rust:
+                ok("the dialog plugin is registered")
+            else:
+                bad("the files feature needs the dialog plugin, and the app does not register it",
+                    'add tauri-plugin-dialog = "2" to Cargo.toml and .plugin(tauri_plugin_dialog::init()) to tauri::Builder')
+        elif re.search(r"pick\s*:", text):
+            ok("the files component has its own picker (pick)")
+        else:
+            bad('Add files… opens the system\'s picker, which needs tauris-ui\'s "files" feature',
+                'set features = ["files"] on the tauris-ui dependency (and register tauri_plugin_dialog), '
+                "or give TaurisFiles.mount a pick option")
+
+    # 5. the page's CSS and copies of the library's files
+    for name, word in (("tabs.js", "TaurisTabs"), ("tree.js", "TaurisTree"), ("terminal.js", "TaurisTerminal"),
+                       ("files.js", "TaurisFiles"), ("menus.js", "TaurisMenu")):
         if any(p.name == name and word in read(p) for p in files):
             bad(f"the app has its own copy of the library's {name}", "delete it: the plugin injects the page script")
     if re.search(r"@layer[^;{]*tauris-ui", text):
         bad("the app's CSS declares the tauris-ui layer",
             "remove it: it can put the library under the app's reset, and values set inside it lose anyway")
     elif re.search(r"@layer\s+[\w-]", text):
-        note("the app's CSS uses layers: set the --tt-*, --tv-* and --tm-* variables outside every @layer block, or the library's defaults win")
+        note("the app's CSS uses layers: set the --tt-*, --tv-*, --tf-*, --tmn-* and --tm-* variables outside every @layer block, "
+             "or the library's defaults win")
 
     # TypeScript: an up-to-date copy of each component's types
     if (tauri.parent / "tsconfig.json").is_file():
         for name, word, on in (("tabs.d.ts", "TaurisTabs", uses_tabs), ("tree.d.ts", "TaurisTree", uses_tree),
-                               ("terminal.d.ts", "TaurisTerminal", uses_terminal)):
+                               ("terminal.d.ts", "TaurisTerminal", uses_terminal), ("files.d.ts", "TaurisFiles", uses_files),
+                               ("menus.d.ts", "TaurisMenu", uses_menus)):
             if not on:
                 continue
             types = LIBRARY / "web" / name

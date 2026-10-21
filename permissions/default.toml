@@ -1,5 +1,5 @@
 [default]
-description = "Lets a window use the tab strip: read its tabs, open, close, move and drag them."
+description = "Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose."
 permissions = [
     "allow-window-state",
     "allow-new-tab",
@@ -14,4 +14,6 @@ permissions = [
     "allow-close-window",
     "allow-move-to-new-window",
     "allow-close-asked",
+    "allow-pick-files",
+    "allow-save-dialog",
 ]
