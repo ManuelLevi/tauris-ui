@@ -88,6 +88,9 @@
     icons: {},
     // rows drawn above and below the visible ones
     overscan: 8,
+    // ⌘-click (Ctrl-click) and Shift-click select several rows; ⌘A selects every row shown.
+    // Off by default: a settings tree selects one row.
+    multiple: false,
     // a click on a column's header sorts by it, a second click turns it
     // round; a column with `sortable: false` never sorts. null: on when
     // `sort` is given.
@@ -100,6 +103,7 @@
   };
 
   const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
   const has = (obj, k) => obj != null && Object.prototype.hasOwnProperty.call(obj, k);
   const hasKids = n => Array.isArray(n.children) && n.children.length > 0;
   const keyOf = id => String(id);
@@ -173,7 +177,7 @@
     if (!opt.lines) root.classList.add("tv-nolines");
     const scroller = el("div", "tv-scroll");
     const head = cols ? el("div", "tv-head", { "aria-hidden": cols.some(clickable) ? null : "true" }, cols.map(headCell)) : null;
-    const body = el("div", "tv-body", { role: "tree", "aria-label": opt.label });
+    const body = el("div", "tv-body", { role: "tree", "aria-label": opt.label, "aria-multiselectable": opt.multiple ? "true" : null });
     if (head) scroller.append(head);
     scroller.append(body);
     root.append(scroller);
@@ -186,7 +190,9 @@
     const expanded = new Set();
     let rows = [];            // the visible rows, top to bottom
     let index = new Map();    // key -> row number
-    let selectedKey = null;
+    let selectedKey = null;   // the selected row with the focus
+    const picked = new Set(); // every selected row (selectedKey among them)
+    let anchorKey = null;     // where a Shift-click range starts
     let focusKey = null;      // the row in the Tab order (roving tabindex)
     let gen = 0;              // grows when row contents change; drawn rows refill when theirs is older
     const pool = new Map();   // key -> drawn row element
@@ -250,6 +256,7 @@
       for (const k of [...expanded]) if (!nodes.has(k)) expanded.delete(k);
       sorted = new Map(); // the order stays; the rows are sorted again
       if (selectedKey !== null && !nodes.has(selectedKey)) selectedKey = null;
+      for (const k of [...picked]) if (!nodes.has(k)) picked.delete(k);
       if (focusKey !== null && !nodes.has(focusKey)) focusKey = null;
       // The rows may be in a new order: draw them all again.
       for (const node of pool.values()) node.remove();
@@ -375,8 +382,16 @@
       flatten();
       gen++;
       let moved = false;
+      // Rows hidden by closing their parent are no longer selected.
+      for (const k of [...picked]) {
+        if (!index.has(k)) {
+          picked.delete(k);
+          moved = true;
+        }
+      }
       if (selectedKey !== null && !index.has(selectedKey)) {
         selectedKey = visibleAncestor(selectedKey);
+        if (selectedKey !== null) picked.add(selectedKey);
         moved = true;
       }
       if (focusKey === null || !index.has(focusKey)) {
@@ -384,7 +399,7 @@
       }
       render();
       if (hadFocus && !body.contains(document.activeElement)) focusRow();
-      if (moved) emit("select", { node: selectedKey === null ? null : nodes.get(selectedKey) });
+      if (moved) emitSelect();
     }
 
     // ---------- drawing ----------
@@ -448,7 +463,7 @@
       node.setAttribute("aria-posinset", String(row.pos));
       if (row.kids) node.setAttribute("aria-expanded", String(row.open));
       else node.removeAttribute("aria-expanded");
-      node.setAttribute("aria-selected", String(row.key === selectedKey));
+      node.setAttribute("aria-selected", String(picked.has(row.key)));
       node.tabIndex = row.key === focusKey ? 0 : -1;
     }
 
@@ -735,17 +750,47 @@
       else if (y + rowH > scroller.scrollTop + viewH) scroller.scrollTop = Math.max(0, y + rowH - viewH);
     }
 
-    // Moves focus and selection to row i (selection follows focus).
-    function go(i) {
+    // "select": the row with the focus, and every selected row, top to bottom.
+    function emitSelect() {
+      const all = rows.filter(r => picked.has(r.key)).map(r => r.node);
+      emit("select", { node: selectedKey === null ? null : nodes.get(selectedKey) ?? null, nodes: all });
+    }
+
+    // The selection becomes these keys, with `key` selected and focused.
+    function pick(keys, key) {
+      const next = new Set(keys);
+      const changed = key !== selectedKey || next.size !== picked.size || [...next].some(k => !picked.has(k));
+      picked.clear();
+      for (const k of next) picked.add(k);
+      selectedKey = key;
+      return changed;
+    }
+
+    // The visible rows from the anchor to `key`.
+    function span(key) {
+      const a = index.get(anchorKey ?? key);
+      const b = index.get(key);
+      if (a === undefined || b === undefined) return [key];
+      return rows.slice(Math.min(a, b), Math.max(a, b) + 1).map(r => r.key);
+    }
+
+    // Moves focus and selection to row i (selection follows focus). With
+    // `extend` (Shift), the selection runs from the anchor to that row.
+    function go(i, extend = false) {
       const row = rows[Math.max(0, Math.min(i, rows.length - 1))];
       if (!row) return;
       focusKey = row.key;
-      const changed = selectedKey !== row.key;
-      selectedKey = row.key;
+      let changed;
+      if (extend && opt.multiple) {
+        changed = pick(span(row.key), row.key);
+      } else {
+        anchorKey = row.key;
+        changed = pick([row.key], row.key);
+      }
       reveal(index.get(row.key));
       render();
       focusRow();
-      if (changed) emit("select", { node: row.node });
+      if (changed) emitSelect();
     }
 
     // Opens or closes the given keys; one toggle event per row that changed.
@@ -794,17 +839,28 @@
     body.addEventListener("keydown", e => {
       if (e.target.closest(".tv-editor, .tv-picker")) return;
       const at = index.get(focusKey);
-      if (at === undefined || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (at === undefined) return;
+      // ⌘A (Ctrl+A): every row shown.
+      if (opt.multiple && (MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        if (pick(rows.map(r => r.key), selectedKey ?? focusKey)) {
+          render();
+          emitSelect();
+        }
+        return;
+      }
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
       const row = rows[at];
       const page = Math.max(1, Math.floor((scroller.clientHeight - headH) / rowH) - 1);
       const handled = () => e.preventDefault();
+      const ext = e.shiftKey;
       switch (e.key) {
-        case "ArrowDown": handled(); go(at + 1); break;
-        case "ArrowUp": handled(); go(at - 1); break;
-        case "PageDown": handled(); go(at + page); break;
-        case "PageUp": handled(); go(at - page); break;
-        case "Home": handled(); go(0); break;
-        case "End": handled(); go(rows.length - 1); break;
+        case "ArrowDown": handled(); go(at + 1, ext); break;
+        case "ArrowUp": handled(); go(at - 1, ext); break;
+        case "PageDown": handled(); go(at + page, ext); break;
+        case "PageUp": handled(); go(at - page, ext); break;
+        case "Home": handled(); go(0, ext); break;
+        case "End": handled(); go(rows.length - 1, ext); break;
         case "ArrowRight":
           handled();
           if (row.kids && !row.open) setOpen([row.key], true);
@@ -872,6 +928,25 @@
       if (row.kids && x >= row.depth * indent && x < (row.depth + 1) * indent) {
         toggle(k);
         focusRow();
+        return;
+      }
+      const toggleKey = MAC ? e.metaKey : e.ctrlKey; // on a Mac, Control-click is a right click
+      if (opt.multiple && (toggleKey || e.shiftKey)) {
+        // ⌘-click adds or takes out one row; Shift-click selects the rows from the anchor.
+        let keys;
+        if (toggleKey) {
+          keys = new Set(picked);
+          if (keys.has(k)) keys.delete(k);
+          else keys.add(k);
+          anchorKey = k;
+        } else {
+          keys = span(k);
+        }
+        focusKey = k;
+        const changed = pick(keys, new Set(keys).has(k) ? k : [...keys].at(-1) ?? null);
+        render();
+        focusRow();
+        if (changed) emitSelect();
         return;
       }
       go(i);
@@ -999,10 +1074,25 @@
       /** Selects a row, opening its parents and scrolling it into view. null clears the selection. */
       select(id) {
         if (id === null || id === undefined) {
-          if (selectedKey === null) return;
-          selectedKey = null;
+          if (selectedKey === null && !picked.size) return;
+          pick([], null);
           render();
-          emit("select", { node: null });
+          emitSelect();
+          return;
+        }
+        if (Array.isArray(id)) {
+          // Several rows (with `multiple`): the first gets the focus. Their parents open.
+          const keys = id.map(keyOf).filter(k => nodes.has(k));
+          const closed = [];
+          for (const k of keys) for (let q = parents.get(k); q !== null && q !== undefined; q = parents.get(q)) if (!expanded.has(q)) closed.push(q);
+          setOpen(closed, true);
+          const list = opt.multiple ? keys : keys.slice(0, 1);
+          anchorKey = list[0] ?? null;
+          if (list[0] !== undefined) focusKey = list[0];
+          const changed = pick(list, list[0] ?? null);
+          if (list[0] !== undefined) reveal(index.get(list[0]));
+          render();
+          if (changed) emitSelect();
           return;
         }
         const k = keyOf(id);
@@ -1012,15 +1102,25 @@
         setOpen(closed, true);
         const hadFocus = body.contains(document.activeElement);
         focusKey = k;
-        const changed = selectedKey !== k;
-        selectedKey = k;
+        anchorKey = k;
+        const changed = pick([k], k);
         reveal(index.get(k));
         render();
         if (hadFocus) focusRow();
-        if (changed) emit("select", { node: nodes.get(k) });
+        if (changed) emitSelect();
       },
-      /** The selected node, or null. */
+      /** The selected node with the focus, or null. */
       selected() { return selectedKey === null ? null : nodes.get(selectedKey) ?? null; },
+      /** Every selected node, top to bottom (one at most without `multiple`). */
+      selection() { return rows.filter(r => picked.has(r.key)).map(r => r.node); },
+      /** Selects every row shown (with `multiple`). */
+      selectAll() {
+        if (!opt.multiple) return;
+        if (pick(rows.map(r => r.key), selectedKey ?? rows[0]?.key ?? null)) {
+          render();
+          emitSelect();
+        }
+      },
       /** The node with this id, or null. */
       get(id) { return nodes.get(keyOf(id)) ?? null; },
       /** Whether a row is open. */

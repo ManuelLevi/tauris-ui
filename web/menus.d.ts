@@ -15,6 +15,8 @@ declare global {
     danger?: boolean;
     /** Called after the menu has closed and focus is back where it was. */
     action?: (item: TaurisMenuItemOptions) => void;
+    /** A sub-menu: it opens to the right (Right, Enter, or the mouse resting on the item). */
+    items?: TaurisMenuItems;
   }
 
   /** An item, "-" for a line between groups; null and false are skipped. */

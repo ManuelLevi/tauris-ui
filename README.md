@@ -12,6 +12,31 @@ UI components for Tauri 2 desktop apps. One library for every app.
 
 The plugin delivers every component's script and stylesheet to every page. A component's stylesheet is added only when a page mounts it, so a component you don't use changes nothing.
 
+## One look for every component
+
+Set a few `--tauris-*` colours once, and the tabs, the tree, the files table and the menus all follow them. Each component keeps its own look until you do; its own variables (`--tt-*`, `--tv-*`, `--tf-*`, `--tmn-*`) still win when you set them. The terminal keeps its amber look.
+
+```css
+:root {                                   /* outside every @layer block */
+  --tauris-font: "Source Sans 3", system-ui, sans-serif;
+  --tauris-mono: "Source Code Pro", ui-monospace, monospace;
+  --tauris-bg: #ffffff;                   /* lists, fields, menus, the active tab */
+  --tauris-chrome: #e9e9eb;               /* bars and column headers */
+  --tauris-fg: #1e1f22;
+  --tauris-dim: #666a77;                  /* secondary text */
+  --tauris-line: #c4c6cc;                 /* borders and separators */
+  --tauris-hover: #e6e8ec;
+  --tauris-accent: #2675bf;
+  --tauris-accent-ink: #2675bf;           /* the accent as text; keep it readable on --tauris-bg */
+  --tauris-sel-bg: #2675bf;               /* the selected row, the chosen menu item */
+  --tauris-sel-fg: #ffffff;
+  --tauris-focus: rgb(38 117 191 / 0.32); /* focus rings */
+}
+@media (prefers-color-scheme: dark) { :root { --tauris-bg: #2f3234; /* and the others for dark */ } }
+```
+
+Set them on `:root`. An app with its own light/dark switch sets them for each.
+
 ## Tabs
 
 - Drag a tab to reorder it.
@@ -389,10 +414,11 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 | `overscan` | `8` | Rows drawn above and below the visible ones |
 | `sortable` | on when `sort` is given | A click on a column header sorts by it |
 | `sort` | none | The first order: `{ key, up }` |
+| `multiple` | `false` | ⌘-click (Ctrl-click) and Shift-click select several rows; ⌘A selects every row shown |
 | `styles` | `true` | Add the stylesheet |
 
 **Keyboard** (as in Windows and Qt):
-- Up and Down move.
+- Up and Down move. With `multiple`, Shift extends the selection and ⌘A selects every row shown.
 - Right opens a row, or goes to its first child.
 - Left closes a row, or goes to its parent.
 - Home, End, PageUp and PageDown jump.
@@ -403,12 +429,12 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 - While editing: Tab and Shift+Tab save and go to the row's next or previous editable value. Enter saves, and Escape cancels.
 - Typing a letter jumps to the next row starting with it.
 
-**Events:** `select`, `toggle`, `change` (`{ node, column, value }`, already written into `node.values`), `activate`, and `sort` (`{ key, up }`, or `null`).
+**Events:** `select` (`{ node, nodes }`: the row with the focus, and every selected row), `toggle`, `change` (`{ node, column, value }`, already written into `node.values`), `activate`, and `sort` (`{ key, up }`, or `null`).
 
 **Methods:**
 - `setData(nodes)`
 - `expand(id)`, `collapse(id)`, `toggle(id)`, `expandAll()`, `collapseAll()`
-- `select(id)`, `selected()`, `get(id)`, `isExpanded(id)`
+- `select(id)` (an array selects several, with `multiple`), `selected()`, `selection()`, `selectAll()`, `get(id)`, `isExpanded(id)`
 - `edit(id, column?)`, `focus()`
 - `sort(key, up?)` (`null`: the data's own order), `sorting()`
 - `destroy()`
@@ -427,6 +453,7 @@ A place's shared files (a project's, a client's, a folder's) as a dense table:
 - **Add files…** opens the system's picker; files dropped on the window are added too, with a "Drop to add to …" ring round the list while they hover
 - a card with a segmented bar while files are being added, an empty state, and a "no match" line
 - renaming in place (the name without its extension selected), and a question before deleting
+- several files at once: ⌘-click, Shift-click, Shift+arrows and ⌘A select them; Enter opens them all, Delete deletes them all after one question
 - light and dark mode
 
 Open `test/files_demo.html` in a browser to try it with the menus below.
@@ -536,6 +563,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 | `columns` | all | Any of `kind`, `name`, `size`, `added`, `by`, in order |
 | `sort` | `{ key: "name", up: true }` | The first order. A new column starts A to Z for names, biggest and newest first for sizes and dates |
 | `header`, `search` | `true` | The header row, and its search field (shown once there are files) |
+| `multiple` | `true` | ⌘-click (Ctrl-click) and Shift-click select several files |
 | `dropArea` | `"window"` | Where a drop adds files: `"window"`, `"element"` (over the component only: use it when two are shown at once) or `"none"` |
 | `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function: its own question |
 | `formatDate` | short | `(date, file) => text` for the Added column |
@@ -546,13 +574,13 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 **The app's side**, each optional, each may return a Promise. A rejection's text is shown to the person; a rejection with an empty text is a quiet "cancelled" and shows nothing:
 - `onAdd(paths)`: resolve with the new files; they are selected, flash once, and "Added 2 files to Health." is said
 - `onOpen(file)`, `onSaveAs(file)` (resolve `false` when the person cancels), `onRename(file, name)`, `onDelete(file)`
-- `onSelect(file | null)`
+- `onSelect(file | null, files)`: the file with the focus, and every selected file. When several are deleted, `onDelete` is called for each, one after the other; the first refusal stops the rest
 - `onMenuOpen({ label, how })`, `onMenuClose({ label, chosen })`: the row's menu opened and closed, as the menus' `onOpen` and `onClose` (for a sound)
 - `onMessage(text, "info" | "ok" | "error")`: for the app's own status bar. Without it the component shows its messages under the list.
 
-**Methods:** `setFiles(files)`, `update(options)`, `select(id)`, `selected()`, `add()` (as Add files…, for a File menu), `addPaths(paths)`, `open(id)`, `rename(id)`, `remove(id)`, `search(text)`, `dragDrop(event)` (to feed drag-and-drop events yourself), `busy(text)`, `message(text, kind)`, `focus()`, `focusSearch()`, `destroy()`. Helpers: `TaurisFiles.kindOf(file)`, `TaurisFiles.formatSize(bytes)`.
+**Methods:** `setFiles(files)`, `update(options)`, `select(id)` (an array selects several), `selected()`, `selection()`, `selectAll()`, `add()` (as Add files…, for a File menu), `addPaths(paths)`, `open(id)`, `rename(id)`, `remove(id)`, `search(text)`, `dragDrop(event)` (to feed drag-and-drop events yourself), `busy(text)`, `message(text, kind)`, `focus()`, `focusSearch()`, `destroy()`. Helpers: `TaurisFiles.kindOf(file)`, `TaurisFiles.formatSize(bytes)`.
 
-**Keyboard:** Up, Down, Home, End, PageUp and PageDown move; a letter jumps to the next name starting with it; Enter opens; F2 renames (Enter saves, Escape cancels); Delete or ⌘⌫ deletes after the question; Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
+**Keyboard:** Up, Down, Home, End, PageUp and PageDown move, with Shift to select along the way; ⌘A selects every file; a letter jumps to the next name starting with it; Enter opens; F2 renames (Enter saves, Escape cancels); Delete or ⌘⌫ deletes after the question; Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
 
 Types are in `web/files.d.ts`: copy it into a TypeScript app.
 
@@ -566,6 +594,7 @@ An in-window menu bar, toolbar buttons with a ▾ that open a menu, and menus at
 - Left and Right go from one menu of the bar to the next
 - Enter or Space chooses; Escape closes and puts the focus back where it was
 - shortcut hints, items that are off, ✓ items, colour chips and red items
+- sub-menus: an item with `items` opens one to its right (Right, Enter, or the mouse resting on it); Left or Escape goes back
 
 ```js
 const bar = TaurisMenu.bar(document.getElementById("menubar"), { menus: [
@@ -592,7 +621,7 @@ row.addEventListener("contextmenu", e => {
 
 In React, make the bar once (`useEffect(() => { const b = TaurisMenu.bar(nav.current!, { menus }); return () => b.destroy(); }, [])`) and give items as functions that read the app's current state, or call `bar.setMenus(menus)` when it changes.
 
-**An item** is `{ label, shortcut?, disabled?, checked?, color?, danger?, action? }`, or `"-"` for a line; `null` and `false` are skipped. The action runs after the menu has closed and the focus is back where it was, so Edit › Copy acts on the field the person was in. Shortcuts are shown, not bound: the app binds its own keys.
+**An item** is `{ label, shortcut?, disabled?, checked?, color?, danger?, action?, items? }`, or `"-"` for a line (`items` makes a sub-menu: `{ label: "Open Recent", items: () => recent.map(...) }`); `null` and `false` are skipped. The action runs after the menu has closed and the focus is back where it was, so Edit › Copy acts on the field the person was in. Shortcuts are shown, not bound: the app binds its own keys.
 
 **For a sound** (or anything else), `bar` and `button` take `onOpen({ label, how })` (`how` is `"mouse"` or `"keyboard"`) and `onClose({ label, chosen })`. `chosen` is true when an item was picked, false for Escape, a click outside, or the title or button again. Going from one menu of the bar to the next fires neither: the bar stays open.
 
@@ -670,11 +699,11 @@ Types are in `web/terminal.d.ts`: copy it into a TypeScript app.
 
 ```
 cargo fmt --check && cargo clippy --all-targets && cargo test   # the model, the windows on Tauri's test runtime, saving, the command lists
-python test/run.py [shots-dir]             # the tabs page side: 103 checks in headless Chrome, nothing on screen
-python test/tree_run.py [shots-dir]        # the tree view: 118 checks, including the pixels of its lines and boxes
+python test/run.py [shots-dir]             # the tabs page side: 104 checks in headless Chrome, nothing on screen
+python test/tree_run.py [shots-dir]        # the tree view: 129 checks, including the pixels of its lines and boxes
 python test/terminal_run.py [shots-dir]    # the terminal: 95 checks, including its gaps and bars by pixel
-python test/files_run.py [shots-dir]       # the files component: 114 checks, with drops and the picker stood in for
-python test/menus_run.py [shots-dir]       # the menus: 72 checks, mouse and keyboard
+python test/files_run.py [shots-dir]       # the files component: 129 checks, with drops and the picker stood in for
+python test/menus_run.py [shots-dir]       # the menus: 84 checks, mouse and keyboard
 cargo clippy --all-targets --features files && cargo test --features files   # the Rust side of the files component
 cd examples/basic/src-tauri && cargo build
 ```
@@ -686,7 +715,7 @@ cd examples/basic/src-tauri && cargo build
 - The page tests run in Chrome. Tauri on macOS uses WebKit; the tabs suite has also been run in WebKit.
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
 - The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
-- A window opened from the plugin's event handler (the Dock click, ⌘N) freezes only the real event loop, so `test/freeze_check` checks it by hand on macOS: `cd test/freeze_check && cargo run`.
+- A window opened from the plugin's event handler (the Dock click, ⌘N) freezes only the real event loop. `test/freeze_check` clicks the Dock and presses ⌘N in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here.
 - A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing

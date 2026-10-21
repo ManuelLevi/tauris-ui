@@ -12,8 +12,8 @@
   :root {
     /* strip */
     --tt-strip-h: 40px;
-    --tt-strip-bg: #18181b;
-    --tt-line: #2c2c31;             /* the line under the strip */
+    --tt-strip-bg: var(--tauris-chrome, #18181b);
+    --tt-line: var(--tauris-line, #2c2c31);             /* the line under the strip */
     --tt-inset-left: 84px;          /* room for the macOS window buttons (set by the plugin) */
     --tt-inset-right: 56px;         /* empty strip kept at the right, to drag the window by */
     /* tabs */
@@ -25,18 +25,18 @@
     --tt-tab-gap: 6px;              /* between a tab's title and its close button */
     --tt-tabs-gap: 2px;             /* between tabs */
     --tt-tab-overlap: 1px;          /* how far the active tab sinks over the line, to join the page */
-    --tt-font: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    --tt-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif);
     --tt-font-size: 12px;
-    --tt-fg: #9b9ba4;
+    --tt-fg: var(--tauris-dim, #9b9ba4);
     --tt-fg-hover: #d6d6dc;
-    --tt-fg-active: #f4f4f6;
+    --tt-fg-active: var(--tauris-fg, #f4f4f6);
     --tt-tab-bg: transparent;
-    --tt-hover-bg: #222226;
-    --tt-active-bg: #0f0f11;        /* make it your page's background */
+    --tt-hover-bg: var(--tauris-hover, #222226);
+    --tt-active-bg: var(--tauris-bg, #0f0f11);        /* make it your page's background */
     --tt-active-border: transparent;
-    --tt-accent: #5b8cff;           /* the bar along the top of the active tab */
+    --tt-accent: var(--tauris-accent, #5b8cff);           /* the bar along the top of the active tab */
     --tt-accent-size: 2px;
-    --tt-separator: #2c2c31;        /* the thin line between idle tabs */
+    --tt-separator: var(--tauris-line, #2c2c31);        /* the thin line between idle tabs */
     --tt-flare: 8px;                /* the curve where the active tab meets the page (0 = none) */
     --tt-focus: var(--tt-accent);
     /* close and new-tab buttons */
@@ -57,10 +57,10 @@
     --tt-ghost-border: var(--tt-accent);
     --tt-ghost-fg: var(--tt-accent);
     /* right-click menu */
-    --tt-menu-bg: #232327;
-    --tt-menu-fg: #ececf1;
-    --tt-menu-border: #34343a;
-    --tt-menu-hover-bg: #34343a;
+    --tt-menu-bg: var(--tauris-bg, #232327);
+    --tt-menu-fg: var(--tauris-fg, #ececf1);
+    --tt-menu-border: var(--tauris-line, #34343a);
+    --tt-menu-hover-bg: var(--tauris-hover, #34343a);
     --tt-menu-radius: 8px;
     --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
     --tt-menu-muted: #8e8e97;
@@ -69,20 +69,20 @@
 
   @media (prefers-color-scheme: light) {
     :root {
-      --tt-strip-bg: #ececef;
-      --tt-line: #d4d4d9;
-      --tt-fg: #5d5d66;
+      --tt-strip-bg: var(--tauris-chrome, #ececef);
+      --tt-line: var(--tauris-line, #d4d4d9);
+      --tt-fg: var(--tauris-dim, #5d5d66);
       --tt-fg-hover: #2a2a30;
-      --tt-fg-active: #111114;
-      --tt-hover-bg: #e1e1e6;
-      --tt-active-bg: #ffffff;
-      --tt-accent: #2f6bff;
-      --tt-separator: #d0d0d6;
+      --tt-fg-active: var(--tauris-fg, #111114);
+      --tt-hover-bg: var(--tauris-hover, #e1e1e6);
+      --tt-active-bg: var(--tauris-bg, #ffffff);
+      --tt-accent: var(--tauris-accent, #2f6bff);
+      --tt-separator: var(--tauris-line, #d0d0d6);
       --tt-drag-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
-      --tt-menu-bg: #ffffff;
-      --tt-menu-fg: #18181b;
-      --tt-menu-border: #dcdce1;
-      --tt-menu-hover-bg: #ececf1;
+      --tt-menu-bg: var(--tauris-bg, #ffffff);
+      --tt-menu-fg: var(--tauris-fg, #18181b);
+      --tt-menu-border: var(--tauris-line, #dcdce1);
+      --tt-menu-hover-bg: var(--tauris-hover, #ececf1);
       --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
       --tt-menu-muted: #7a7a83;
     }

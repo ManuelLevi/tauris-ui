@@ -12,6 +12,7 @@
 //
 // An item is { label, shortcut?, disabled?, checked?, color?, danger?, action? }, or "-" for a
 // line between groups; null and false are skipped, for items that only sometimes exist.
+// An item with `items` (a list, or a function) opens a sub-menu.
 // `items` can be a function: it is called each time the menu opens, so the
 // menu always shows the app's state as it is now.
 //
@@ -110,7 +111,13 @@
         row.append(chip);
       }
       row.append(el("span", "tmn-label", {}, String(item.label ?? "")));
-      if (item.shortcut != null && item.shortcut !== "") row.append(el("span", "tmn-shortcut", {}, String(item.shortcut)));
+      if (Array.isArray(item.items) || typeof item.items === "function") {
+        row.setAttribute("aria-haspopup", "menu");
+        row.setAttribute("aria-expanded", "false");
+        row.append(el("span", "tmn-sub", { "aria-hidden": "true" }));
+      } else if (item.shortcut != null && item.shortcut !== "") {
+        row.append(el("span", "tmn-shortcut", {}, String(item.shortcut)));
+      }
       row.__tmnItem = item;
       menu.append(row);
     }
@@ -118,7 +125,8 @@
   }
 
   // Below the point (or the anchor), kept inside the window; above the anchor
-  // when it does not fit below. A menu taller than the window scrolls.
+  // when it does not fit below. A sub-menu opens to the right of its item, or
+  // to the left (at.flipX) when it does not fit. A menu taller than the window scrolls.
   function place(menu, at) {
     const pad = 4;
     const vw = document.documentElement.clientWidth || window.innerWidth;
@@ -128,30 +136,29 @@
     let x = at.x;
     let y = at.y;
     if (y + height > vh - pad) y = at.above != null && at.above - height >= pad ? at.above - height : Math.max(pad, vh - pad - height);
-    if (x + width > vw - pad) x = Math.max(pad, vw - pad - width);
+    if (x + width > vw - pad) x = at.flipX != null && at.flipX - width >= pad ? at.flipX - width : Math.max(pad, vw - pad - width);
     menu.style.left = `${Math.round(x)}px`;
     menu.style.top = `${Math.round(y)}px`;
   }
 
+  const hasSub = item => Boolean(item) && (Array.isArray(item.items) || typeof item.items === "function");
+
   // Opens a menu. `at` is { x, y, above? } in window pixels; `how` is "mouse"
   // (nothing chosen yet), "keyboard" (first item) or "last" (last item).
+  // An item with `items` opens a sub-menu: to the right, on Right, Enter or
+  // Space, or when the mouse rests on it; Left or Escape goes back.
   function show(items, at, how, o = {}) {
     closeCurrent(false);
     addStyles();
-    const list = listOf(items);
-    const menu = build(list, o.label);
     const returnTo = o.returnTo ?? document.activeElement;
     // Inside a modal <dialog> everything else is inert: the menu goes in the dialog.
     const host = (o.owner ?? returnTo)?.closest?.("dialog[open]") ?? document.body;
-    host.append(menu);
-    place(menu, at);
     const life = new AbortController();
     const signal = life.signal;
-    const enabled = () => [...menu.querySelectorAll(".tmn-item:not([aria-disabled='true'])")];
-    const go = node => node ? node.focus({ preventScroll: false }) : menu.focus({ preventScroll: true });
+    const levels = []; // the open menus, the first one first
 
     const handle = {
-      el: menu,
+      el: null,
       owner: o.owner ?? null,
       closed: false,
       // why it closed: an item was picked, or the bar went on to another menu
@@ -161,7 +168,10 @@
         if (handle.closed) return;
         handle.closed = true;
         life.abort();
-        menu.remove();
+        for (const lv of levels) {
+          clearTimeout(lv.timer);
+          lv.menu.remove();
+        }
         if (current === handle) current = null;
         o.onClose?.({ chosen: handle.chosen, hop: handle.hop });
         if (refocus) restore(o.refocusTo?.() ?? returnTo);
@@ -169,87 +179,168 @@
     };
     current = handle;
 
-    function choose(row) {
+    function choose(lv, row) {
       if (!row || off(row)) return;
       const item = row.__tmnItem;
+      if (hasSub(item)) {
+        openSub(lv, row, "keyboard");
+        return;
+      }
       handle.chosen = true;
       handle.close(true);
       o.afterChoose?.();
       if (typeof item.action === "function") item.action(item);
     }
 
-    let typed = "";
-    let typedAt = 0;
-    menu.addEventListener("keydown", e => {
-      if (e.isComposing) return;
-      const list = enabled();
-      const i = list.indexOf(document.activeElement);
-      // A space in the middle of typing a label is part of it, not a choice.
-      const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < 700;
-      const to = n => {
-        e.preventDefault();
-        if (list.length) go(list[(n + list.length) % list.length]);
-      };
-      if (e.key === "ArrowDown") to(i + 1);
-      else if (e.key === "ArrowUp") to(i < 0 ? list.length - 1 : i - 1);
-      else if (e.key === "Home") to(0);
-      else if (e.key === "End") to(list.length - 1);
-      else if (e.key === "Enter" || (e.key === " " && !spelling)) {
-        e.preventDefault();
-        if (i >= 0) choose(list[i]);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        handle.close(true);
-      } else if (e.key === "Tab") {
-        e.preventDefault();
-        handle.close(true);
-      } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && o.onSide) {
-        e.preventDefault();
-        o.onSide(e.key === "ArrowLeft" ? -1 : 1);
-      } else if (e.key.length === 1 && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        // Typing jumps to the next item that starts with what was typed.
-        e.preventDefault();
-        const now = Date.now();
-        typed = now - typedAt < 700 ? typed + e.key.toLowerCase() : e.key.toLowerCase();
-        typedAt = now;
-        const label = node => node.querySelector(".tmn-label").textContent.trim().toLowerCase();
-        const from = typed.length > 1 ? Math.max(i, 0) : i + 1;
-        const order = list.slice(from).concat(list.slice(0, from));
-        const hit = order.find(node => label(node).startsWith(typed));
-        if (hit) go(hit);
-      }
-    }, { signal });
+    function closeSub(lv) {
+      const child = lv.child;
+      if (!child) return;
+      closeSub(child);
+      clearTimeout(child.timer);
+      child.menu.remove();
+      levels.splice(levels.indexOf(child), 1);
+      child.row.setAttribute("aria-expanded", "false");
+      lv.child = null;
+    }
 
-    // The item under the mouse is the one Enter would choose, as in a
-    // desktop menu; leaving the menu leaves nothing chosen.
-    menu.addEventListener("pointermove", e => {
-      const row = e.target instanceof Element ? e.target.closest(".tmn-item") : null;
-      if (row && !off(row)) {
-        if (document.activeElement !== row) row.focus({ preventScroll: true });
-      } else if (document.activeElement !== menu) {
-        menu.focus({ preventScroll: true });
+    function openSub(lv, row, how) {
+      clearTimeout(lv.timer);
+      if (lv.child?.row === row) {
+        if (how !== "mouse") go(lv.child, enabledIn(lv.child.menu)[0]);
+        return;
       }
-    }, { signal });
-    menu.addEventListener("pointerleave", () => menu.focus({ preventScroll: true }), { signal });
-    menu.addEventListener("click", e => {
-      const row = e.target instanceof Element ? e.target.closest(".tmn-item") : null;
-      if (row) choose(row);
-    }, { signal });
-    menu.addEventListener("contextmenu", e => e.preventDefault(), { signal });
+      closeSub(lv);
+      if (off(row)) return;
+      const item = row.__tmnItem;
+      const r = row.getBoundingClientRect();
+      const child = level(listOf(item.items), item.label, { x: r.right - 3, y: r.top - 5, flipX: r.left + 3 }, how, lv, row);
+      row.setAttribute("aria-expanded", "true");
+      row.setAttribute("aria-controls", child.menu.id);
+      lv.child = child;
+    }
+
+    const enabledIn = menu => [...menu.querySelectorAll(":scope > .tmn-item:not([aria-disabled='true'])")];
+    const go = (lv, node) => (node ? node.focus({ preventScroll: false }) : lv.menu.focus({ preventScroll: true }));
+
+    // One menu of the chain: its keys and its mouse.
+    function level(list, label, where, how, parent = null, row = null) {
+      const menu = build(list, label);
+      host.append(menu);
+      place(menu, where);
+      const lv = { menu, parent, row, child: null, timer: 0 };
+      levels.push(lv);
+      if (!handle.el) handle.el = menu;
+
+      let typed = "";
+      let typedAt = 0;
+      menu.addEventListener("keydown", e => {
+        if (e.isComposing) return;
+        const list = enabledIn(menu);
+        const i = list.indexOf(document.activeElement);
+        const focused = i >= 0 ? list[i] : null;
+        // A space in the middle of typing a label is part of it, not a choice.
+        const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < 700;
+        const to = n => {
+          e.preventDefault();
+          if (list.length) go(lv, list[(n + list.length) % list.length]);
+        };
+        if (e.key === "ArrowDown") to(i + 1);
+        else if (e.key === "ArrowUp") to(i < 0 ? list.length - 1 : i - 1);
+        else if (e.key === "Home") to(0);
+        else if (e.key === "End") to(list.length - 1);
+        else if (e.key === "Enter" || (e.key === " " && !spelling)) {
+          e.preventDefault();
+          if (focused) choose(lv, focused);
+        } else if (e.key === "ArrowRight" && focused && hasSub(focused.__tmnItem)) {
+          e.preventDefault();
+          openSub(lv, focused, "keyboard");
+        } else if (e.key === "ArrowLeft" && parent) {
+          // Back to the item that opened this sub-menu.
+          e.preventDefault();
+          closeSub(parent);
+          row.focus({ preventScroll: true });
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (parent) {
+            closeSub(parent);
+            row.focus({ preventScroll: true });
+          } else {
+            handle.close(true);
+          }
+        } else if (e.key === "Tab") {
+          e.preventDefault();
+          handle.close(true);
+        } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && o.onSide) {
+          e.preventDefault();
+          o.onSide(e.key === "ArrowLeft" ? -1 : 1);
+        } else if (e.key.length === 1 && !e.altKey && !e.ctrlKey && !e.metaKey) {
+          // Typing jumps to the next item that starts with what was typed.
+          e.preventDefault();
+          const now = Date.now();
+          typed = now - typedAt < 700 ? typed + e.key.toLowerCase() : e.key.toLowerCase();
+          typedAt = now;
+          const text = node => node.querySelector(".tmn-label").textContent.trim().toLowerCase();
+          const from = typed.length > 1 ? Math.max(i, 0) : i + 1;
+          const order = list.slice(from).concat(list.slice(0, from));
+          const hit = order.find(node => text(node).startsWith(typed));
+          if (hit) go(lv, hit);
+        }
+      }, { signal });
+
+      // The item under the mouse is the one Enter would choose, as in a
+      // desktop menu; leaving the menu leaves nothing chosen. Resting on an
+      // item with a sub-menu opens it; moving on to another item closes it a
+      // moment later, so the mouse can cross other items on its way there.
+      menu.addEventListener("pointermove", e => {
+        const hit = e.target instanceof Element ? e.target.closest(".tmn-item") : null;
+        const item = hit && hit.parentElement === menu ? hit : null;
+        if (item && !off(item)) {
+          if (document.activeElement !== item) item.focus({ preventScroll: true });
+        } else if (document.activeElement !== menu) {
+          menu.focus({ preventScroll: true });
+        }
+        if (item === lv.hover) return;
+        lv.hover = item;
+        clearTimeout(lv.timer);
+        if (item && hasSub(item.__tmnItem) && !off(item)) {
+          if (lv.child?.row !== item) lv.timer = setTimeout(() => openSub(lv, item, "mouse"), 150);
+        } else if (lv.child) {
+          lv.timer = setTimeout(() => closeSub(lv), 250);
+        }
+      }, { signal });
+      menu.addEventListener("pointerenter", () => {
+        if (parent) clearTimeout(parent.timer);
+      }, { signal });
+      menu.addEventListener("pointerleave", () => {
+        lv.hover = null;
+        if (!lv.child) menu.focus({ preventScroll: true });
+      }, { signal });
+      menu.addEventListener("click", e => {
+        const hit = e.target instanceof Element ? e.target.closest(".tmn-item") : null;
+        if (!hit || hit.parentElement !== menu) return;
+        if (hasSub(hit.__tmnItem)) openSub(lv, hit, "mouse");
+        else choose(lv, hit);
+      }, { signal });
+      menu.addEventListener("contextmenu", e => e.preventDefault(), { signal });
+
+      if (how === "keyboard") go(lv, enabledIn(menu)[0]);
+      else if (how === "last") go(lv, enabledIn(menu).at(-1));
+      else if (!parent) menu.focus({ preventScroll: true });
+      return lv;
+    }
+
+    level(listOf(items), o.label, at, how);
+
     // A press outside closes it; a press on its own opener is left to the opener.
     document.addEventListener("pointerdown", e => {
       const t = e.target;
-      if (!(t instanceof Node) || menu.contains(t) || (handle.owner && handle.owner.contains(t))) return;
+      if (!(t instanceof Node) || levels.some(lv => lv.menu.contains(t)) || (handle.owner && handle.owner.contains(t))) return;
       handle.close(false);
     }, { capture: true, signal });
     // Focus goes back where it was, so the app answers keys when the person returns.
     window.addEventListener("blur", () => handle.close(true), { signal });
     window.addEventListener("resize", () => handle.close(true), { signal });
-
-    if (how === "keyboard") go(enabled()[0]);
-    else if (how === "last") go(enabled().at(-1));
-    else menu.focus({ preventScroll: true });
     return handle;
   }
 

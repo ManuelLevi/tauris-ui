@@ -243,6 +243,22 @@ with sync_playwright() as p:
     check("an app can set a column's width", page.evaluate(widths)[4] == 150)
     page.close()
 
+    # ---------- one look for every component ----------
+    page = fresh(browser)
+    page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")
+    page.click(".tf-file:nth-child(2) .tf-c-name")
+    page.click(".tmn-title:text-is('File')")
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(150)
+    look = page.evaluate("""() => { const c = s => getComputedStyle(document.querySelector(s));
+      return [c('.tf-panel').backgroundColor, c('.tf-title').color, c('.tf').fontFamily, c('.tf-file:nth-child(2) .tf-cell').backgroundColor,
+              c('.tf-th').backgroundColor, c('.tmn-bar').backgroundColor, c('.tmn-menu').backgroundColor, c('.tmn-item:focus').backgroundColor,
+              c('.tmn-menu').fontFamily]; }""")
+    check("files and menus follow the shared --tauris-* colours and font",
+          look == ["rgb(4, 5, 6)", "rgb(7, 8, 9)", "Georgia, serif", "rgb(13, 14, 15)", "rgb(10, 11, 12)", "rgb(10, 11, 12)",
+                   "rgb(4, 5, 6)", "rgb(13, 14, 15)", "Georgia, serif"], look)
+    page.close()
+
     # ---------- the row menu's hooks ----------
     page = fresh(browser)
     page.evaluate("""window.ev = []; demo.files.update({ onMenuOpen: i => ev.push(['open', i.label, i.how]),
@@ -294,6 +310,59 @@ with sync_playwright() as p:
     check("after deleting, the list keeps the focus", page.evaluate("document.activeElement.classList.contains('tf-list')"))
     page.keyboard.press("PageDown")
     check("PageDown moves a page (to the end of a short list)", selected(page) == "Site visit.mov")
+    page.close()
+
+    # ---------- selecting several files ----------
+    page = fresh(browser)
+    page.evaluate("""window.picks = []; window.opens = [];
+      demo.files.update({ onSelect: (f, all) => picks.push([f ? f.name : null, all.map(x => x.name)]),
+        onOpen: async f => { opens.push(f.name); } })""")
+    sel_names = lambda: page.evaluate("demo.files.selection().map(f => f.name)")
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.click(".tf-file:nth-child(3) .tf-c-name", modifiers=["Meta"])
+    check("⌘-click adds a file to the selection; both rows look selected",
+          sel_names() == ["Brand assets.zip", "Contract — signed.pdf"]
+          and page.locator('.tf-file[aria-selected="true"]').count() == 2 and page.get_attribute(".tf-list", "aria-multiselectable") == "true")
+    check("the app hears the file with the focus and every selected file",
+          page.evaluate("picks.at(-1)") == ["Contract — signed.pdf", ["Brand assets.zip", "Contract — signed.pdf"]])
+    page.click(".tf-file:nth-child(1) .tf-c-name", modifiers=["Meta"])
+    check("⌘-click again takes it out", sel_names() == ["Contract — signed.pdf"])
+    page.click(".tf-file:nth-child(5) .tf-c-name", modifiers=["Shift"])
+    check("Shift-click selects the range from the last click (as in Finder and Explorer)", sel_names() == names(page)[:5], sel_names())
+    page.keyboard.press("Shift+ArrowDown")
+    check("Shift+Down extends it", len(sel_names()) == 6 and page.evaluate("demo.files.selected().name") == "Launch plan.pptx")
+    page.keyboard.press("ArrowDown")
+    check("Down alone goes back to one file", sel_names() == ["Moodboard.heic"])
+    page.keyboard.press("Meta+a")
+    check("⌘A selects every file shown", len(sel_names()) == 8)
+    page.fill(".tf-q", "pdf")
+    check("a search hides some: only the shown ones count as selected", sel_names() == ["Contract — signed.pdf"])
+    page.fill(".tf-q", "")
+    page.evaluate("demo.files.select([3, 2, 7])")
+    page.focus(".tf-list")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(200)
+    check("select([ids]) picks several; Enter opens them all, one after the other",
+          page.evaluate("opens.splice(0)") == ["Brand assets.zip", "Budget 2027.xlsx", "Contract — signed.pdf"] and message(page) == "Opened 3 files.")
+    page.click(".tf-file:nth-child(2) .tf-c-name", button="right")
+    menu = page.evaluate("[...document.querySelectorAll('.tmn-menu .tmn-item')].map(i => [i.querySelector('.tmn-label').textContent, i.getAttribute('aria-disabled') === 'true'])")
+    check("a right click on the selection keeps it; Save a copy and Rename are off for several",
+          menu == [["Open", False], ["Save a copy…", True], ["Rename", True], ["Delete", False]] and len(sel_names()) == 3, menu)
+    page.click(".tmn-item:has-text('Delete')")
+    check("Delete asks once, for all of them", page.inner_text(".tf-ask-text") == "Delete 3 files? This cannot be undone.")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(400)
+    check("Enter deletes all three; the file after them is selected",
+          names(page) == ["Customer interview — Maria Okafor, Lisbon office, recorded with consent.m4a", "Kickoff notes.md", "Launch plan.pptx", "Moodboard.heic", "Site visit.mov"]
+          and sel_names() == [names(page)[0]] and message(page) == "Deleted 3 files.", (names(page), sel_names()))
+    page.evaluate("window.__pick = ['/x/One.pdf', '/x/Two.pdf']; window.uploadMs = 50")
+    page.click(".tf-add")
+    page.wait_for_function("demo.files.selection().length === 2")
+    check("files just added are all selected", sel_names() == ["One.pdf", "Two.pdf"])
+    page.evaluate("demo.files.update({ multiple: false })")
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.click(".tf-file:nth-child(2) .tf-c-name", modifiers=["Meta"])
+    check("multiple: false keeps one file at a time", len(sel_names()) == 1 and page.get_attribute(".tf-list", "aria-multiselectable") == "false")
     page.close()
 
     # ---------- the row's buttons, double-click, the row menu ----------

@@ -172,6 +172,14 @@ with sync_playwright() as p:
     shot(page, "5_custom")
     page.close()
 
+    # --- one look for every component ---
+    page = fresh(browser)
+    page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")
+    look = page.evaluate("""() => { const r = getComputedStyle(document.documentElement), v = n => r.getPropertyValue(n).trim();
+      return [v('--tt-accent'), v('--tt-active-bg'), v('--tt-strip-bg'), v('--tt-fg-active'), getComputedStyle(document.querySelector('.tt-tab')).fontFamily]; }""")
+    check("the tabs follow the shared --tauris-* colours and font", look == ["rgb(1, 2, 3)", "rgb(4, 5, 6)", "rgb(10, 11, 12)", "rgb(7, 8, 9)", "Georgia, serif"], look)
+    page.close()
+
     # --- right click on the empty strip ---
     page = fresh(browser)
     page.mouse.click(745, 20, button="right")

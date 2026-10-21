@@ -13,7 +13,7 @@
 @layer tauris-ui {
   :root {
     /* sizes */
-    --tv-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --tv-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
     --tv-font-size: 12px;
     --tv-row-h: 18px;
     --tv-indent: 16px;              /* per level */
@@ -33,31 +33,31 @@
     --tv-dots: repeating-conic-gradient(transparent 0 25%, #000 0 50%);
 
     /* colours */
-    --tv-bg: #161619;
-    --tv-fg: #d8d8de;
-    --tv-muted: #8a8a94;
+    --tv-bg: var(--tauris-bg, #161619);
+    --tv-fg: var(--tauris-fg, #d8d8de);
+    --tv-muted: var(--tauris-dim, #8a8a94);
     --tv-line: #777782;             /* the dotted connectors */
     --tv-box-border: #85858f;
     --tv-box-bg: transparent;
     --tv-box-fg: #dcdce2;
-    --tv-box-hover: #8fb0ff;
-    --tv-hover-bg: #1f1f24;
-    --tv-sel-bg: #2b5bd6;           /* the selected row while the tree has focus */
-    --tv-sel-fg: #ffffff;
+    --tv-box-hover: var(--tauris-accent, #8fb0ff);
+    --tv-hover-bg: var(--tauris-hover, #1f1f24);
+    --tv-sel-bg: var(--tauris-sel-bg, #2b5bd6);           /* the selected row while the tree has focus */
+    --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tv-sel-line: rgb(255 255 255 / 0.55);
     --tv-sel-inactive-bg: #2b2b31;  /* the selected row while focus is elsewhere */
     --tv-sel-inactive-fg: var(--tv-fg);
-    --tv-focus: #5b8cff;
-    --tv-head-bg: #1c1c20;
-    --tv-head-fg: #9e9ea8;
-    --tv-head-line: #2f2f36;
-    --tv-grid: #232328;             /* lines between columns */
+    --tv-focus: var(--tauris-accent, #5b8cff);
+    --tv-head-bg: var(--tauris-chrome, #1c1c20);
+    --tv-head-fg: var(--tauris-dim, #9e9ea8);
+    --tv-head-line: var(--tauris-line, #2f2f36);
+    --tv-grid: var(--tauris-line, #232328);             /* lines between columns */
     --tv-group-bg: #1b1b1f;         /* rows that only group others, in a table */
-    --tv-edit-bg: #0e0e10;
-    --tv-edit-fg: #f4f4f6;
+    --tv-edit-bg: var(--tauris-bg, #0e0e10);
+    --tv-edit-fg: var(--tauris-fg, #f4f4f6);
     --tv-check-bg: #1e1e22;
     --tv-check-border: #74747e;
-    --tv-check-on: #4d7dff;
+    --tv-check-on: var(--tauris-accent, #4d7dff);
     --tv-check-mark: #ffffff;
     --tv-swatch-line: rgb(255 255 255 / 0.28);
     --tv-scroll-thumb: #3b3b43;
@@ -75,29 +75,29 @@
 
   @media (prefers-color-scheme: light) {
     :root {
-      --tv-bg: #ffffff;
-      --tv-fg: #1d1d21;
-      --tv-muted: #6f6f79;
+      --tv-bg: var(--tauris-bg, #ffffff);
+      --tv-fg: var(--tauris-fg, #1d1d21);
+      --tv-muted: var(--tauris-dim, #6f6f79);
       --tv-line: #9a9aa4;
       --tv-box-border: #8b8b95;
       --tv-box-fg: #2c2c32;
-      --tv-box-hover: #2f6bff;
-      --tv-hover-bg: #f0f2f6;
-      --tv-sel-bg: #2a64f0;
-      --tv-sel-fg: #ffffff;
+      --tv-box-hover: var(--tauris-accent, #2f6bff);
+      --tv-hover-bg: var(--tauris-hover, #f0f2f6);
+      --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
+      --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
       --tv-sel-line: rgb(255 255 255 / 0.6);
       --tv-sel-inactive-bg: #e2e3e8;
-      --tv-focus: #2f6bff;
-      --tv-head-bg: #f6f6f8;
-      --tv-head-fg: #5c5c66;
-      --tv-head-line: #dadade;
-      --tv-grid: #ececef;
+      --tv-focus: var(--tauris-accent, #2f6bff);
+      --tv-head-bg: var(--tauris-chrome, #f6f6f8);
+      --tv-head-fg: var(--tauris-dim, #5c5c66);
+      --tv-head-line: var(--tauris-line, #dadade);
+      --tv-grid: var(--tauris-line, #ececef);
       --tv-group-bg: #f6f6f8;
-      --tv-edit-bg: #ffffff;
-      --tv-edit-fg: #111114;
+      --tv-edit-bg: var(--tauris-bg, #ffffff);
+      --tv-edit-fg: var(--tauris-fg, #111114);
       --tv-check-bg: #ffffff;
       --tv-check-border: #8b8b95;
-      --tv-check-on: #2f6bff;
+      --tv-check-on: var(--tauris-accent, #2f6bff);
       --tv-swatch-line: rgb(0 0 0 / 0.22);
       --tv-scroll-thumb: #c8c8cf;
       --tv-icon-tint: 0.16;

@@ -268,6 +268,82 @@ with sync_playwright() as p:
           page.locator(".tmn-menu").count() == 0 and focused(page) == "File")
     page.close()
 
+    # ---------- sub-menus ----------
+    page = fresh(browser)
+    page.evaluate("""() => { demo.bar.destroy(); window.picked = []; window.ev2 = [];
+      const pick = name => () => picked.push(name);
+      window.bar3 = TaurisMenu.bar(document.getElementById('menubar'), {
+        onClose: i => ev2.push(i.chosen),
+        menus: [
+          { label: 'File', items: [
+            { label: 'New', action: pick('new') },
+            { label: 'Open Recent', items: () => [
+              { label: 'Budget.xlsx', action: pick('budget') },
+              { label: 'More', items: [{ label: 'Deck.pdf', action: pick('deck') }] },
+              { label: 'Gone.txt', disabled: true } ] },
+            { label: 'Share', disabled: true, items: [{ label: 'Mail' }] },
+            { label: 'Quit', action: pick('quit') } ] },
+          { label: 'Edit', items: [{ label: 'Copy', action: pick('copy') }] } ] });
+      return 0; }""")
+    page.click(title("File"))
+    parent = ".tmn-menu >> nth=0 >> .tmn-item:has-text('Open Recent')"
+    check("an item with a sub-menu says so and shows an arrow",
+          page.get_attribute(parent, "aria-haspopup") == "menu" and page.get_attribute(parent, "aria-expanded") == "false"
+          and page.locator(parent + " .tmn-sub").count() == 1 and page.locator(parent + " .tmn-shortcut").count() == 0)
+    page.hover(parent)
+    page.wait_for_timeout(300)
+    sub = page.locator(".tmn-menu").nth(1)
+    pr, sr = page.locator(parent).bounding_box(), sub.bounding_box()
+    check("resting the mouse on it opens the sub-menu to its right, the item stays lit",
+          page.locator(".tmn-menu").count() == 2 and abs(sr["x"] - (pr["x"] + pr["width"] - 3)) <= 2
+          and page.get_attribute(parent, "aria-expanded") == "true"
+          and page.evaluate("getComputedStyle(document.querySelector('.tmn-item[aria-expanded=\"true\"]')).backgroundColor") == ACCENT, (pr, sr))
+    page.hover(".tmn-menu >> nth=1 >> .tmn-item:has-text('Budget')")
+    page.click(".tmn-menu >> nth=1 >> .tmn-item:has-text('Budget')")
+    check("choosing in the sub-menu runs the item and closes every menu, as a choice",
+          page.evaluate("picked") == ["budget"] and page.locator(".tmn-menu").count() == 0 and page.evaluate("ev2.splice(0)") == [True])
+    page.click(title("File"))
+    page.hover(parent)
+    page.wait_for_timeout(300)
+    page.hover(".tmn-menu >> nth=0 >> .tmn-item:has-text('Quit')")
+    page.wait_for_timeout(100)
+    still = page.locator(".tmn-menu").count()
+    page.wait_for_timeout(300)
+    check("moving on to another item closes the sub-menu a moment later (time to reach it)", still == 2 and page.locator(".tmn-menu").count() == 1)
+    page.keyboard.press("Escape")
+    page.evaluate("bar3.focus()")
+    page.keyboard.press("Enter")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowRight")
+    check("from the keyboard: Right opens the sub-menu at its first item", focused(page) == "Budget.xlsx" and page.locator(".tmn-menu").count() == 2)
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Enter")
+    check("Enter on a sub-menu item opens the next level", focused(page) == "Deck.pdf" and page.locator(".tmn-menu").count() == 3)
+    page.keyboard.press("ArrowLeft")
+    check("Left closes it and goes back to its item", focused(page) == "More" and page.locator(".tmn-menu").count() == 2)
+    page.keyboard.press("ArrowDown")
+    check("an item that is off is passed over in the sub-menu too", focused(page) == "Budget.xlsx")
+    page.keyboard.press("Escape")
+    check("Escape closes only the sub-menu", focused(page) == "Open Recent" and page.locator(".tmn-menu").count() == 1)
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowRight")
+    check("a sub-menu item that is off does not open (Share is skipped; Right on Quit moves to Edit)",
+          page.get_attribute(".tmn-menu", "aria-label") == "Edit" and page.locator(".tmn-menu").count() == 1, focused(page))
+    page.keyboard.press("Escape")
+    page.click(title("File"))
+    page.hover(parent)
+    page.wait_for_timeout(300)
+    page.mouse.click(900, 500)
+    check("a click outside closes every level, as no choice", page.locator(".tmn-menu").count() == 0 and page.evaluate("ev2.slice(-1)") == [False])
+    edge = page.evaluate("""() => { TaurisMenu.open([{ label: 'Sub', items: [{ label: 'A long item name here' }] }], { x: 960, y: 100 }, { keyboard: true });
+      return 0; }""")
+    page.keyboard.press("ArrowRight")
+    boxes = page.evaluate("[...document.querySelectorAll('.tmn-menu')].map(m => m.getBoundingClientRect().toJSON())")
+    check("near the right edge the sub-menu opens to the left", boxes[1]["right"] <= boxes[0]["left"] + 4 and boxes[1]["left"] >= 0, boxes)
+    page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
+    page.close()
+
     # ---------- onOpen and onClose (for a sound) ----------
     page = fresh(browser)
     page.evaluate("""() => { demo.bar.destroy(); window.ev = [];

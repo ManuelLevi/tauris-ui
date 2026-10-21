@@ -66,12 +66,15 @@ declare global {
     sortable?: boolean | null;
     /** The first order (and sortable headers). Default: the data's own order. */
     sort?: { key: string; up?: boolean } | null;
+    /** ⌘-click (Ctrl-click) and Shift-click select several rows; ⌘A selects every row shown. Default false. */
+    multiple?: boolean;
     /** Add the stylesheet (false: bring your own). */
     styles?: boolean;
   }
 
   interface TaurisTreeEvents<V extends object = Record<string, unknown>> {
-    select: { node: TaurisTreeNode<V> | null };
+    /** node: the selected row with the focus; nodes: every selected row, top to bottom. */
+    select: { node: TaurisTreeNode<V> | null; nodes: TaurisTreeNode<V>[] };
     toggle: { node: TaurisTreeNode<V>; expanded: boolean };
     /** An edited value, already written into node.values. */
     change: { node: TaurisTreeNode<V>; column: keyof V & string; value: unknown };
@@ -89,9 +92,14 @@ declare global {
     toggle(id: string | number): void;
     expandAll(): void;
     collapseAll(): void;
-    /** Selects a row, opening its parents; null clears the selection. */
-    select(id: string | number | null): void;
+    /** Selects a row, opening its parents; null clears the selection. An array selects several (with `multiple`). */
+    select(id: string | number | Array<string | number> | null): void;
+    /** The selected row with the focus, or null. */
     selected(): TaurisTreeNode<V> | null;
+    /** Every selected row, top to bottom. */
+    selection(): TaurisTreeNode<V>[];
+    /** Selects every row shown (with `multiple`). */
+    selectAll(): void;
     get(id: string | number): TaurisTreeNode<V> | null;
     isExpanded(id: string | number): boolean;
     /** Opens a cell's editor (the first editable column by default); false if it cannot. */

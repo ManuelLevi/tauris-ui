@@ -56,6 +56,10 @@ declare global {
     nameNeeded: string;
     confirmDelete: (file: TaurisFile) => string;
     deleted: (file: TaurisFile) => string;
+    confirmDeleteMany: (files: TaurisFile[]) => string;
+    deletedMany: (files: TaurisFile[]) => string;
+    openingMany: (files: TaurisFile[]) => string;
+    openedMany: (files: TaurisFile[]) => string;
   }
 
   interface TaurisFilesOptions<F extends TaurisFile = TaurisFile> {
@@ -78,8 +82,11 @@ declare global {
     search?: boolean;
     /** Where a drop adds files: anywhere on the window (default), over the component only, or nowhere. */
     dropArea?: "window" | "element" | "none";
-    /** Ask before onDelete: true (the component asks; default), false (the app asks), or the question. */
-    confirmDelete?: boolean | ((file: F) => string | null | false);
+    /** Ask before onDelete: true (the component asks; default), false (the app asks), or the question.
+     * When several files go at once, files has all of them (onDelete is still called once per file). */
+    confirmDelete?: boolean | ((file: F, files: F[]) => string | null | false);
+    /** ⌘-click (Ctrl-click) and Shift-click select several files; ⌘A selects them all. Default true. */
+    multiple?: boolean;
     /** How a date shows in the Added column. Default short: "21 Oct", "21 Oct 25". */
     formatDate?: (date: Date, file: F) => string;
     /** The picker behind "Add files…". Default: the system's, through the plugin. */
@@ -93,7 +100,8 @@ declare global {
     onSaveAs?: (file: F) => Promise<boolean | void> | boolean | void;
     onRename?: (file: F, name: string) => Promise<unknown> | unknown;
     onDelete?: (file: F) => Promise<unknown> | unknown;
-    onSelect?: (file: F | null) => void;
+    /** The file with the focus, and every selected file (top to bottom). */
+    onSelect?: (file: F | null, files: F[]) => void;
     /** The row's menu (right click, Shift+F10) opened; label is the file's name. As TaurisMenu's onOpen. */
     onMenuOpen?: (info: { label: string; how: "mouse" | "keyboard" }) => void;
     /** The row's menu closed; chosen is true when an item was picked. As TaurisMenu's onClose. */
@@ -119,9 +127,14 @@ declare global {
     files(): F[];
     /** Changes options: title, place, subtitle, color, labels, columns, the on… functions, files. */
     update(changes: Partial<TaurisFilesOptions<F>>): void;
-    /** Selects a file by id (null: none). */
-    select(id: F["id"] | null): void;
+    /** Selects one file (null: none), or several: an array of ids (the first gets the focus). */
+    select(id: F["id"] | F["id"][] | null): void;
+    /** The file with the focus, or null. */
     selected(): F | null;
+    /** Every selected file that is shown, top to bottom. */
+    selection(): F[];
+    /** Selects every file shown. */
+    selectAll(): void;
     /** Opens the picker, then adds what was chosen (as "Add files…"). Resolves with the added files. */
     add(): Promise<F[]>;
     /** Adds these paths, as if they were dropped. */

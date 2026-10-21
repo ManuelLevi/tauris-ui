@@ -9,7 +9,8 @@
  *   .tmn-bar          the menu bar (TaurisMenu.bar adds it): .tmn-title per menu
  *   .tmn-menu         an open menu, hung from <body>: .tmn-item rows with
  *                     .tmn-label and .tmn-shortcut, .tmn-sep lines, .tmn-check
- *                     (the ✓ column) and .tmn-chip (an item's colour)
+ *                     (the ✓ column), .tmn-chip (an item's colour) and .tmn-sub
+ *                     (the arrow of an item that opens a sub-menu)
  *   .tmn-caret        on a menu button: the ▾ after its text
  *   .tmn-toolbar      optional: a toolbar row, with .tmn-tool buttons and
  *                     .tmn-tool-sep lines between groups. Any element can be a
@@ -17,57 +18,57 @@
  */
 @layer tauris-ui {
   :root {
-    --tmn-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --tmn-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
     --tmn-font-size: 13px;
-    --tmn-fg: #1e1f22;
+    --tmn-fg: var(--tauris-fg, #1e1f22);
     --tmn-disabled: #a3a6ad;
-    --tmn-focus: rgb(38 117 191 / 0.32);
+    --tmn-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));
     /* the bar */
     --tmn-bar-h: 24px;
-    --tmn-bar-bg: #f2f2f3;
-    --tmn-bar-line: #d3d5da;
+    --tmn-bar-bg: var(--tauris-chrome, #f2f2f3);
+    --tmn-bar-line: var(--tauris-line, #d3d5da);
     --tmn-title-pad: 9px;
     --tmn-title-open-bg: #dbe6f4;     /* the title under the mouse or with its menu open */
     /* a menu */
     --tmn-menu-min-w: 220px;
-    --tmn-menu-bg: #ffffff;
-    --tmn-menu-border: #adb0b7;
+    --tmn-menu-bg: var(--tauris-bg, #ffffff);
+    --tmn-menu-border: var(--tauris-line, #adb0b7);
     --tmn-menu-radius: 4px;
     --tmn-menu-pad: 4px;              /* above the first item and below the last */
     --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
     --tmn-item-h: 24px;
     --tmn-item-pad: 12px;
     --tmn-item-gap: 24px;             /* between a label and its shortcut */
-    --tmn-item-on-bg: #2675bf;        /* the item under the mouse or chosen by the keyboard */
-    --tmn-item-on-fg: #ffffff;
+    --tmn-item-on-bg: var(--tauris-sel-bg, #2675bf);        /* the item under the mouse or chosen by the keyboard */
+    --tmn-item-on-fg: var(--tauris-sel-fg, #ffffff);
     --tmn-danger: #d1453b;
     --tmn-shortcut-opacity: 0.7;
-    --tmn-sep: #d3d5da;
+    --tmn-sep: var(--tauris-line, #d3d5da);
     --tmn-chip-size: 10px;
     /* the toolbar look */
     --tmn-tool-h: 26px;
     --tmn-tool-font-size: 12px;
-    --tmn-tool-hover-bg: #e6e8ec;
-    --tmn-tool-border: #c4c6cc;
+    --tmn-tool-hover-bg: var(--tauris-hover, #e6e8ec);
+    --tmn-tool-border: var(--tauris-line, #c4c6cc);
     --tmn-tool-on-bg: #dbe6f4;        /* pressed, or with its menu open */
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --tmn-fg: #dfe1e5;
+      --tmn-fg: var(--tauris-fg, #dfe1e5);
       --tmn-disabled: #6f737a;
-      --tmn-focus: rgb(74 136 199 / 0.45);
-      --tmn-bar-bg: #3c3f41;
-      --tmn-bar-line: #515356;
+      --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
+      --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
+      --tmn-bar-line: var(--tauris-line, #515356);
       --tmn-title-open-bg: #4b6eaf;
-      --tmn-menu-bg: #2f3234;
-      --tmn-menu-border: #6b6e73;
+      --tmn-menu-bg: var(--tauris-bg, #2f3234);
+      --tmn-menu-border: var(--tauris-line, #6b6e73);
       --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
-      --tmn-item-on-bg: #3570b0;
+      --tmn-item-on-bg: var(--tauris-sel-bg, #3570b0);
       --tmn-danger: #f07a72;
-      --tmn-sep: #515356;
-      --tmn-tool-hover-bg: #4c5052;
-      --tmn-tool-border: #5e6165;
+      --tmn-sep: var(--tauris-line, #515356);
+      --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
+      --tmn-tool-border: var(--tauris-line, #5e6165);
       --tmn-tool-on-bg: #4b6eaf;
     }
   }
@@ -145,6 +146,23 @@
     outline: none;
     color: var(--tmn-item-on-fg);
     background: var(--tmn-item-on-bg);
+  }
+
+  /* the item whose sub-menu is open stays lit while the mouse is in the sub-menu */
+  .tmn-item[aria-expanded="true"] {
+    color: var(--tmn-item-on-fg);
+    background: var(--tmn-item-on-bg);
+  }
+
+  .tmn-sub {
+    flex: none;
+    width: 5px;
+    height: 5px;
+    margin: 0 2px 0 var(--tmn-item-gap);
+    border: solid currentColor;
+    border-width: 1.3px 1.3px 0 0;
+    opacity: 0.7;
+    transform: rotate(45deg);
   }
 
   .tmn-item.tmn-danger:not(:focus) { color: var(--tmn-danger); }

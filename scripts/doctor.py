@@ -272,7 +272,7 @@ def main():
         bad("the app's CSS declares the tauris-ui layer",
             "remove it: it can put the library under the app's reset, and values set inside it lose anyway")
     elif re.search(r"@layer\s+[\w-]", text):
-        note("the app's CSS uses layers: set the --tt-*, --tv-*, --tf-*, --tmn-* and --tm-* variables outside every @layer block, "
+        note("the app's CSS uses layers: set the --tauris-*, --tt-*, --tv-*, --tf-*, --tmn-* and --tm-* variables outside every @layer block, "
              "or the library's defaults win")
 
     # TypeScript: an up-to-date copy of each component's types

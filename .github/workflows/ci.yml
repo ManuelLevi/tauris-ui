@@ -48,6 +48,21 @@ jobs:
           PYTHONUTF8: "1"
         run: python scripts/doctor.py examples/basic
 
+  # A real app on macOS: a Dock click and File › New Window must open their
+  # windows (a window opened inside the plugin's event handler froze the app).
+  freeze-check:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: test/freeze_check
+      - name: The Dock click and New Window open their windows
+        working-directory: test/freeze_check
+        run: cargo run
+
   minimum-rust:
     runs-on: macos-latest
     steps:

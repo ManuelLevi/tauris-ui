@@ -25,8 +25,8 @@
 @layer tauris-ui {
   :root {
     /* type */
-    --tf-font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    --tf-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --tf-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+    --tf-mono: var(--tauris-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
     --tf-font-size: 13px;
     --tf-title-size: 15px;
     --tf-small: 12px;                /* the count, the headers, the buttons */
@@ -51,25 +51,25 @@
     --tf-panel-min-h: 120px;
 
     /* colours */
-    --tf-fg: #1e1f22;
-    --tf-dim: #666a77;
+    --tf-fg: var(--tauris-fg, #1e1f22);
+    --tf-dim: var(--tauris-dim, #666a77);
     --tf-faint: #a3a6ad;
-    --tf-bg: #ffffff;                /* the list and the fields */
-    --tf-chrome: #e9e9eb;            /* the column headers */
-    --tf-border: #c4c6cc;
+    --tf-bg: var(--tauris-bg, #ffffff);                /* the list and the fields */
+    --tf-chrome: var(--tauris-chrome, #e9e9eb);            /* the column headers */
+    --tf-border: var(--tauris-line, #c4c6cc);
     --tf-border-2: #adb0b7;          /* the buttons */
-    --tf-sep: #d3d5da;
-    --tf-grid: #ececef;              /* between rows */
+    --tf-sep: var(--tauris-line, #d3d5da);
+    --tf-grid: var(--tauris-line, #ececef);              /* between rows */
     --tf-badge-bg: #f6f6f8;
-    --tf-hover: #e6e8ec;
-    --tf-row-hover: #f1f5fb;
-    --tf-accent: #2675bf;
+    --tf-hover: var(--tauris-hover, #e6e8ec);
+    --tf-row-hover: var(--tauris-hover, #f1f5fb);
+    --tf-accent: var(--tauris-accent, #2675bf);
     --tf-accent-2: #1d63a5;
-    --tf-accent-ink: #2675bf;        /* the accent as text and lines, readable on --tf-bg */
+    --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #2675bf));        /* the accent as text and lines, readable on --tf-bg */
     --tf-on-accent: #ffffff;
-    --tf-focus: rgb(38 117 191 / 0.32);
-    --tf-sel-bg: #2675bf;
-    --tf-sel-fg: #ffffff;
+    --tf-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));
+    --tf-sel-bg: var(--tauris-sel-bg, #2675bf);
+    --tf-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tf-sel-line: rgb(255 255 255 / 0.55);
     --tf-sel-hover: rgb(255 255 255 / 0.18);
     --tf-flash: #dbe6f4;             /* a row just added */
@@ -89,23 +89,23 @@
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --tf-fg: #dfe1e5;
-      --tf-dim: #adb0b8;
+      --tf-fg: var(--tauris-fg, #dfe1e5);
+      --tf-dim: var(--tauris-dim, #adb0b8);
       --tf-faint: #6f737a;
-      --tf-bg: #2f3234;
-      --tf-chrome: #34373a;
-      --tf-border: #5e6165;
+      --tf-bg: var(--tauris-bg, #2f3234);
+      --tf-chrome: var(--tauris-chrome, #34373a);
+      --tf-border: var(--tauris-line, #5e6165);
       --tf-border-2: #6b6e73;
-      --tf-sep: #515356;
-      --tf-grid: #3a3d40;
+      --tf-sep: var(--tauris-line, #515356);
+      --tf-grid: var(--tauris-line, #3a3d40);
       --tf-badge-bg: #36393c;
-      --tf-hover: #4c5052;
-      --tf-row-hover: #3b4148;
-      --tf-accent: #3570b0;
+      --tf-hover: var(--tauris-hover, #4c5052);
+      --tf-row-hover: var(--tauris-hover, #3b4148);
+      --tf-accent: var(--tauris-accent, #3570b0);
       --tf-accent-2: #2c5f98;
-      --tf-accent-ink: #6aa6e0;
-      --tf-focus: rgb(74 136 199 / 0.45);
-      --tf-sel-bg: #2f65ca;
+      --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
+      --tf-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
+      --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
       --tf-flash: #4b6eaf;
       --tf-danger: #e5625a;
       --tf-veil: rgb(0 0 0 / 0.3);

@@ -500,6 +500,49 @@ with sync_playwright() as p:
           perf["bySore"] < 60 and perf["byName"] < 60 and perf["drawn"] < 60, perf)
     page.close()
 
+    # ---------- selecting several rows ----------
+    page = fresh(browser)
+    page.click('#files .tv-row[data-key="atlas-desktop"] .tv-label')
+    page.click('#files .tv-row[data-key="atlas-desktop/src"] .tv-label', modifiers=["Meta"])
+    check("without multiple, ⌘-click still selects one row", page.evaluate("demo.files.selection().length") == 1
+          and page.get_attribute("#files .tv-body", "aria-multiselectable") is None)
+    page.evaluate("(" + SORT_TREE + ")({ multiple: true })")
+    page.evaluate("sortHost.id = 'sortHost'; window.selEv = []; st.on('select', e => selEv.push([e.node && e.node.id, e.nodes.map(n => n.id)])); 0")  # 0: evaluate would call the returned unsubscribe function
+    picked = lambda: page.evaluate("st.selection().map(n => n.id)")
+    page.click('#sortHost .tv-row[data-key="b169"] .tv-label')
+    page.click('#sortHost .tv-row[data-key="zoe"] .tv-label', modifiers=["Meta"])
+    check("multiple: ⌘-click adds a row; both look selected; the tree says it can hold several",
+          picked() == ["b169", "zoe"] and page.locator('#sortHost .tv-row[aria-selected="true"]').count() == 2
+          and page.get_attribute("#sortHost .tv-body", "aria-multiselectable") == "true")
+    check("the select event carries the focused node and every selected node", page.evaluate("selEv.at(-1)") == ["zoe", ["b169", "zoe"]])
+    page.click('#sortHost .tv-row[data-key="carl"] .tv-label', modifiers=["Shift"])
+    check("Shift-click selects every row shown from the last click, across groups",
+          picked() == ["zoe", "rej", "carl"], picked())
+    page.keyboard.press("Shift+ArrowDown")
+    check("Shift+Down extends it", picked() == ["zoe", "rej", "carl", "bea"])
+    page.keyboard.press("Meta+a")
+    check("⌘A selects every row shown", len(picked()) == 8)
+    page.evaluate("st.collapse('short')")
+    check("closing a group drops its hidden rows from the selection", picked() == ["short", "rej", "carl", "bea"], picked())
+    page.evaluate("st.expand('short'); st.select(['b49', 'anna'])")
+    check("select([ids]) picks several", picked() == ["b49", "anna"] and page.evaluate("st.selected().id") == "b49")
+    page.evaluate("st.sort('label')")
+    check("sorting keeps the selection", sorted(picked()) == ["anna", "b49"])
+    page.keyboard.press("ArrowDown")
+    check("a plain arrow goes back to one row", len(picked()) == 1)
+    page.close()
+
+    # ---------- one look for every component ----------
+    page = fresh(browser)
+    page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")
+    page.evaluate("demo.files.select(demo.files.selected()?.id ?? 'atlas-desktop'); demo.files.focus()")
+    look = page.evaluate("""() => { const t = document.getElementById('files'), c = getComputedStyle(t);
+      return [c.backgroundColor, c.color, c.fontFamily, getComputedStyle(t.querySelector('.tv-row[aria-selected="true"]')).backgroundColor,
+              getComputedStyle(document.querySelector('#settings .tv-head')).backgroundColor]; }""")
+    check("the tree follows the shared --tauris-* colours and font",
+          look == ["rgb(4, 5, 6)", "rgb(7, 8, 9)", "Georgia, serif", "rgb(13, 14, 15)", "rgb(10, 11, 12)"], look)
+    page.close()
+
     # ---------- API ----------
     page = fresh(browser)
     page.evaluate("demo.files.collapseAll()")

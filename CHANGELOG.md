@@ -8,6 +8,16 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.8 — 2026-10-21
+
+- **One look for every component:** `--tauris-font`, `--tauris-bg`, `--tauris-chrome`, `--tauris-fg`, `--tauris-dim`, `--tauris-line`, `--tauris-hover`, `--tauris-accent`, `--tauris-accent-ink`, `--tauris-sel-bg`, `--tauris-sel-fg`, `--tauris-focus` and `--tauris-mono`, set once on `:root`, are followed by the tabs, the tree, the files table and the menus. Unset, every component looks as before; each component's own variables still win.
+- **Selecting several:** the files table selects several files with ⌘-click (Ctrl-click), Shift-click, Shift+arrows and ⌘A. Enter opens them all; Delete deletes them all after one question (`onDelete` once per file); the row menu acts on all of them. `onSelect(file, files)`, `selection()`, `selectAll()`, `select([ids])`; `multiple: false` keeps one at a time. Files just added are all selected.
+- The tree selects several rows the same way with `multiple: true` (off by default): the `select` event carries `nodes`, plus `selection()`, `selectAll()`, `select([ids])`.
+- **Sub-menus:** a menu item with `items` opens a sub-menu to its right (Right, Enter, or the mouse resting on it; Left or Escape goes back). It opens to the left near the window's edge.
+- CI runs `test/freeze_check` on macOS at every push: a real Dock click and File › New Window must open their windows.
+
+**Upgrade** (TypeScript apps only): copy `web/files.d.ts`, `web/tree.d.ts` and `web/menus.d.ts` over the app's copies; `doctor.py` points to them.
+
 ## 0.4.7 — 2026-10-21
 
 - Fixed: the app froze (macOS "not responding") on a Dock click with no window open, on File › New Window (⌘N), and on File › New Tab (⌘T) with no window open. Tauri holds its plugin lock while the plugin's event handler runs, and opening a window takes that lock. These now open their window just after the handler returns, one after the other, in order.

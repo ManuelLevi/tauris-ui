@@ -105,7 +105,8 @@ Do all of these, every time:
 ## What tests cannot cover
 
 A window opened from the plugin's event handler freezes only the real event
-loop. After changing `on_event` in `src/lib.rs`, run the check on macOS:
+loop. `test/freeze_check` checks it in a real app: CI runs it on macOS at every
+push. After changing `on_event` in `src/lib.rs`, also run it here:
 `cd test/freeze_check && cargo run`. It must end with "OK" twice. A small
 window opens and closes on the screen while it runs.
 
