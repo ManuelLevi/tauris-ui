@@ -6,8 +6,23 @@ dependency, `cargo update -p tauris-ui`).
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.4.14 — 2026-10-22
+
 - Files: names sort as in Finder, the name without its extension first and then the extension, so "Q3 plan.md" comes before "Q3 plan 2.md".
 - Files: on a Mac, Control never acts as Command. ⌃⌫ and ⌃⌘⌫ no longer delete, ⌃⌘A no longer selects all, and ⌃⌘-click and ⌃⌘↑↓ no longer add to the selection.
+
+Fixes from a second round of the ten reviewers:
+- The hook calls that a window job causes (⌘N, the Dock click) go to the hook's worker, so a slow `on_change` never holds up the next window. A hook that panics is the app's bug: the tabs carry on, on every thread. Quitting also waits (half a second at most) for a hook call running on another thread.
+- Closing a window's last tab takes the tab and the window out of the layout in one go, so a tab opened meanwhile always gets a new window. A drag whose window closed mid-way drops nothing. `open_many` into a window that closed meanwhile opens a new one. A failed move restores the active tab only if the person did not choose another; a tab whose window has gone goes to the frontmost window. Two restores at once (a Dock click and the app's own open) do not both open every remembered window. One remembered window that fails to open keeps the layout aside as `<name>.unopened`. A failed save keeps the windows closed a moment ago for the next try.
+- `safe_name` trims tabs and line breaks at the ends before anything else ("report.pdf\t" is "report.pdf") and drops more invisible characters. `inspect` gives a limit in bytes when a rounded size would hide it ("larger than 1,500 bytes"). `open_path("")` says "The file could not be found."
+- The checker reads a page without its HTML comments, keeps a `/*` that is not a comment, finds `pick` only as a key of the options given to `TaurisFiles.mount`, understands `tauris-ui = { workspace = true }` and `version = "*"`, and counts only the capabilities that `app.security.capabilities` enables.
+- Files: `destroy()` while a name is being edited renames nothing; a file deleted while another is renamed leaves the screen at once; files added meanwhile show, selected, when the rename ends; a click on the delete question's text keeps it open; type-ahead takes spaces ("Launch p"); Space never scrolls the list; the search field leaves keys to an input method that is composing. Error text and the Delete button have their own colours (`--tf-danger`, `--tf-danger-fill`, `--tf-on-danger`), readable in light and dark. The search placeholder uses `--tf-dim`. The type badges are readable on the README's example colours. In Windows high contrast a selected row's badge and buttons, and the focused row among several selected, are drawn in the system's colours.
+- Tree: every column can be resized from the keyboard (Tab to its header: ← / → where it does not sort, Alt+← / Alt+→ where it does), so the header is no longer hidden from screen readers. A folder the person closed stays closed after it left the list for a while (a search). `edit(id)` selects that row. `isExpanded` is false for a leaf. Secondary text on a selection without the focus, and on any selection in Windows high contrast, is as readable as its label.
+- Menus: a sub-menu whose `items()` fails is an item that is off (and the console says why); a menu closes when the page, or what holds its opener, scrolls, not when a list elsewhere does; `setMenus` keeps the open menu with its own title even when that title moves; Space right after an arrow chooses; a bar's `destroy()` leaves the element's own children and role. The shortcut on the chosen item is as readable as its label. In Windows high contrast items that are off are greyed and separators show. A `<button class="tmn-tool" aria-disabled="true">` looks off.
+- Tabs: `update()` keeps the focus on the tab and one tab reachable with Tab; a tab closed during a drag is not dropped; ⌘W and the window's close button pressed together ask `onBeforeClose` once; a tab the app draws (`renderTab`) is named by what it shows. The tab menu's danger and muted colours are readable in light and dark. Terminal: Down after Up gives back what was being typed.
+- Tests: the slow-hook test now fails if the bug comes back; timing checks take the best of three runs; CONTRIBUTING and AGENTS list every check CI runs.
 
 ## 0.4.13 — 2026-10-21
 
