@@ -503,14 +503,14 @@ with sync_playwright() as p:
     # ---------- selecting several rows ----------
     page = fresh(browser)
     page.click('#files .tv-row[data-key="atlas-desktop"] .tv-label')
-    page.click('#files .tv-row[data-key="atlas-desktop/src"] .tv-label', modifiers=["Meta"])
+    page.click('#files .tv-row[data-key="atlas-desktop/src"] .tv-label', modifiers=["ControlOrMeta"])
     check("without multiple, ⌘-click still selects one row", page.evaluate("demo.files.selection().length") == 1
           and page.get_attribute("#files .tv-body", "aria-multiselectable") is None)
     page.evaluate("(" + SORT_TREE + ")({ multiple: true })")
     page.evaluate("sortHost.id = 'sortHost'; window.selEv = []; st.on('select', e => selEv.push([e.node && e.node.id, e.nodes.map(n => n.id)])); 0")  # 0: evaluate would call the returned unsubscribe function
     picked = lambda: page.evaluate("st.selection().map(n => n.id)")
     page.click('#sortHost .tv-row[data-key="b169"] .tv-label')
-    page.click('#sortHost .tv-row[data-key="zoe"] .tv-label', modifiers=["Meta"])
+    page.click('#sortHost .tv-row[data-key="zoe"] .tv-label', modifiers=["ControlOrMeta"])
     check("multiple: ⌘-click adds a row; both look selected; the tree says it can hold several",
           picked() == ["b169", "zoe"] and page.locator('#sortHost .tv-row[aria-selected="true"]').count() == 2
           and page.get_attribute("#sortHost .tv-body", "aria-multiselectable") == "true")
@@ -520,7 +520,7 @@ with sync_playwright() as p:
           picked() == ["zoe", "rej", "carl"], picked())
     page.keyboard.press("Shift+ArrowDown")
     check("Shift+Down extends it", picked() == ["zoe", "rej", "carl", "bea"])
-    page.keyboard.press("Meta+a")
+    page.keyboard.press("ControlOrMeta+a")
     check("⌘A selects every row shown", len(picked()) == 8)
     page.evaluate("st.collapse('short')")
     check("closing a group drops its hidden rows from the selection", picked() == ["short", "rej", "carl", "bea"], picked())

@@ -319,13 +319,13 @@ with sync_playwright() as p:
         onOpen: async f => { opens.push(f.name); } })""")
     sel_names = lambda: page.evaluate("demo.files.selection().map(f => f.name)")
     page.click(".tf-file:nth-child(1) .tf-c-name")
-    page.click(".tf-file:nth-child(3) .tf-c-name", modifiers=["Meta"])
+    page.click(".tf-file:nth-child(3) .tf-c-name", modifiers=["ControlOrMeta"])
     check("⌘-click adds a file to the selection; both rows look selected",
           sel_names() == ["Brand assets.zip", "Contract — signed.pdf"]
           and page.locator('.tf-file[aria-selected="true"]').count() == 2 and page.get_attribute(".tf-list", "aria-multiselectable") == "true")
     check("the app hears the file with the focus and every selected file",
           page.evaluate("picks.at(-1)") == ["Contract — signed.pdf", ["Brand assets.zip", "Contract — signed.pdf"]])
-    page.click(".tf-file:nth-child(1) .tf-c-name", modifiers=["Meta"])
+    page.click(".tf-file:nth-child(1) .tf-c-name", modifiers=["ControlOrMeta"])
     check("⌘-click again takes it out", sel_names() == ["Contract — signed.pdf"])
     page.click(".tf-file:nth-child(5) .tf-c-name", modifiers=["Shift"])
     check("Shift-click selects the range from the last click (as in Finder and Explorer)", sel_names() == names(page)[:5], sel_names())
@@ -333,7 +333,7 @@ with sync_playwright() as p:
     check("Shift+Down extends it", len(sel_names()) == 6 and page.evaluate("demo.files.selected().name") == "Launch plan.pptx")
     page.keyboard.press("ArrowDown")
     check("Down alone goes back to one file", sel_names() == ["Moodboard.heic"])
-    page.keyboard.press("Meta+a")
+    page.keyboard.press("ControlOrMeta+a")
     check("⌘A selects every file shown", len(sel_names()) == 8)
     page.fill(".tf-q", "pdf")
     check("a search hides some: only the shown ones count as selected", sel_names() == ["Contract — signed.pdf"])
@@ -361,7 +361,7 @@ with sync_playwright() as p:
     check("files just added are all selected", sel_names() == ["One.pdf", "Two.pdf"])
     page.evaluate("demo.files.update({ multiple: false })")
     page.click(".tf-file:nth-child(1) .tf-c-name")
-    page.click(".tf-file:nth-child(2) .tf-c-name", modifiers=["Meta"])
+    page.click(".tf-file:nth-child(2) .tf-c-name", modifiers=["ControlOrMeta"])
     check("multiple: false keeps one file at a time", len(sel_names()) == 1 and page.get_attribute(".tf-list", "aria-multiselectable") == "false")
     page.close()
 
