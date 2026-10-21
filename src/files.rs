@@ -84,18 +84,23 @@ pub fn mime_for(name: &str) -> &'static str {
 /// or space, no trailing dot or space, at most 200 characters and 255 bytes
 /// (the extension is kept). Empty becomes "file".
 pub fn safe_name(name: &str) -> String {
-    let swapped: String =
-        name.chars()
-            .filter(|c| !invisible(*c))
-            .map(|c| {
-                if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
-                    '-'
-                } else {
-                    c
-                }
-            })
-            .collect();
-    let edge = |c: char| c == '.' || c.is_whitespace();
+    // Spaces, dots and control characters at either end go first, so a name
+    // that ends in a tab keeps its extension ("report.pdf\t" is "report.pdf").
+    let edge = |c: char| c == '.' || c.is_whitespace() || c.is_control() || invisible(c);
+    let swapped: String = name
+        .trim_start_matches(edge)
+        .trim_end_matches(edge)
+        .chars()
+        .filter(|c| !invisible(*c))
+        .map(|c| {
+            let breaks = c.is_control() || matches!(c, '\u{2028}' | '\u{2029}');
+            if breaks || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
     let trimmed = swapped.trim_start_matches(edge).trim_end_matches(edge).to_string();
     if trimmed.is_empty() {
         return "file".into();
@@ -127,10 +132,12 @@ pub fn safe_name(name: &str) -> String {
     }
 }
 
-// Characters that show nothing but change how a name reads.
+// Characters that show nothing but change how a name reads (direction
+// marks, zero-width and blank letters, tags). U+FE0F stays: emoji need it.
 fn invisible(c: char) -> bool {
-    matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}'
-        | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
+    matches!(c, '\u{00AD}' | '\u{034F}' | '\u{061C}' | '\u{115F}' | '\u{1160}' | '\u{17B4}' | '\u{17B5}' | '\u{180E}'
+        | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206F}'
+        | '\u{2800}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}' | '\u{FFF9}'..='\u{FFFB}' | '\u{E0000}'..='\u{E007F}')
 }
 
 // The start of `s`: at most `chars` characters and `bytes` bytes, never half a character.
@@ -164,12 +171,23 @@ pub fn size_text(bytes: u64) -> String {
     }
 }
 
-// A limit as a sentence says it: "100 bytes" under 1 KB, else as size_text.
+// A limit as a sentence says it: as size_text when that is exact ("2 KB",
+// "1.5 MB"), otherwise in bytes ("1,500 bytes"), so a file over the limit
+// never shows the limit's own size.
 fn limit_text(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    const GB: u64 = 1024 * MB;
+    let exact = match bytes {
+        b if b < KB => false,
+        b if b < MB => b % KB == 0,
+        b if b < GB => (b * 10) % MB == 0,
+        b => (b * 10) % GB == 0,
+    };
     match bytes {
         1 => "1 byte".into(),
-        b if b < 1024 => format!("{b} bytes"),
-        b => size_text(b),
+        b if exact => size_text(b),
+        b => format!("{} bytes", grouped(b)),
     }
 }
 
@@ -206,17 +224,22 @@ pub struct FileInfo {
     pub mime: &'static str,
 }
 
+// How a message names a path: its file name ("The file" for an empty path).
+fn name_of(path: &Path) -> String {
+    match path.file_name() {
+        Some(n) => n.to_string_lossy().into_owned(),
+        None if path.as_os_str().is_empty() => "The file".into(),
+        None => path.display().to_string(),
+    }
+}
+
 /// Checks a dropped or picked path. A folder, a missing file, or a file over
 /// `max_bytes` comes back as a sentence to show the person, such as
 /// "Contracts is a folder. Add files, not folders." The page component shows
 /// it when the app's onAdd fails with it.
 pub fn inspect(path: impl AsRef<Path>, max_bytes: Option<u64>) -> Result<FileInfo, String> {
     let path = path.as_ref();
-    let name = match path.file_name() {
-        Some(n) => n.to_string_lossy().into_owned(),
-        None if path.as_os_str().is_empty() => "The file".into(),
-        None => path.display().to_string(),
-    };
+    let name = name_of(path);
     if path.is_dir() {
         return Err(format!("{name} is a folder. Add files, not folders."));
     }
@@ -272,7 +295,7 @@ pub async fn save_dialog<R: Runtime>(app: &AppHandle<R>, title: &str, name: &str
 #[cfg(feature = "files")]
 pub fn open_path(path: impl AsRef<Path>) -> Result<(), String> {
     let path = path.as_ref();
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+    let name = name_of(path);
     if !path.exists() {
         return Err(format!("{name} could not be found."));
     }
@@ -433,6 +456,11 @@ mod tests {
         assert_eq!(safe_name("invoice\u{202E}fdp.exe"), "invoicefdp.exe");
         assert_eq!(safe_name("zero\u{200B}width.txt"), "zerowidth.txt");
         assert_eq!(safe_name(". a"), "a");
+        assert_eq!(safe_name("report.pdf\t"), "report.pdf");
+        assert_eq!(safe_name("\tnotes.txt\n"), "notes.txt");
+        assert_eq!(safe_name("a\u{2028}b.txt"), "a-b.txt");
+        assert_eq!(safe_name("a\u{3164}\u{E0041}.txt"), "a.txt");
+        assert_eq!(safe_name("ok\u{FE0F}.txt"), "ok\u{FE0F}.txt");
         assert_eq!(safe_name(" . report.pdf . "), "report.pdf");
     }
 
@@ -465,6 +493,9 @@ mod tests {
         assert_eq!(inspect(dir.join("nope.pdf"), None).unwrap_err(), "nope.pdf could not be found.");
         assert_eq!(inspect(&file, Some(2048)).unwrap_err(), "Term sheet.docx is larger than 2 KB.");
         assert_eq!(inspect(&file, Some(100)).unwrap_err(), "Term sheet.docx is larger than 100 bytes.");
+        assert_eq!(inspect(&file, Some(1500)).unwrap_err(), "Term sheet.docx is larger than 1,500 bytes.");
+        assert_eq!(limit_text(1536 * 1024), "1.5 MB");
+        assert_eq!(limit_text(2_000_000), "2,000,000 bytes");
         assert_eq!(inspect("", None).unwrap_err(), "The file could not be found.");
         #[cfg(unix)]
         assert_eq!(inspect("/dev/null", None).unwrap_err(), "null is not a file that can be added.");

@@ -377,7 +377,7 @@ The library's rules sit in a cascade layer named `tauris-ui`, so plain CSS alway
 The classic Qt / Windows tree, for the information density and precision it had, without the old look:
 - rows 18 px high, indented 16 px per level, small system type
 - tiny +/- boxes and dotted guide lines that join without a seam and stop at the last child
-- aligned columns you can resize
+- aligned columns you can resize, by dragging an edge or from the keyboard (Tab to a column's header: ← / → on one that does not sort, Alt+← / Alt+→ on one that does)
 - values you can edit in place: text, numbers, checkboxes, choices and colours
 - light and dark mode
 
@@ -407,12 +407,12 @@ const tree = TaurisTree.mount(document.getElementById("settings"), {
 tree.on("change", ({ node, column, value }) => console.log(node.id, column, value)); // save it in your app
 ```
 
-**Sorting.** With `sortable: true` (or a first `sort`), a click on a column's header sorts by it, and a second click turns it round (▲ / ▼). Enter and Space do the same on a focused header, and Alt+← / Alt+→ there make the column narrower or wider (as dragging its edge does).
+**Sorting.** With `sortable: true` (or a first `sort`), a click on a column's header sorts by it, and a second click turns it round (▲ / ▼). Enter and Space do the same on a focused header.
 - Rows sort among their siblings: groups stay groups, and children sort inside each group.
 - Numbers sort as numbers. Text sorts as people read it ("Brian 49" before "Brian 169"). Empty values go last both ways.
 - A column with `sortable: false` never sorts. `sortValue: node => ...` sorts by something other than the text shown (an ISO date behind "21 Oct 2026"), and `compare: (a, b) => ...` replaces the comparison.
 - Selection and focus stay on their node. `setData` keeps the order. An edit does not move its row until the next sort or `setData`.
-- `setData` keeps what the person did: a folder they closed stays closed (`expanded: true` opens a node only the first time it comes), and a value they are editing is saved first (a "change" event), unless its node is gone.
+- `setData` keeps what the person did: a folder they closed stays closed, even after it left the list for a while, as in a search (`expanded: true` opens a node only the first time it comes), and a value they are editing is saved first (a "change" event), unless its node is gone.
 
 ```js
 const tree = TaurisTree.mount(el, {

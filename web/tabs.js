@@ -228,15 +228,24 @@
     // Closes a tab after asking onBeforeClose; true when it closed. A second
     // request for the same tab while the first is being answered is ignored.
     const closing = new Set();
-    // The app's answer: false keeps the tab. One that fails keeps it too, and says why.
-    async function mayClose(tab, reason) {
-      if (!opt.onBeforeClose) return true;
-      try {
-        return (await opt.onBeforeClose(tab, { reason })) !== false;
-      } catch (e) {
-        console.error("TaurisTabs: onBeforeClose failed, so the tab stays open:", e);
-        return false;
+    // The app's answer: false keeps the tab. One that fails keeps it too, and
+    // says why. A tab is asked once at a time: ⌘W and the window's close button
+    // pressed together share one question (one "Save changes?", not two).
+    const asking = new Map();
+    function mayClose(tab, reason) {
+      if (!opt.onBeforeClose) return Promise.resolve(true);
+      let answer = asking.get(tab.id);
+      if (!answer) {
+        answer = Promise.resolve()
+          .then(() => opt.onBeforeClose(tab, { reason }))
+          .then(yes => yes !== false, e => {
+            console.error("TaurisTabs: onBeforeClose failed, so the tab stays open:", e);
+            return false;
+          });
+        asking.set(tab.id, answer);
+        answer.then(() => { if (asking.get(tab.id) === answer) asking.delete(tab.id); });
       }
+      return answer;
     }
     async function close(id, reason = "tab") {
       const tab = tabs.find(t => t.id === id);
@@ -380,7 +389,9 @@
       const body = opt.renderTab ? opt.renderTab(tab, { active: isActive }) : defaultBody(tab);
       const node = el("div", `tt-tab${isActive ? " tt-active" : ""}${opt.tabClass ? " " + (opt.tabClass(tab) || "") : ""}`,
         { role: "tab", "aria-selected": String(isActive), tabindex: isActive ? "0" : "-1", title: tab.title,
-          "aria-label": tab.title, "aria-controls": opt.panelId }, body);
+          // The default tab is named by its title alone (not "Close tab" too); a tab
+          // the app draws is named by what it shows.
+          "aria-label": opt.renderTab ? null : tab.title, "aria-controls": opt.panelId }, body);
       node.dataset.id = tab.id;
       node.querySelectorAll("button, a, input, select, textarea").forEach(c => c.setAttribute("tabindex", "-1"));
       node.addEventListener("pointerdown", e => startDrag(e, tab.id));
@@ -591,13 +602,22 @@
       finished.preview?.remove();
       if (finished.handedOff || !finished.moved) return;
 
+      // The strip may have been drawn again meanwhile (a tab closed elsewhere):
+      // the tab is found by its id, and one that has gone is not dropped.
+      const at = tabs.findIndex(t => t.id === finished.id);
+      if (at < 0) {
+        render();
+        return;
+      }
       // Let the dropped tab glide from where it was released into its slot.
-      const releasedAt = finished.els[finished.from].getBoundingClientRect().left;
-      const [tab] = tabs.splice(finished.from, 1);
+      const was = finished.els[finished.from];
+      const releasedAt = was.isConnected ? was.getBoundingClientRect().left : null;
+      const [tab] = tabs.splice(at, 1);
+      finished.to = Math.min(finished.to, tabs.length);
       tabs.splice(finished.to, 0, tab);
       render();
       const dropped = tabEl(finished.id);
-      if (dropped) {
+      if (dropped && releasedAt !== null) {
         dropped.style.setProperty("--dx", `${releasedAt - dropped.getBoundingClientRect().left}px`);
         dropped.getBoundingClientRect();
         dropped.classList.add("tt-settling");
@@ -605,7 +625,7 @@
       }
       emit("drop", { tab, index: finished.to });
 
-      if (finished.to !== finished.from) local(call("move_tab", { tab: finished.id, index: finished.to }));
+      if (finished.to !== at) local(call("move_tab", { tab: finished.id, index: finished.to }));
     }
 
     strip.addEventListener("pointerup", endDrag, { signal });
@@ -694,8 +714,16 @@
         tabs[at] = next;
         local(save(next));
         const old = tabEl(next.id);
-        if (old && !hover) old.replaceWith(tabElement(next));
-        else render();
+        if (old && !hover) {
+          // Only this tab is drawn again; it keeps the focus, and stays the one Tab reaches.
+          const hadFocus = old.contains(document.activeElement);
+          const fresh = tabElement(next);
+          fresh.tabIndex = old.tabIndex;
+          old.replaceWith(fresh);
+          if (hadFocus) fresh.focus({ preventScroll: true });
+        } else {
+          render();
+        }
         if (next.id === active) {
           const title = opt.documentTitle(next);
           if (title != null) document.title = title;

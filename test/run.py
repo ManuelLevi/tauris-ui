@@ -612,7 +612,7 @@ with sync_playwright() as p:
       const b = document.createElement('button'); b.className = 'mine'; b.textContent = 'pin';
       b.addEventListener('click', () => { window.pinned = (window.pinned || 0) + 1; }); return [t, b]; },
       onBeforeClose: () => { throw new Error('boom'); } }""")
-    check("a tab's name for screen readers is its title (not its close button too)", page.get_attribute(".tt-tab", "aria-label") == "Tab 1")
+    check("a tab the app draws is named by what it shows", page.get_attribute(".tt-tab", "aria-label") is None)
     page.evaluate("document.querySelector('.tt-tab .mine').focus()")
     page.keyboard.press("Enter")
     check("Enter on a button inside a tab presses that button", page.evaluate("window.pinned") == 1, page.evaluate("window.pinned"))
@@ -630,9 +630,23 @@ with sync_playwright() as p:
     check("the strip drawn again while its menu was open: Escape still puts the focus on the tab",
           page.evaluate("document.activeElement.dataset?.id") == second, page.evaluate("document.activeElement.outerHTML.slice(0, 80)"))
     page.close()
+    page = fresh(browser, """{ onBeforeClose: () => { window.calls = (window.calls || 0) + 1; return new Promise(r => { window.answer = r; }); } }""")
+    check("a default tab's name for screen readers is its title (not its close button too)", page.get_attribute(".tt-tab", "aria-label") == "Tab 1")
+    page.locator(".tt-tab").first.focus()
+    page.evaluate("tabs.update(tabs.tabs[0], { title: 'Renamed' })")
+    check("update() on the focused tab keeps the focus on it", page.evaluate("document.activeElement.dataset?.id") == page.evaluate("String(tabs.tabs[0].id)"))
+    page.keyboard.press("Delete")
+    page.evaluate("__emit('tauris-ui:close-window-request', 'tabs-1')")
+    page.wait_for_timeout(100)
+    check("Delete (as ⌘W) and the window's close button together ask the tab once",
+          page.evaluate("window.calls") == 1 and page.evaluate("window.__closeAsked") == 1, page.evaluate("[window.calls, window.__closeAsked]"))
+    page.close()
     page = fresh(browser, before="window.__noActive = true")
     reachable = page.evaluate("[...document.querySelectorAll('.tt-tab')].map(t => t.getAttribute('tabindex'))")
     check("no tab active: the first tab is still reachable with Tab", reachable == ["0", "-1", "-1"], reachable)
+    page.evaluate("tabs.update(tabs.tabs[0], { title: 'R' })")
+    reachable = page.evaluate("[...document.querySelectorAll('.tt-tab')].map(t => t.getAttribute('tabindex'))")
+    check("and still after update()", reachable == ["0", "-1", "-1"], reachable)
     page.close()
 
     # --- the terminal as the plugin delivers it: no stylesheet until it is used ---

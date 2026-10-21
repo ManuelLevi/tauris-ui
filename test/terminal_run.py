@@ -463,6 +463,18 @@ with sync_playwright() as p:
     check("commandLine works again after destroy", page.inner_text(".tm-prompt") == "DESK>")
     page.close()
 
+    page = fresh(browser)
+    page.evaluate("demo.cmd.clear(); demo.cmd.focus()")
+    page.keyboard.type("status")
+    page.keyboard.press("Enter")
+    page.keyboard.type("buy 100 AAP")
+    page.keyboard.press("ArrowUp")
+    up = page.input_value(".tm-cmd-input")
+    page.keyboard.press("ArrowDown")
+    check("Up shows the last command; Down gives back what was being typed", up == "status" and page.input_value(".tm-cmd-input") == "buy 100 AAP",
+          (up, page.input_value(".tm-cmd-input")))
+    page.close()
+
     # ---------- mount and destroy ----------
     page = fresh(browser)
     try:

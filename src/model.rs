@@ -134,8 +134,6 @@ pub(crate) struct Model {
     pub changed_at: Option<Instant>,
     pub unsaved_since: Option<Instant>,
     pub closing: Vec<Closed>,
-    // The user closed the last tab there was: nothing is left to remember.
-    pub emptied: bool,
 }
 
 impl Model {
@@ -150,7 +148,6 @@ impl Model {
             changed_at: None,
             unsaved_since: None,
             closing: Vec::new(),
-            emptied: false,
         }
     }
 
@@ -227,16 +224,32 @@ impl Model {
         }
     }
 
-    // Undoes a detach: the tab back at its place, the window's active tab as it
-    // was. A window that is gone takes the tab with it.
-    pub fn put_back(&mut self, label: &str, tab: u64, index: usize, active: Option<u64>) {
+    // Undoes a detach: the tab back at its place. The window's active tab goes
+    // back to `active` (what it was), unless the person chose another since the
+    // detach picked `chosen`. A window that is gone meanwhile hands the tab to
+    // the frontmost window. Returns the window the tab is in now.
+    pub fn put_back(
+        &mut self,
+        label: &str,
+        tab: u64,
+        index: usize,
+        active: Option<u64>,
+        chosen: Option<u64>,
+    ) -> Option<String> {
         let Some(win) = self.win(label) else {
-            self.tabs.remove(&tab);
-            return;
+            let Some(front) = self.wins.last().map(|w| w.label.clone()) else {
+                self.tabs.remove(&tab);
+                return None;
+            };
+            self.attach(&front, tab, usize::MAX);
+            return Some(front);
         };
         let index = index.min(win.tabs.len());
         win.tabs.insert(index, tab);
-        win.active = active.filter(|a| win.tabs.contains(a)).or(Some(tab));
+        if win.active == chosen {
+            win.active = active.filter(|a| win.tabs.contains(a)).or(Some(tab));
+        }
+        Some(label.to_string())
     }
 
     pub fn attach(&mut self, label: &str, tab: u64, index: usize) {

@@ -89,6 +89,20 @@ mod mac {
         std::process::exit(1);
     }
 
+    // A window that was not there before, the old ones still open.
+    fn wait_added(handle: &AppHandle, old: &[String], what: &str) {
+        for _ in 0..30 {
+            std::thread::sleep(Duration::from_millis(100));
+            let now: Vec<String> = handle.webview_windows().into_keys().collect();
+            if now.iter().any(|l| !old.contains(l)) {
+                eprintln!("OK: {what}: {} window(s)", now.len());
+                return;
+            }
+        }
+        eprintln!("STUCK: {what}: no new window 3s later");
+        std::process::exit(1);
+    }
+
     fn wait_for(handle: &AppHandle, n: usize, what: &str) {
         for _ in 0..30 {
             std::thread::sleep(Duration::from_millis(100));
@@ -155,10 +169,11 @@ mod mac {
                     REOPEN_FROM_HOOK.store(false, std::sync::atomic::Ordering::SeqCst);
                     std::thread::sleep(Duration::from_millis(1000));
                     OPEN_AFTER_PLUS.store(true, std::sync::atomic::Ordering::SeqCst);
+                    let before: Vec<String> = handle.webview_windows().into_keys().collect();
                     if let Some(w) = handle.webview_windows().into_values().next() {
                         let _ = w.eval("window.__TAURI__.core.invoke('plugin:tauris-ui|new_tab')");
                     }
-                    wait_for(&handle, 2, "the app's hook opens a window after the page's + button");
+                    wait_added(&handle, &before, "the app's hook opens a window after the page's + button");
                     std::process::exit(0);
                 });
                 Ok(())

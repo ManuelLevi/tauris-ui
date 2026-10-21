@@ -31,8 +31,9 @@ them.
    python test/terminal_run.py
    python test/files_run.py
    python test/menus_run.py
-   (cd examples/basic/src-tauri && cargo build)
+   (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build)
    python scripts/doctor.py examples/basic
+   (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
    ```
 6. If you touched dragging between windows, try it by hand on macOS. No
    test can drive the real mouse.

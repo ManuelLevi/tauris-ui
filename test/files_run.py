@@ -23,7 +23,7 @@ failures = []
 # The colours of files.css, as computed styles report them.
 ACCENT, WHITE, DIM, FG = "rgb(38, 117, 191)", "rgb(255, 255, 255)", "rgb(102, 106, 119)", "rgb(30, 31, 34)"
 DARK_BG, DARK_SEL, DARK_FG = "rgb(47, 50, 52)", "rgb(47, 101, 202)", "rgb(223, 225, 229)"
-PDF_RED, DOC_BLUE, DANGER = "rgb(180, 35, 42)", "rgb(37, 96, 168)", "rgb(209, 69, 59)"
+PDF_RED, DOC_BLUE, DANGER = "rgb(180, 35, 42)", "rgb(37, 96, 168)", "rgb(184, 58, 49)"
 
 # A starter template's plain rules (create-tauri-app and Vite have these).
 TEMPLATE_CSS = """
@@ -188,7 +188,7 @@ with sync_playwright() as p:
     check("dark: the list, the text and the selection follow the system",
           css(page, ".tf-panel", "background-color") == DARK_BG and css(page, ".tf-title", "color") == DARK_FG
           and css(page, ".tf-file:nth-child(2) .tf-cell", "background-color") == DARK_SEL
-          and css(page, ".tf-file:nth-child(3) .tf-kind", "color") == "rgb(240, 122, 114)")
+          and css(page, ".tf-file:nth-child(3) .tf-kind", "color") == "rgb(244, 140, 133)")
     page.evaluate("__emit('tauri://drag-enter', { paths: ['/a.pdf'] })")
     check("dark: accent text is the lighter ink, readable on the list (about 5:1, not 2.5:1)",
           css(page, ".tf-drop-title", "color") == "rgb(106, 166, 224)" and css(page, ".tf-arrow", "color") == "rgb(106, 166, 224)")
@@ -222,6 +222,16 @@ with sync_playwright() as p:
     page.keyboard.press("ArrowDown")
     check("search: Down goes to the list and selects the first match",
           page.evaluate("document.activeElement.classList.contains('tf-list')") and selected(page) == names(page)[0])
+    page.close()
+
+    # ---------- names sort as in Finder ----------
+    page = fresh(browser)
+    page.evaluate("""demo.files.setFiles(["Q3 plan 2.md", "Q3 plan.pdf", "Q3 plan.md", "Q3 plan 10.md", "q3 Plan 1.md", ".env", "README"]
+      .map((name, i) => ({ id: 100 + i, name, size: 1, added: new Date().toISOString(), by: "sophie" })))""")
+    want = [".env", "Q3 plan.md", "Q3 plan.pdf", "q3 Plan 1.md", "Q3 plan 2.md", "Q3 plan 10.md", "README"]
+    check("by name: the name without its extension first, then the extension; numbers as numbers", names(page) == want, names(page))
+    page.click(".tf-th.tf-c-name .tf-sort")
+    check("by name, Z to A: the same order turned around", names(page) == want[::-1], names(page))
     page.close()
 
     # ---------- columns keep their widths ----------
@@ -261,7 +271,7 @@ with sync_playwright() as p:
 
     # ---------- the app chooses light or dark ----------
     for os_mode, app_mode, panel, pdf, menu_bg in [("dark", "light", "rgb(255, 255, 255)", PDF_RED, "rgb(255, 255, 255)"),
-                                                   ("light", "dark", DARK_BG, "rgb(240, 122, 114)", "rgb(47, 50, 52)")]:
+                                                   ("light", "dark", DARK_BG, "rgb(244, 140, 133)", "rgb(47, 50, 52)")]:
         page = fresh(browser, os_mode)
         page.evaluate(f"document.documentElement.dataset.taurisTheme = '{app_mode}'")
         page.click(".tmn-title:text-is('File')")
@@ -315,6 +325,10 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     check("Escape keeps the file and gives the focus back to the list",
           page.is_hidden(".tf-veil") and len(names(page)) == 8 and page.evaluate("document.activeElement.classList.contains('tf-list')"))
+    if sys.platform == "darwin":
+        page.keyboard.press("Control+Backspace")
+        page.keyboard.press("Control+Meta+Backspace")
+        check("on a Mac, ⌃⌫ and ⌃⌘⌫ are not ⌘⌫: nothing asks", page.is_hidden(".tf-veil") and len(names(page)) == 8)
     page.keyboard.press("Meta+Backspace")
     page.keyboard.press("Enter")
     check("Enter on the focused Cancel keeps the file", len(names(page)) == 8 and page.is_hidden(".tf-veil"))
@@ -351,6 +365,10 @@ with sync_playwright() as p:
     check("Shift+Down extends it", len(sel_names()) == 6 and page.evaluate("demo.files.selected().name") == "Launch plan.pptx")
     page.keyboard.press("ArrowDown")
     check("Down alone goes back to one file", sel_names() == ["Moodboard.heic"])
+    if sys.platform == "darwin":
+        page.keyboard.press("Control+Meta+a")
+        page.keyboard.press("Control+a")
+        check("on a Mac, ⌃⌘A and ⌃A select nothing more", sel_names() == ["Moodboard.heic"], sel_names())
     page.keyboard.press("ControlOrMeta+a")
     check("⌘A selects every file shown", len(sel_names()) == 8)
     page.fill(".tf-q", "pdf")
@@ -576,6 +594,63 @@ with sync_playwright() as p:
     page.evaluate("window.picks = 0; demo.files.update({ pick: async () => { picks++; return []; } }); demo.files.destroy(); demo.files.add(); 0")
     page.wait_for_timeout(50)
     check("after destroy(), add() opens no picker", page.evaluate("picks") == 0)
+    page.close()
+
+    # ---------- a sixth review ----------
+    page = fresh(browser)
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("Delete")
+    page.click(".tf-ask-text")
+    check("a click on the delete question's own text keeps the question open", page.is_visible(".tf-ask"))
+    page.keyboard.press("Escape")
+    page.evaluate("demo.files.select(null)")
+    page.focus(".tf-list")
+    page.keyboard.type("Launch p")
+    check("typing a name with a space in it finds it", selected(page) == "Launch plan.pptx", selected(page))
+    page.evaluate("window.renamed = []; demo.files.update({ confirmDelete: false, onRename: async (f, n) => renamed.push(n) }); 0")
+    page.click(".tf-file:nth-child(2) .tf-c-name")
+    page.keyboard.press("F2")
+    page.keyboard.type("x")
+    second = names(page)[2]
+    page.evaluate("id => { demo.files.remove(id); return 0; }", page.evaluate("demo.files.files().find(f => f.name === %r).id" % second))
+    page.wait_for_timeout(150)
+    page.evaluate("demo.files.addPaths(['/Users/m/Added while renaming.pdf']); 0")
+    page.wait_for_timeout(450)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(50)
+    now = names(page)
+    check("a file deleted while another is renamed stays gone; one added meanwhile shows, selected, once the rename ends",
+          second not in now and "Added while renaming.pdf" in now and selected(page) == "Added while renaming.pdf", (now, selected(page)))
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("F2")
+    page.keyboard.type("gone")
+    page.evaluate("demo.files.destroy()")
+    page.wait_for_timeout(100)
+    check("destroy() while a name is being edited renames nothing", not any("gone" in n for n in page.evaluate("renamed")), page.evaluate("renamed"))
+    page.evaluate("demo.files.dragDrop({ type: 'enter', paths: ['/x.pdf'] })")
+    check("after destroy() a fed drag event changes nothing", not page.evaluate("document.getElementById('files').classList.contains('tf-dropping')"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""demo.files.update({ multiple: false, files: Array.from({ length: 100 }, (_, i) => ({ id: i + 1, name: `File ${String(i).padStart(3, '0')}.txt`, size: 10 })) })""")
+    page.focus(".tf-list")
+    page.keyboard.press("Space")
+    check("Space never scrolls the list a page", page.evaluate("document.querySelector('.tf-list').scrollTop") == 0)
+    page.focus(".tf-q")
+    page.evaluate("document.querySelector('.tf-q').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', isComposing: true, bubbles: true }))")
+    check("arrows while an input method is composing stay in the search field", page.evaluate("document.activeElement.classList.contains('tf-q')"))
+    page.close()
+
+    # Reduced motion: the colours are read without their short fade.
+    page = browser.new_page(viewport=SIZE, device_scale_factor=2, locale="en-GB", forced_colors="active", color_scheme="dark", reduced_motion="reduce")
+    page.goto(DEMO.as_uri())
+    page.wait_for_selector(".tf-file")
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("Shift+ArrowDown")
+    hc = page.evaluate("""(() => { const row = document.querySelector('.tf-file.tf-focused .tf-cell');
+      const badge = document.querySelector('.tf-file[aria-selected="true"] .tf-kind');
+      return [getComputedStyle(row).borderTopColor === getComputedStyle(row).backgroundColor, getComputedStyle(badge).color === getComputedStyle(row).color]; })()""")
+    check("Windows high contrast: the focused row's ring shows on a selection, and the badge takes the selection's text colour", hc == [False, True], hc)
     page.close()
 
     # ---------- the row's buttons, double-click, the row menu ----------

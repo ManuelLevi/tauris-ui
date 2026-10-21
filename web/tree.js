@@ -176,7 +176,8 @@
     if (cols) root.classList.add("tv-columns");
     if (!opt.lines) root.classList.add("tv-nolines");
     const scroller = el("div", "tv-scroll");
-    const head = cols ? el("div", "tv-head", { "aria-hidden": cols.some(clickable) ? null : "true" }, cols.map(headCell)) : null;
+    // Hidden from screen readers only when nothing in it can be used (no sorting, one column).
+    const head = cols ? el("div", "tv-head", { "aria-hidden": cols.some(clickable) || cols.length > 1 ? null : "true" }, cols.map(headCell)) : null;
     const body = el("div", "tv-body", { role: "tree", "aria-label": opt.label, "aria-multiselectable": opt.multiple ? "true" : null });
     if (head) scroller.append(head);
     scroller.append(body);
@@ -188,6 +189,7 @@
     let nodes = new Map();    // key -> node
     let parents = new Map();  // key -> parent key, or null at the top
     const expanded = new Set();
+    const seen = new Set(); // every id the tree has had, for expanded: true
     let rows = [];            // the visible rows, top to bottom
     let index = new Map();    // key -> row number
     let selectedKey = null;   // the selected row with the focus
@@ -229,6 +231,7 @@
     function applyWidths() {
       if (!cols) return;
       widths.forEach((w, i) => root.style.setProperty(`--tv-c${i}`, `${w}px`));
+      head?.querySelectorAll('[role="separator"]').forEach(s => s.setAttribute("aria-valuenow", String(widths[[...head.children].indexOf(s)])));
       root.style.setProperty("--tv-total", `${widths.reduce((a, b) => a + b, 0)}px`);
     }
 
@@ -248,7 +251,6 @@
       const hadPicked = picked.size;
       const hadAt = selectedKey !== null ? index.get(selectedKey) : undefined;
       data = Array.isArray(list) ? list : [];
-      const before = nodes;
       nodes = new Map();
       parents = new Map();
       const clashes = [];
@@ -258,8 +260,10 @@
           if (n.id === undefined || n.id === null || nodes.has(k)) clashes.push(String(n.id));
           nodes.set(k, n);
           parents.set(k, parent);
-          // expanded: true opens a node the first time it comes; after that the person decides.
-          if (n.expanded === true && !before.has(k)) expanded.add(k);
+          // expanded: true opens a node the first time it comes; after that the
+          // person decides, even if the node leaves a list for a while (a search).
+          if (n.expanded === true && !seen.has(k)) expanded.add(k);
+          seen.add(k);
           if (hasKids(n)) walk(n.children, k);
         }
       };
@@ -267,7 +271,6 @@
       if (clashes.length) {
         console.warn(`[tauris-ui tree] every node needs its own id; repeated or missing: ${clashes.slice(0, 5).join(", ")}${clashes.length > 5 ? ", ..." : ""}`);
       }
-      for (const k of [...expanded]) if (!nodes.has(k)) expanded.delete(k);
       sorted = new Map(); // the order stays; the rows are sorted again
       if (selectedKey !== null && !nodes.has(selectedKey)) selectedKey = null;
       for (const k of [...picked]) if (!nodes.has(k)) picked.delete(k);
@@ -1084,13 +1087,6 @@
           if (!e.target.closest(".tv-grip")) press();
         }, { signal });
         cell.addEventListener("keydown", e => {
-          // Alt+← and Alt+→ make the column narrower or wider.
-          if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && i < cols.length - 1) {
-            e.preventDefault();
-            widths[i] = Math.max(cols[i].minWidth, widths[i] + (e.key === "ArrowLeft" ? -10 : 10));
-            applyWidths();
-            return;
-          }
           if (e.altKey || e.ctrlKey || e.metaKey) return;
           if (e.key === "Enter") {
             e.preventDefault();
@@ -1112,6 +1108,23 @@
         const grip = el("span", "tv-grip", { "aria-hidden": "true" });
         grip.addEventListener("pointerdown", e => startResize(e, i, grip), { signal });
         cell.append(grip);
+        // The keyboard resizes too: Alt+← / Alt+→ on a header that sorts; on one
+        // that does not, the header is the column's edge, and ← / → move it.
+        const edge = !clickable(c);
+        if (edge) {
+          cell.setAttribute("role", "separator");
+          cell.setAttribute("aria-orientation", "vertical");
+          cell.setAttribute("aria-label", `${c.label}, width`);
+          cell.setAttribute("aria-valuemin", String(c.minWidth));
+          cell.setAttribute("aria-valuenow", String(widths[i]));
+          cell.tabIndex = 0;
+        }
+        cell.addEventListener("keydown", e => {
+          if (e.ctrlKey || e.metaKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight") || !(e.altKey || edge)) return;
+          e.preventDefault();
+          widths[i] = Math.max(cols[i].minWidth, widths[i] + (e.key === "ArrowLeft" ? -10 : 10));
+          applyWidths();
+        }, { signal });
       }
       return cell;
     }
@@ -1167,7 +1180,10 @@
       /** Opens or closes a row. */
       toggle(id) { toggle(keyOf(id)); },
       expandAll() { setOpen([...nodes.keys()], true); },
-      collapseAll() { setOpen([...expanded], false); },
+      collapseAll() {
+        setOpen([...expanded], false);
+        expanded.clear(); // folders not in the list now come back closed too
+      },
       /** Selects a row, opening its parents and scrolling it into view. null clears the selection. */
       select(id) {
         if (id === null || id === undefined) {
@@ -1224,13 +1240,19 @@
       /** The node with this id, or null. */
       get(id) { return nodes.get(keyOf(id)) ?? null; },
       /** Whether a row is open. */
-      isExpanded(id) { return expanded.has(keyOf(id)); },
+      isExpanded(id) {
+        const n = nodes.get(keyOf(id));
+        return Boolean(n) && hasKids(n) && expanded.has(keyOf(id));
+      },
       /** Opens the editor of a cell: (id, columnKey?) — the first editable column by default. */
       edit(id, column) {
         const k = keyOf(id);
         const i = index.get(k);
         if (i === undefined) return false;
         const ci = column === undefined ? firstEditable(rows[i]) : (cols ?? []).findIndex(c => c.key === column);
+        if (!canEdit(rows[i], ci)) return false;
+        // The row being edited is the selected one, so Escape and Tab come back to it.
+        go(i);
         return beginEdit(k, ci);
       },
       /** Moves keyboard focus into the tree. */

@@ -39,28 +39,79 @@ def code(text, quotes):
                 i += 1
         elif text.startswith("/*", i):
             end = text.find("*/", i + 2)
-            i = n if end < 0 else end + 2
+            if end < 0:  # not a comment after all (a regular expression, say): kept
+                out.append(text[i:])
+                break
+            i = end + 2
         else:
             out.append(c)
             i += 1
     return "".join(out)
 
 
+def balanced(text, start, open_, close):
+    """The text between the bracket at `start` and the one that closes it."""
+    depth, i = 0, start
+    while i < len(text):
+        depth += {open_: 1, close: -1}.get(text[i], 0)
+        i += 1
+        if depth == 0:
+            return text[start + 1:i - 1]
+    return text[start + 1:]
+
+
+def keys(obj):
+    """The keys of an object literal's own level: `pick:`, `pick(` (a method), `{ pick }`."""
+    level, depth = [], 0
+    for c in obj:
+        depth += 1 if c in "([{" else -1 if c in ")]}" else 0
+        level.append(c if depth == 0 or (depth == 1 and c in "([{") else " ")
+    flat = "".join(level)
+    return set(re.findall(r"(?:^|[,{]|\basync)\s*([A-Za-z_$][\w$]*)\s*(?=[:(,]|$)", flat))
+
+
 def own_picker(text):
-    """Whether a TaurisFiles.mount call is given a pick option (in its own
-    braces, or in the variable it is given)."""
+    """Whether a TaurisFiles.mount call is given a pick option: in the object
+    it is given, or in the object its variable is declared with."""
     for m in re.finditer(r"TaurisFiles\.mount\(", text):
-        depth, i = 1, m.end()
-        while i < len(text) and depth:
-            depth += {"(": 1, ")": -1}.get(text[i], 0)
-            i += 1
-        args = text[m.end():i - 1]
-        if re.search(r"\bpick\s*[:(,}]", args):
-            return True
+        args = balanced(text, m.end() - 1, "(", ")")
+        brace = args.find("{")
+        if brace >= 0:
+            if "pick" in keys(balanced(args, brace, "{", "}")):
+                return True
+            continue
         given = re.search(r",\s*([A-Za-z_$][\w$]*)\s*$", args)
-        if given and re.search(rf"\b{re.escape(given.group(1))}\b[^;]*?\bpick\s*[:(]", text, re.S):
+        if not given:
+            continue
+        decl = re.search(rf"\b(?:const|let|var)\s+{re.escape(given.group(1))}\s*=\s*\{{", text)
+        if decl and "pick" in keys(balanced(text, decl.end() - 1, "{", "}")):
             return True
     return False
+
+
+def workspace_spec(tauri):
+    """tauris-ui as the workspace's Cargo.toml gives it ([workspace.dependencies]),
+    with its path made relative to the app."""
+    for folder in [tauri, *tauri.parents]:
+        manifest = folder / "Cargo.toml"
+        if not manifest.is_file():
+            continue
+        data = tomllib.loads(read(manifest))
+        spec = data.get("workspace", {}).get("dependencies", {}).get("tauris-ui")
+        if spec is not None:
+            spec = {"version": spec} if isinstance(spec, str) else dict(spec)
+            if "path" in spec:
+                spec["path"] = str((folder / spec["path"]).resolve())
+            return spec
+    return {}
+
+
+def page_code(path):
+    """A page file without its comments (HTML ones too)."""
+    text = read(path)
+    if path.suffix in {".html", ".vue", ".svelte"}:
+        text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    return code(text, "\"'`")
 
 
 problems = []
@@ -135,7 +186,12 @@ def capabilities(tauri, app):
                 caps.append((path, tomllib.loads(read(path))))
         except (json.JSONDecodeError, tomllib.TOMLDecodeError):
             bad(f"{path.name} cannot be read", "fix the file")
-    for inline in app.get("security", {}).get("capabilities", []):
+    listed = app.get("security", {}).get("capabilities", [])
+    # Identifiers listed in tauri.conf.json enable only those files.
+    names = {c for c in listed if isinstance(c, str)}
+    if names:
+        caps = [(p, c) for p, c in caps if c.get("identifier") in names]
+    for inline in listed:
         if isinstance(inline, dict):
             caps.append((tauri / "tauri.conf.json", inline))
     return caps
@@ -171,6 +227,10 @@ def main():
             f'add under [dependencies]: tauris-ui = {{ path = "{LIBRARY}", version = "{series(current)}" }}')
     else:
         spec = {"version": spec} if isinstance(spec, str) else spec
+        if spec.get("workspace") is True:
+            spec = {**workspace_spec(tauri), **{k: v for k, v in spec.items() if k != "workspace"}}
+        if spec.get("version") == "*":
+            spec = {k: v for k, v in spec.items() if k != "version"}
         if "path" in spec:
             target = (tauri / spec["path"]).resolve()
             manifest = target / "Cargo.toml"
@@ -208,7 +268,7 @@ def main():
     app = conf.get("app", {})
     rust = "\n".join(code(read(p), '"') for p in (tauri / "src").rglob("*.rs"))
     files = page_files(tauri, conf)
-    text = "\n".join(code(read(p), "\"'`") for p in files)
+    text = "\n".join(page_code(p) for p in files)
     uses_tabs = "TaurisTabs" in text or bool(re.search(r"\.tabs\(\)", rust))
     uses_tree = "TaurisTree" in text
     uses_terminal = "TaurisTerminal" in text

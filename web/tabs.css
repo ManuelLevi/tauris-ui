@@ -64,8 +64,8 @@
     --tt-menu-hover-bg: var(--tauris-hover, #34343a);
     --tt-menu-radius: 8px;
     --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
-    --tt-menu-muted: var(--tauris-dim, #8e8e97);
-    --tt-menu-danger: #ef4444;
+    --tt-menu-muted: var(--tauris-dim, #a4a4ad);
+    --tt-menu-danger: #fa8a8a;
   }
 
   /* The system's light mode, unless the app chose a mode with
@@ -89,6 +89,7 @@
       --tt-menu-hover-bg: var(--tauris-hover, #ececf1);
       --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
       --tt-menu-muted: var(--tauris-dim, #686871);
+      --tt-menu-danger: #c62828;
     }
   }
 
@@ -110,6 +111,7 @@
     --tt-menu-hover-bg: var(--tauris-hover, #ececf1);
     --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
     --tt-menu-muted: var(--tauris-dim, #686871);
+    --tt-menu-danger: #c62828;
   }
 
   .tt-strip {

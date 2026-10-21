@@ -201,6 +201,31 @@ fn remembered_windows_that_cannot_open_are_kept_aside() {
     assert_eq!(aside[0]["tabs"].as_array().unwrap().len(), 2, "the remembered layout was not kept");
 }
 
+// One remembered window of two fails to open: the whole layout is kept aside,
+// so the next save does not lose that window's tabs.
+#[test]
+fn a_remembered_window_that_cannot_open_is_kept_aside() {
+    let file = temp_file("one-unopened");
+    let path = file.clone();
+    let first = app(quiet().layout_file(move |_| Some(path.clone())));
+    first.tabs().start().unwrap();
+    first.tabs().new_window_with(NewTab::new("Report")).unwrap();
+    persist::save(first.handle(), true);
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let path = file.clone();
+    let second = app(quiet().layout_file(move |_| Some(path.clone())).window(move |w| {
+        if fail.swap(false, Ordering::SeqCst) {
+            panic!("the first remembered window failed");
+        }
+        w
+    }));
+    second.tabs().start().unwrap();
+    assert_eq!(titles(&second), [["Report"]]);
+    let aside: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(file.with_extension("unopened")).unwrap()).unwrap();
+    assert_eq!(aside.as_array().unwrap().len(), 2, "the window that failed was not kept");
+}
+
 #[test]
 fn a_tab_moves_to_a_new_window_of_its_own() {
     let app = app(quiet());
@@ -328,8 +353,9 @@ fn a_panicking_hook_is_called_again_next_time() {
         }
     }));
     let handle = app.handle().clone();
+    // The panic stops at the hook: the change that called it carries on.
     let first = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| windows::changed(&handle, "x")));
-    assert!(first.is_err());
+    assert!(first.is_ok());
     windows::changed(&handle, "x");
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
@@ -639,19 +665,52 @@ fn quitting_waits_half_a_second_at_most() {
     assert_eq!(app.tabs().window_count(), 1, "a window opened while quitting");
 }
 
-// A slow hook never holds up ⌘N: window jobs have a worker of their own.
+// A slow hook never holds up ⌘N: window jobs have a worker of their own, and
+// the hook calls they cause wait on the hook's worker, not on theirs.
 #[test]
 fn a_slow_hook_does_not_hold_up_a_new_window() {
-    let app = app(quiet().on_change(|_, _| std::thread::sleep(std::time::Duration::from_millis(400))));
+    let gate = Arc::new(std::sync::Mutex::new(()));
+    let stuck = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (g, b) = (gate.clone(), stuck.clone());
+    let app = app(quiet().on_change(move |_, _| {
+        if b.load(Ordering::SeqCst) {
+            drop(g.lock());
+        }
+    }));
     app.tabs().start().unwrap();
-    {
-        let _locked = windows::InPlugin::enter();
-        windows::changed(app.handle(), "tabs-1");
+    // From here the hook is stuck in its first call until the gate opens.
+    let held = gate.lock().unwrap();
+    stuck.store(true, Ordering::SeqCst);
+    let done = Arc::new(AtomicUsize::new(0));
+    for _ in 0..2 {
+        let d = done.clone();
+        windows::after_event(app.handle(), move |app| {
+            let _ = app.tabs().new_window();
+            d.fetch_add(1, Ordering::SeqCst);
+        });
     }
-    windows::after_event(app.handle(), |app| {
-        let _ = app.tabs().new_window();
-    });
-    eventually("the new window", || app.tabs().window_count() == 2);
+    eventually("both ⌘N while the hook is stuck", || done.load(Ordering::SeqCst) == 2);
+    assert_eq!(app.tabs().window_count(), 3);
+    drop(held);
+    windows::settle(app.handle(), std::time::Duration::from_secs(2));
+}
+
+// A hook that panics is the app's bug: the tabs carry on, on every thread.
+#[test]
+fn a_hook_that_panics_stops_nothing() {
+    let file = temp_file("panicking-hook");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())).on_change(|_, _| panic!("the app's hook failed")));
+    app.tabs().start().unwrap();
+    let report = app.tabs().open(NewTab::new("Report")).unwrap();
+    assert_eq!(titles(&app), [["Home", "Report"]]);
+    persist::save(app.handle(), true);
+    // Closing every tab still closes the window and forgets the layout.
+    for id in [app.tabs().windows()[0].tabs[0].id, report] {
+        windows::remove_tab(app.handle(), "tabs-1", id);
+    }
+    assert_eq!(app.tabs().window_count(), 0);
+    assert!(!file.is_file(), "the layout was not forgotten");
 }
 
 // Two threads changing tabs at once: the hook still runs one call at a time.

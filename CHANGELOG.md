@@ -6,7 +6,8 @@ dependency, `cargo update -p tauris-ui`).
 
 ## Unreleased
 
-Nothing yet.
+- Files: names sort as in Finder, the name without its extension first and then the extension, so "Q3 plan.md" comes before "Q3 plan 2.md".
+- Files: on a Mac, Control never acts as Command. ⌃⌫ and ⌃⌘⌫ no longer delete, ⌃⌘A no longer selects all, and ⌃⌘-click and ⌃⌘↑↓ no longer add to the selection.
 
 ## 0.4.13 — 2026-10-21
 

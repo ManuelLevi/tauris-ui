@@ -252,6 +252,7 @@
 
     const history = [];
     let step = 0; // where Up and Down are in the history; history.length is the new command
+    let draft = ""; // what was typed before Up, given back by Down
     function set(text) {
       input.value = String(text ?? "");
       input.setSelectionRange(input.value.length, input.value.length);
@@ -277,8 +278,9 @@
       } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         if (!history.length) return;
         e.preventDefault();
+        if (step === history.length) draft = input.value;
         step = Math.max(0, Math.min(history.length, step + (e.key === "ArrowUp" ? -1 : 1)));
-        set(history[step] ?? "");
+        set(step === history.length ? draft : history[step]);
       }
     }, { signal });
 

@@ -30,9 +30,6 @@ pub(crate) fn start<R: Runtime>(
         return Err("dragging a tab out of its window needs macOS".into());
     }
     let source = window.label().to_string();
-    if !crate::windows::owns(app, &source, tab) {
-        return Err(format!("tab {tab} is not in window {source}"));
-    }
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let inner_pos = window.inner_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
     let outer = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
@@ -43,13 +40,19 @@ pub(crate) fn start<R: Runtime>(
     if m.drag.is_some() {
         return Ok(());
     }
-    let alone = m.win(&source).map(|w| w.tabs.len() <= 1).unwrap_or(true);
-    let at = m.win(&source).and_then(|w| w.tabs.iter().position(|t| *t == tab)).unwrap_or(usize::MAX);
-    let active = m.win(&source).and_then(|w| w.active);
+    // Checked under the same lock as the detach: the tab is still there.
+    let Some(win) = m.win(&source).filter(|w| w.tabs.contains(&tab)) else {
+        return Err(format!("tab {tab} is not in window {source}"));
+    };
+    let alone = win.tabs.len() == 1;
+    let at = win.tabs.iter().position(|t| *t == tab).unwrap_or(usize::MAX);
+    let active = win.active;
+    let mut chosen = active;
     let moving = if alone {
         source.clone()
     } else {
         m.detach(&source, tab);
+        chosen = m.win(&source).and_then(|w| w.active);
         m.create_win(vec![tab])
     };
     m.drag = Some(Drag { tab, window: moving.clone(), grab, hover: None });
@@ -62,13 +65,16 @@ pub(crate) fn start<R: Runtime>(
         let frame = Frame { x: cx - grab.0, y: cy - grab.1, width: size.0, height: size.1, maximized: false };
         if let Err(e) = open_window(app, &moving, Some(frame), false) {
             // No new window: put the tab back where it was and end the drag.
-            let mut m = state.model();
-            m.drag = None;
-            m.detach(&moving, tab);
-            m.wins.retain(|w| w.label != moving);
-            m.put_back(&source, tab, at, active);
-            drop(m);
-            notify(app, &source);
+            let back = {
+                let mut m = state.model();
+                m.drag = None;
+                m.detach(&moving, tab);
+                m.wins.retain(|w| w.label != moving);
+                m.put_back(&source, tab, at, active, chosen)
+            };
+            if let Some(back) = back {
+                notify(app, &back);
+            }
             return Err(e.to_string());
         }
     }
@@ -174,6 +180,14 @@ fn follow_mouse<R: Runtime>(app: AppHandle<R>) {
 fn finish<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>, tab: u64, hover: Option<(String, usize)>) {
     let mut m = inner(app).model();
     m.drag = None;
+    // The dragged window closed meanwhile (⌘W mid-drag): its tab went with it.
+    if !(m.tabs.contains_key(&tab) && m.win(window.label()).is_some_and(|w| w.tabs.contains(&tab))) {
+        drop(m);
+        if let Some((target, _)) = hover {
+            send_hover(app, &target, None, "");
+        }
+        return;
+    }
     // A target window that closed while the tab was over it: no drop.
     let hover = hover.filter(|(target, _)| m.win(target).is_some());
     let Some((target, index)) = hover else {

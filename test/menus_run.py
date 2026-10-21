@@ -456,6 +456,15 @@ with sync_playwright() as p:
     page.evaluate("document.body.style.minHeight = '3000px'; window.scrollBy(0, 40)")
     page.wait_for_timeout(50)
     check("the page scrolling under an open menu closes it", page.locator(".tmn-menu").count() == 0)
+    page.evaluate("window.scrollTo(0, 0); document.body.style.minHeight = ''")
+    page.wait_for_timeout(50)
+    page.evaluate("""() => { const box = document.createElement('div'); box.id = 'log'; box.style.cssText = 'position:fixed;left:0;bottom:0;width:80px;height:40px;overflow:auto';
+      box.innerHTML = '<div style="height:400px"></div>'; document.body.append(box); return 0; }""")
+    page.click(title("File"))
+    page.evaluate("document.getElementById('log').scrollTop = 120")
+    page.wait_for_timeout(50)
+    check("a list scrolling elsewhere on the page leaves the menu open", page.locator(".tmn-menu").count() == 1)
+    page.keyboard.press("Escape")
     page.evaluate("""() => { const nav = document.createElement('nav'); nav.id = 'other'; document.body.prepend(nav);
       window.other = TaurisMenu.bar(nav, { menus: [{ label: 'Go', items: [{ label: 'Home' }] }] }); other.destroy(); other.open(0); return 0; }""")
     check("after destroy() a bar opens nothing and keeps no name it added",
@@ -463,6 +472,46 @@ with sync_playwright() as p:
     page.evaluate("""() => { const b = document.createElement('div'); b.id = 'btn'; b.textContent = 'Docs'; document.body.prepend(b);
       window.btn = TaurisMenu.button(b, { items: [{ label: 'One' }] }); btn.open(); btn.setItems([{ label: 'Two' }, { label: 'Three' }]); return 0; }""")
     check("setItems while a button's menu is open shows the new items", items(page) == ["Two", "Three"], items(page))
+    page.close()
+
+    # ---------- a sixth review ----------
+    page = fresh(browser)
+    page.evaluate("""() => { demo.bar.setMenus([{ label: 'File', items: [{ label: 'Broken', items: () => { throw new Error('no'); } }, { label: 'Open' }] },
+      { label: 'Edit', items: [{ label: 'Undo' }] }]); return 0; }""")
+    page.click(title("File"))
+    check("a sub-menu whose items() fails is an item that is off; the menu still opens",
+          items(page) == ["Broken (off)", "Open"] and page.locator(".tmn-menu").count() == 1, items(page))
+    page.keyboard.press("Escape")
+    page.click(title("Edit"))
+    page.evaluate("""() => { demo.bar.setMenus([{ label: 'View', items: [{ label: 'Zoom' }] }, { label: 'File', items: [{ label: 'Open' }] },
+      { label: 'Edit', items: [{ label: 'Undo' }, { label: 'Redo' }] }]); return 0; }""")
+    check("setMenus that moves the open menu's title: the menu follows its title, not its old place",
+          items(page) == ["Undo", "Redo"] and page.get_attribute(title("Edit"), "aria-expanded") == "true"
+          and page.get_attribute(title("File"), "aria-expanded") == "false", items(page))
+    page.keyboard.press("Escape")
+    page.locator(title("Edit")).focus()
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("u")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Space")
+    check("Space right after an arrow chooses (what was being typed has ended)", page.locator(".tmn-menu").count() == 0)
+    page.evaluate("""() => { const nav = document.createElement('nav'); nav.id = 'mine'; nav.setAttribute('role', 'navigation');
+      nav.innerHTML = '<a id="logo" href="#">Logo</a>'; document.body.prepend(nav);
+      TaurisMenu.bar(nav, { menus: [{ label: 'Go', items: [{ label: 'Home' }] }] }).destroy(); return 0; }""")
+    check("a bar's destroy() leaves the element's own children and role",
+          page.evaluate("[document.getElementById('logo') !== null, document.getElementById('mine').getAttribute('role')]") == [True, "navigation"])
+    page.evaluate("""() => { const b = document.createElement('button'); b.className = 'tmn-tool'; b.id = 'off'; b.textContent = 'Off';
+      b.setAttribute('aria-disabled', 'true'); document.body.append(b); return 0; }""")
+    check("a <button class=\"tmn-tool\"> marked aria-disabled looks off (the disabled colour)",
+          css(page, "#off", "color") == "rgb(163, 166, 173)", css(page, "#off", "color"))
+    page.close()
+    page = browser.new_page(viewport=SIZE, device_scale_factor=2, locale="en-GB", forced_colors="active")
+    page.goto(DEMO.as_uri())
+    page.wait_for_selector(".tmn-title")
+    page.click(title("File"))
+    off = page.evaluate("getComputedStyle([...document.querySelectorAll('.tmn-item')].find(i => i.getAttribute('aria-disabled') === 'true')).color")
+    on = page.evaluate("getComputedStyle([...document.querySelectorAll('.tmn-item')].find(i => i.getAttribute('aria-disabled') !== 'true')).color")
+    check("Windows high contrast: an item that is off is greyed (GrayText)", off != on, (off, on))
     page.close()
 
     # ---------- onOpen and onClose (for a sound) ----------

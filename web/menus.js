@@ -113,7 +113,13 @@
       row.append(el("span", "tmn-label", {}, String(item.label ?? "")));
       if (Array.isArray(item.items) || typeof item.items === "function") {
         // Made once here; an empty sub-menu is an item that is off.
-        row.__tmnSub = listOf(item.items);
+        // A sub-menu whose items() fails is an item that is off; the menu still opens.
+        try {
+          row.__tmnSub = listOf(item.items);
+        } catch (e) {
+          console.error(`TaurisMenu: the items of "${item.label}" could not be made:`, e);
+          row.__tmnSub = [];
+        }
         if (row.__tmnSub.length) {
           row.setAttribute("aria-haspopup", "menu");
           row.setAttribute("aria-expanded", "false");
@@ -186,7 +192,8 @@
       },
       // New items while it is open: drawn again in place, the focus kept on
       // the item with the same label. Returns the new menu's id.
-      replace(next) {
+      replace(next, label = o.label) {
+        o.label = label;
         if (handle.closed) return null;
         const active = document.activeElement;
         const inside = levels.some(lv => lv.menu.contains(active));
@@ -262,6 +269,7 @@
       let typedAt = 0;
       menu.addEventListener("keydown", e => {
         if (e.isComposing) return;
+        if (e.key.length !== 1) typed = ""; // any other key ends what was being typed
         const list = enabledIn(menu);
         const i = list.indexOf(document.activeElement);
         const focused = i >= 0 ? list[i] : null;
@@ -399,9 +407,13 @@
     // Focus goes back where it was, so the app answers keys when the person returns.
     window.addEventListener("blur", () => handle.close(true), { signal });
     window.addEventListener("resize", () => handle.close(true), { signal });
-    // The page scrolling under it would leave it hanging away from its title.
+    // The page scrolling under it, or whatever holds its opener, would leave it
+    // hanging away from its title. A list scrolling elsewhere changes nothing.
     document.addEventListener("scroll", e => {
-      if (!levels.some(lv => lv.menu.contains(e.target))) handle.close(true);
+      const t = e.target;
+      if (levels.some(lv => lv.menu.contains(t))) return;
+      const page = t === document || t === document.documentElement || t === document.body;
+      if (page || (o.owner && t instanceof Node && t.contains(o.owner))) handle.close(true);
     }, { capture: true, signal });
     return handle;
   }
@@ -542,6 +554,7 @@
     nav.__taurisMenuBar = true;
     const addedClass = !nav.classList.contains("tmn-bar");
     nav.classList.add("tmn-bar");
+    const hadRole = nav.getAttribute("role");
     nav.setAttribute("role", "menubar");
     const addedLabel = !nav.hasAttribute("aria-label");
     if (addedLabel) nav.setAttribute("aria-label", options.label ?? "Menu");
@@ -551,6 +564,7 @@
     let menus = Array.isArray(options.menus) ? options.menus : [];
     let titles = [];
     let openAt = -1;
+    let openHow = "keyboard";
     let handle = null;
     let roving = 0;
     // Where focus was before it came into the bar: a chosen item puts it back there.
@@ -565,9 +579,9 @@
       return from;
     };
 
+    // Only the titles are the bar's: anything else the page put in the element stays.
     function render() {
-      titles.length = Math.min(titles.length, menus.length);
-      while (nav.children.length > menus.length) nav.lastElementChild.remove();
+      for (const t of titles.splice(menus.length)) t.remove();
       menus.forEach((m, i) => {
         let t = titles[i];
         if (!t) {
@@ -612,6 +626,7 @@
       const r = t.getBoundingClientRect();
       const back = returnTo ?? keepReturn ?? document.activeElement;
       openAt = i;
+      openHow = how;
       handle = show(list, { x: r.left, y: r.bottom }, how, {
         label: menus[i].label,
         owner: nav,
@@ -667,7 +682,7 @@
       }
       e.preventDefault(); // focus stays where it was
       const i = t.__tmnIndex;
-      if (openAt === i) handle.close(true);
+      if (openAt === i) handle?.close(true);
       else openMenu(i, "mouse", handle?.returnTo ?? document.activeElement);
     }, { signal });
 
@@ -712,13 +727,18 @@
       /** Replaces the menus. An open menu stays open, with its new items, if its title is still there. */
       setMenus(next) {
         if (destroyed) return;
+        const was = openAt >= 0 ? menus[openAt] : null;
         menus = Array.isArray(next) ? next : [];
-        const was = openAt;
         render();
-        if (was < 0 || !handle) return;
-        const list = usable(was) ? listOf(menus[was].items) : [];
+        if (!was || !handle) return;
+        // The open menu is found again by itself, or by its title.
+        let at = menus.indexOf(was);
+        if (at < 0) at = menus.findIndex(m => String(m?.label ?? "") === String(was.label ?? ""));
+        const list = usable(at) ? listOf(menus[at].items) : [];
         if (!list.length) handle.close(true);
-        else titles[was].setAttribute("aria-controls", handle.replace(list));
+        else if (at === openAt) titles[at].setAttribute("aria-controls", handle.replace(list, menus[at].label));
+        // Its title moved: it opens again under it (the bar stays open: no onClose, no onOpen).
+        else openMenu(at, openHow === "mouse" ? "mouse" : "keyboard");
       },
       /** Opens menu number `index` with its first item chosen, and moves focus into it. */
       open(index = 0) { openMenu(index, "keyboard", document.activeElement); },
@@ -734,9 +754,11 @@
         destroyed = true;
         handle?.close(false);
         life.abort();
-        nav.replaceChildren();
+        for (const t of titles) t.remove();
+        titles = [];
         if (addedClass) nav.classList.remove("tmn-bar");
-        nav.removeAttribute("role");
+        if (hadRole == null) nav.removeAttribute("role");
+        else nav.setAttribute("role", hadRole);
         if (addedLabel) nav.removeAttribute("aria-label");
         delete nav.__taurisMenuBar;
       },

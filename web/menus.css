@@ -43,7 +43,7 @@
     --tmn-item-gap: 24px;             /* between a label and its shortcut */
     --tmn-item-on-bg: var(--tauris-sel-bg, #2675bf);        /* the item under the mouse or chosen by the keyboard */
     --tmn-item-on-fg: var(--tauris-sel-fg, #ffffff);
-    --tmn-danger: #d1453b;
+    --tmn-danger: #b83a31;
     --tmn-shortcut-opacity: 0.7;
     --tmn-sep: var(--tauris-line, #d3d5da);
     --tmn-chip-size: 10px;
@@ -71,7 +71,7 @@
       --tmn-menu-border: var(--tauris-line, #6b6e73);
       --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
       --tmn-item-on-bg: var(--tauris-sel-bg, #3570b0);
-      --tmn-danger: #f07a72;
+      --tmn-danger: #f49a92;
       --tmn-sep: var(--tauris-line, #515356);
       --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
       --tmn-tool-border: var(--tauris-line, #5e6165);
@@ -92,7 +92,7 @@
     --tmn-menu-border: var(--tauris-line, #6b6e73);
     --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
     --tmn-item-on-bg: var(--tauris-sel-bg, #3570b0);
-    --tmn-danger: #f07a72;
+    --tmn-danger: #f49a92;
     --tmn-sep: var(--tauris-line, #515356);
     --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
     --tmn-tool-border: var(--tauris-line, #5e6165);
@@ -230,6 +230,9 @@
   }
 
   .tmn-item:focus .tmn-chip { box-shadow: 0 0 0 1px var(--tmn-item-on-fg); }
+  /* On the chosen item the shortcut is as readable as its label. */
+  .tmn-item:focus .tmn-shortcut,
+  .tmn-item[aria-expanded="true"] .tmn-shortcut { opacity: 1; }
 
   .tmn-sep {
     height: 1px;
@@ -326,6 +329,12 @@
     .tmn-item[aria-expanded="true"]:not(:focus) { outline: 1px solid Highlight; outline-offset: -1px; }
     .tmn-title:focus-visible,
     .tmn-tool:focus-visible { outline: 2px solid Highlight; }
+    .tmn-item[aria-disabled="true"],
+    .tmn-title[aria-disabled="true"],
+    .tmn-tool[aria-disabled="true"] { color: GrayText; }
+    .tmn-sep { height: 0; border-top: 1px solid CanvasText; }
+    /* An item's colour stays its colour, with a line around it. */
+    .tmn-chip { forced-color-adjust: none; outline: 1px solid CanvasText; }
   }
 }
 
@@ -351,8 +360,10 @@ button:where(.tmn-tool):active { background: var(--tmn-tool-hover-bg); border-co
 button:where(.tmn-tool):focus-visible { box-shadow: 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus); }
 button:where(.tmn-tool)[aria-expanded="true"],
 button:where(.tmn-tool)[aria-pressed="true"] { background: var(--tmn-tool-on-bg); border-color: var(--tmn-tool-border); }
-button:where(.tmn-tool):disabled { color: var(--tmn-disabled); background: transparent; border-color: transparent; }
+button:where(.tmn-tool):disabled,
+button:where(.tmn-tool)[aria-disabled="true"] { color: var(--tmn-disabled); background: transparent; border-color: transparent; }
 
 @media (forced-colors: active) {
   button:where(.tmn-tool):focus-visible { outline: 2px solid Highlight; }
+  button:where(.tmn-tool)[aria-disabled="true"] { color: GrayText; }
 }

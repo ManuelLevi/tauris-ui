@@ -8,7 +8,7 @@ use crate::windows::{default_tab, inner, open_window};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Runtime};
@@ -70,6 +70,23 @@ pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
             return false;
         }
     };
+    // One restore at a time: two callers that both found no window (a Dock
+    // click and the app's own open_or_focus) must not each open them all.
+    // Never waited for: the other one may need this thread to open its windows.
+    let state = inner(app);
+    if state.restoring.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    struct Done(&'static AtomicBool);
+    impl Drop for Done {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::SeqCst);
+        }
+    }
+    let _done = Done(&state.restoring);
+    if crate::windows::window_count(app) > 0 {
+        return true;
+    }
     let saved: Vec<SavedWin> = saved.into_iter().filter(|w| !w.tabs.is_empty()).collect();
     let count = saved.len();
     let mut opened = 0;
@@ -102,10 +119,12 @@ pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
             Err(_) => inner(app).model().remove_win(&label),
         }
     }
-    // Remembered windows that could not open are kept aside, not overwritten
-    // by the new window's layout.
-    if count > 0 && opened == 0 {
+    // Remembered windows that could not open are kept aside, not lost when the
+    // windows that did open are saved.
+    if opened == 0 && count > 0 {
         let _ = fs::rename(&file, file.with_extension("unopened"));
+    } else if opened < count {
+        let _ = fs::copy(&file, file.with_extension("unopened"));
     }
     opened > 0
 }
@@ -149,8 +168,7 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
             return;
         }
         m.saved();
-        m.closing.retain(|c| c.at.elapsed() < QUIT_BURST);
-        let just_closed = m.closing.iter().map(|c| SavedWin {
+        let just_closed = m.closing.iter().filter(|c| c.at.elapsed() < QUIT_BURST).map(|c| SavedWin {
             active: c.win.active.and_then(|a| c.win.tabs.iter().position(|t| *t == a)).unwrap_or(0),
             tabs: c.tabs.clone(),
             frame: c.win.frame,
@@ -184,9 +202,12 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
         }
         options.open(&tmp).and_then(|mut f| f.write_all(text.as_bytes()))
     };
-    // Not written: the changes stay unsaved, so the next round tries again.
+    // Not written: the changes stay unsaved, so the next round tries again,
+    // with the windows that closed a moment ago still in it.
     if written.is_err() || fs::rename(&tmp, &file).is_err() {
         state.model().changed();
+    } else {
+        state.model().closing.retain(|c| c.at.elapsed() < QUIT_BURST);
     }
 }
 

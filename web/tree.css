@@ -81,7 +81,7 @@
       --tv-scheme: light;
       --tv-bg: var(--tauris-bg, #ffffff);
       --tv-fg: var(--tauris-fg, #1d1d21);
-      --tv-muted: var(--tauris-dim, #6f6f79);
+      --tv-muted: var(--tauris-dim, #66666f);
       --tv-line: var(--tauris-dim, #9a9aa4);
       --tv-box-border: var(--tauris-dim, #8b8b95);
       --tv-box-fg: var(--tauris-fg, #2c2c32);
@@ -120,7 +120,7 @@
     --tv-scheme: light;
     --tv-bg: var(--tauris-bg, #ffffff);
     --tv-fg: var(--tauris-fg, #1d1d21);
-    --tv-muted: var(--tauris-dim, #6f6f79);
+    --tv-muted: var(--tauris-dim, #66666f);
     --tv-line: var(--tauris-dim, #9a9aa4);
     --tv-box-border: var(--tauris-dim, #8b8b95);
     --tv-box-fg: var(--tauris-fg, #2c2c32);
@@ -215,6 +215,7 @@
   .tv-row[aria-selected="true"] {
     background: var(--tv-sel-inactive-bg);
     color: var(--tv-sel-inactive-fg);
+    --tv-muted: var(--tv-sel-inactive-fg);  /* secondary text stays readable on the selection */
   }
 
   .tv-body:focus-within .tv-row[aria-selected="true"] {
@@ -525,7 +526,10 @@
       forced-color-adjust: none;
       background: Highlight;
       color: HighlightText;
+      --tv-muted: HighlightText;
     }
+    /* Everything on a selected row in the system's colours (icons, secondary text). */
+    .tv-row[aria-selected="true"] * { color: HighlightText; }
     .tv-box { forced-color-adjust: none; --tv-box-border: CanvasText; --tv-box-fg: CanvasText; --tv-box-bg: Canvas; }
     .tv-check { forced-color-adjust: none; border-color: CanvasText; background: Canvas; }
     /* the lines' colour is read where tree.js sets them, on the indent */

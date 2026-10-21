@@ -56,6 +56,8 @@
   };
 
   const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+  // The command key alone: ⌘ on a Mac, Ctrl elsewhere. ⌃⌘ (and ⌃ on a Mac) is never a command.
+  const cmdKey = e => (MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
 
   // Every word the component shows. Pass `labels` to change any of them.
   const LABELS = {
@@ -367,7 +369,8 @@
     const askText = el("div", "tf-ask-text", { id: `${id}-ask` });
     const askNo = el("span", "tf-btn", { role: "button", tabindex: "0" });
     const askYes = el("span", "tf-btn tf-danger", { role: "button", tabindex: "0" });
-    const askCard = el("div", "tf-ask", { role: "alertdialog", "aria-modal": "true", "aria-labelledby": `${id}-ask` },
+    // tabindex -1: a click on the question's text keeps the focus in the question.
+    const askCard = el("div", "tf-ask", { role: "alertdialog", "aria-modal": "true", "aria-labelledby": `${id}-ask`, tabindex: "-1" },
       askText, el("div", "tf-ask-acts", {}, askNo, askYes));
     const veil = el("div", "tf-veil", { hidden: "" }, askCard);
     pressable(askYes, () => asking?.finish(true));
@@ -436,7 +439,13 @@
       const q = query.trim().toLowerCase();
       const out = q ? list.filter(f => String(f.name ?? "").toLowerCase().includes(q)) : list.slice();
       const dir = sort.up ? 1 : -1;
-      const byName = (a, b) => collator.compare(String(a.name ?? ""), String(b.name ?? ""));
+      // As Finder: the name without its extension first, so "Q3 plan.md" comes
+      // before "Q3 plan 2.md"; then the extension.
+      const stemExt = n => { const i = n.lastIndexOf("."); return i > 0 ? [n.slice(0, i), n.slice(i + 1)] : [n, ""]; };
+      const byName = (a, b) => {
+        const [sa, ea] = stemExt(String(a.name ?? "")), [sb, eb] = stemExt(String(b.name ?? ""));
+        return collator.compare(sa, sb) || collator.compare(ea, eb);
+      };
       const time = new Map(out.map(f => [f, dateOf(f.added)?.getTime() ?? -Infinity]));
       const size = f => (Number.isFinite(Number(f.size)) ? Number(f.size) : -1);
       out.sort((a, b) => {
@@ -710,21 +719,27 @@
         const missing = added.filter(f => !have.has(keyOf(f.id)));
         if (missing.length && held) held = held.concat(missing);
         else if (missing.length) list = list.concat(missing);
-        fresh = new Set(added.map(f => keyOf(f.id)));
-        clearTimeout(freshTimer);
-        freshTimer = setTimeout(() => {
-          fresh = new Set();
-          for (const row of rows.values()) row.classList.remove("tf-fresh");
-        }, 1400);
-        if (query && !added.some(f => String(f.name ?? "").toLowerCase().includes(query.trim().toLowerCase()))) {
-          query = "";
-          searchInput.value = "";
-        }
-        draw();
-        // Every file just added is selected, the first one with the focus.
-        anchor = keyOf(added[0].id);
-        setSelection(added.map(f => keyOf(f.id)), anchor);
-        message(say(L().addedFiles, added, place()), "ok");
+        const show = () => {
+          if (signal.aborted) return;
+          fresh = new Set(added.map(f => keyOf(f.id)));
+          clearTimeout(freshTimer);
+          freshTimer = setTimeout(() => {
+            fresh = new Set();
+            for (const row of rows.values()) row.classList.remove("tf-fresh");
+          }, 1400);
+          if (query && !added.some(f => String(f.name ?? "").toLowerCase().includes(query.trim().toLowerCase()))) {
+            query = "";
+            searchInput.value = "";
+          }
+          draw();
+          // Every file just added is selected, the first one with the focus.
+          anchor = keyOf(added[0].id);
+          setSelection(added.map(f => keyOf(f.id)).filter(k => rows.has(k)), anchor);
+          message(say(L().addedFiles, added, place()), "ok");
+        };
+        // While a name is being edited the list is not drawn: the new files show when it ends.
+        if (renaming) renaming.after.push(show);
+        else show();
         return added;
       } catch (e) {
         message(textOf(e), "error");
@@ -816,6 +831,9 @@
       }
       if (signal.aborted) return;
       list = list.filter(f => keyOf(f.id) !== key);
+      if (held) held = held.filter(f => keyOf(f.id) !== key);
+      // While another file's name is being edited the list is not drawn again: the row goes now.
+      if (renaming) rows.get(key)?.remove();
       if (wasSelected && (selId === key || selId === null)) {
         const left = new Set(list.map(f => keyOf(f.id)));
         const rest = before.filter(f => keyOf(f.id) !== key && left.has(keyOf(f.id)));
@@ -870,6 +888,8 @@
       }
       if (signal.aborted || !gone.size) return;
       list = list.filter(f => !gone.has(keyOf(f.id)));
+      if (held) held = held.filter(f => !gone.has(keyOf(f.id)));
+      if (renaming) for (const k of gone) rows.get(k)?.remove();
       // The file after the last one deleted takes the selection, as in a file manager.
       const left = new Set(list.map(f => keyOf(f.id)));
       const next = before.slice(last + 1).find(f => left.has(keyOf(f.id)))
@@ -915,7 +935,8 @@
         // switching to another app is not.
         askCard.addEventListener("focusout", e => {
           if (askCard.contains(e.relatedTarget) || (e.relatedTarget == null && !document.hasFocus())) return;
-          finish(false, false);
+          // A click on nothing that takes the focus: back to the list, so the keys still work.
+          finish(false, e.relatedTarget == null);
         }, { signal: done.signal });
         askCard.addEventListener("keydown", e => {
           if (e.key === "Escape") {
@@ -954,7 +975,7 @@
       input.value = name;
       cell.classList.add("tf-renaming");
       cell.replaceChildren(input);
-      const state = { file, input, busy: false };
+      const state = { file, input, busy: false, after: [] };
       renaming = state;
       input.focus({ preventScroll: true });
       // The name without its extension is selected, as in a file manager.
@@ -972,9 +993,10 @@
         const stay = document.activeElement === input || document.activeElement === document.body || !document.activeElement;
         draw();
         if (stay) focusList();
+        for (const show of state.after) show();
       };
       const commit = async () => {
-        if (renaming !== state || state.busy) return;
+        if (renaming !== state || state.busy || signal.aborted) return;
         const next = input.value.trim();
         if (next === name) return end();
         if (!next) {
@@ -1074,7 +1096,7 @@
       if (!row || e.button > 2) return;
       const k = row.__tfKey;
       const onButton = e.target.closest(".tf-ib") != null;
-      const toggle = MAC ? e.metaKey : e.ctrlKey;
+      const toggle = cmdKey(e);
       const rightClick = e.button === 2 || (MAC && e.button === 0 && e.ctrlKey); // Control-click on a Mac
       if (!rightClick && several() && toggle && !onButton) {
         const next = new Set(sel);
@@ -1122,14 +1144,14 @@
     let typed = "";
     let typedAt = 0;
     grid.addEventListener("keydown", e => {
-      const selectAll = (MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
+      const selectAll = cmdKey(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
       if (selectAll && e.target !== grid && !(e.target instanceof HTMLInputElement)) e.preventDefault();
       if (e.target !== grid || e.isComposing || asking) return;
       const file = current();
       const i = file ? shown.indexOf(file) : -1;
       const page = Math.max(1, Math.floor(grid.clientHeight / (rows.values().next().value?.offsetHeight || 25)) - 1);
       // Shift extends the selection from the anchor, as in a file manager.
-      const toggleKey = MAC ? e.metaKey : e.ctrlKey;
+      const toggleKey = cmdKey(e);
       const to = n => {
         e.preventDefault();
         if (!shown.length) return;
@@ -1138,12 +1160,15 @@
         else if (toggleKey && several()) setSelection(sel, k); // the focus moves; the selection stays
         else select(k);
       };
-      const all = (MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
+      const all = cmdKey(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
+      // A space in the middle of typing a name is part of it ("Launch p").
+      const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < 700;
+      if (e.key === " " && !spelling) e.preventDefault(); // the list never scrolls a page on Space
       if (all) {
         // Inside the list ⌘A is never the page's own Select All.
         e.preventDefault();
         if (several()) setSelection(shown.map(f => keyOf(f.id)), focusAmongShown(), false);
-      } else if (e.key === " " && !e.altKey && !e.shiftKey && several() && selId != null) {
+      } else if (e.key === " " && !spelling && !e.altKey && !e.shiftKey && several() && selId != null) {
         // Selects or unselects the file with the focus, keeping the others.
         e.preventDefault();
         const next = new Set(sel);
@@ -1164,7 +1189,7 @@
       } else if (e.key === "F2") {
         e.preventDefault();
         if (selection().length === 1) rename(selection()[0]);
-      } else if (e.key === "Delete" || (e.key === "Backspace" && (e.metaKey || e.ctrlKey))) {
+      } else if ((e.key === "Delete" && !e.ctrlKey) || (e.key === "Backspace" && cmdKey(e))) {
         e.preventDefault();
         if (selection().length) removeMany(selection());
       } else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
@@ -1177,7 +1202,7 @@
         else if (selId !== k) setSelection(sel, k, false);
         const r = rows.get(k)?.querySelector(".tf-c-name")?.getBoundingClientRect();
         if (r && rowMenu(fileById(k) ?? target, { x: r.left + 12, y: r.bottom }, true)) e.preventDefault();
-      } else if (e.key.length === 1 && e.key !== " " && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      } else if (e.key.length === 1 && (e.key !== " " || spelling) && !e.altKey && !e.ctrlKey && !e.metaKey) {
         // Typing jumps to the next file whose name starts with what was typed, and
         // selects it alone, as in a file manager. One letter again and again steps
         // through the files that start with it.
@@ -1202,6 +1227,7 @@
       draw();
     }, { signal });
     searchInput.addEventListener("keydown", e => {
+      if (e.isComposing) return; // the arrows and Escape belong to the input method then
       if (e.key === "ArrowDown" && shown.length) {
         e.preventDefault();
         if (!current()) select(shown[0].id);
@@ -1265,7 +1291,7 @@
     }
 
     function dragDrop(payload) {
-      if (!payload || typeof payload !== "object") return;
+      if (!payload || typeof payload !== "object" || signal.aborted) return;
       const type = payload.type;
       if (opt.dropArea === "none" || typeof opt.onAdd !== "function" || !isShown()) {
         setDropping(false);
@@ -1397,6 +1423,7 @@
       /** Removes the component and its listeners; mount can then be called again. */
       destroy() {
         life.abort();
+        renaming = null; // removing the field below blurs it: that is not a save
         everyFiles.delete(me);
         rowMenuHandle?.close();
         unlisten?.();

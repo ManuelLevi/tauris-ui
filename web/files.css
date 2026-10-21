@@ -74,17 +74,19 @@
     --tf-sel-line: rgb(255 255 255 / 0.55);
     --tf-sel-hover: rgb(255 255 255 / 0.18);
     --tf-flash: color-mix(in srgb, var(--tf-accent) 18%, var(--tf-bg));   /* a row just added */
-    --tf-danger: #d1453b;
+    --tf-danger: #b83a31;            /* error text and the delete icon: readable on --tf-bg and --tf-chrome */
+    --tf-danger-fill: #b83a31;       /* the Delete button */
+    --tf-on-danger: #ffffff;
     --tf-veil: rgb(0 0 0 / 0.08);
     --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
     --tf-drop-bg: color-mix(in srgb, var(--tf-accent) 7%, var(--tf-bg));
 
     /* the type badges */
     --tf-kind-pdf: #b4232a;
-    --tf-kind-img: #0f7a63;
-    --tf-kind-xls: #1d7a3a;
+    --tf-kind-img: #0b6b57;
+    --tf-kind-xls: #17692f;
     --tf-kind-doc: #2560a8;
-    --tf-kind-ppt: #b0561a;
+    --tf-kind-ppt: #9c4a14;
     --tf-kind-aud: #7a4bc4;
   }
 
@@ -110,10 +112,11 @@
       --tf-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
       --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
       --tf-flash: color-mix(in srgb, var(--tf-accent) 55%, var(--tf-bg));
-      --tf-danger: #e5625a;
+      --tf-danger: #f49a92;
+      --tf-danger-fill: #c4453b;
       --tf-veil: rgb(0 0 0 / 0.3);
       --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
-      --tf-kind-pdf: #f07a72;
+      --tf-kind-pdf: #f48c85;
       --tf-kind-img: #4cc3a3;
       --tf-kind-xls: #5ccb69;
       --tf-kind-doc: #6aa6e0;
@@ -141,10 +144,11 @@
     --tf-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
     --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
     --tf-flash: color-mix(in srgb, var(--tf-accent) 55%, var(--tf-bg));
-    --tf-danger: #e5625a;
+    --tf-danger: #f49a92;
+    --tf-danger-fill: #c4453b;
     --tf-veil: rgb(0 0 0 / 0.3);
     --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
-    --tf-kind-pdf: #f07a72;
+    --tf-kind-pdf: #f48c85;
     --tf-kind-img: #4cc3a3;
     --tf-kind-xls: #5ccb69;
     --tf-kind-doc: #6aa6e0;
@@ -286,8 +290,8 @@
   }
 
   .tf-btn.tf-primary:hover { background: var(--tf-accent-2); }
-  .tf-btn.tf-danger { background: var(--tf-danger); border-color: var(--tf-danger); }
-  .tf-btn.tf-danger:hover { background: color-mix(in srgb, var(--tf-danger) 85%, #000); }
+  .tf-btn.tf-danger { color: var(--tf-on-danger); background: var(--tf-danger-fill); border-color: var(--tf-danger-fill); }
+  .tf-btn.tf-danger:hover { background: color-mix(in srgb, var(--tf-danger-fill) 85%, #000); }
   .tf-btn.tf-primary[aria-disabled="true"]:hover { background: var(--tf-accent); }
 
   .tf-ask-acts .tf-btn:not(.tf-danger) { min-width: 72px; height: var(--tf-control-h); padding: 0 12px; font-size: var(--tf-font-size); }
@@ -434,7 +438,6 @@
     background: var(--tf-sel-bg);
   }
 
-  .tf-file[aria-selected="true"] .tf-c-by { color: color-mix(in srgb, var(--tf-sel-fg) 85%, transparent); }
 
   .tf-file[aria-selected="true"] .tf-kind {
     color: var(--tf-sel-fg);
@@ -645,6 +648,10 @@
     .tf-list:focus .tf-file.tf-focused .tf-cell:first-child { border-left: 2px solid Highlight; }
     .tf-list:focus .tf-file.tf-focused .tf-cell:last-child { border-right: 2px solid Highlight; }
     .tf-file[aria-selected="true"] .tf-cell { forced-color-adjust: none; color: HighlightText; background: Highlight; }
+    /* Everything on a selected row in the system's colours (the badge, the buttons). */
+    .tf-file[aria-selected="true"] .tf-cell * { color: HighlightText; border-color: HighlightText; }
+    /* The focused row among several selected: its ring in the text colour, not the selection's. */
+    .tf-list:focus .tf-file.tf-focused[aria-selected="true"] .tf-cell { border-color: HighlightText; }
     .tf-drop { outline-color: Highlight; }
     .tf-panel:has(> .tf-list:focus-visible),
     .tf-btn:focus-visible,
@@ -677,7 +684,7 @@ input:where(.tf-q) {
 }
 
 input:where(.tf-q):focus { border-color: transparent; outline: 0; box-shadow: none; }
-input:where(.tf-q)::placeholder { color: var(--tf-faint); opacity: 1; }
+input:where(.tf-q)::placeholder { color: var(--tf-dim); opacity: 1; }
 input:where(.tf-q)::-webkit-search-cancel-button { cursor: default; }
 
 input:where(.tf-rename) {

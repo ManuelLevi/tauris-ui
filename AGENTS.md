@@ -51,7 +51,7 @@ Do all of these, every time:
    - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`
    - window behaviour in `src/runtime_tests.rs` (real windows on Tauri's test runtime)
    - pure logic next to it (`#[cfg(test)]`)
-6. **Never open a window inside the plugin's `on_event`** (`src/lib.rs`), nor run app code there: Tauri holds its plugin lock and opening a window takes it, so the app freezes. Send the work through `after_event(app, |app| ...)`. The same holds for plain (not async) page commands, which must start with `let _locked = windows::InPlugin::enter();` (a test checks): inside that lock the app's `on_change` hook runs on the worker. The test `the_event_handler_opens_no_window_itself` checks the source, debug builds stop at once when a window opens inside the lock, and `test/freeze_check` checks a real app (see below).
+6. **Never open a window inside the plugin's `on_event`** (`src/lib.rs`), nor run app code there: Tauri holds its plugin lock and opening a window takes it, so the app freezes. Send the work through `after_event(app, |app| ...)`. The same holds for plain (not async) page commands, which must start with `let _locked = windows::InPlugin::enter();` (a test checks): inside that lock the app's `on_change` hook runs on the worker. The test `the_event_handler_opens_no_window_itself` reads the source for it, and debug builds stop at once when a window opens while the lock is marked; only `test/freeze_check` proves it in a real app (see below), on macOS.
 7. **A new page command needs four matching edits:**
    - the function in `src/commands.rs`
    - `generate_handler!` in `src/lib.rs`
@@ -68,8 +68,9 @@ Do all of these, every time:
    python test/terminal_run.py
    python test/files_run.py
    python test/menus_run.py
-   (cd examples/basic/src-tauri && cargo build)
+   (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build)
    python scripts/doctor.py examples/basic
+   (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
    ```
 9. **Delete the build output** when finished: `target/`, `examples/basic/src-tauri/target/` and `test/freeze_check/target/`.
 10. **Commit and push the release** once every check passes, as `tauris-ui X.Y.Z: what changed`. Do not ask the maintainer first.
