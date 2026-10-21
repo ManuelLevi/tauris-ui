@@ -259,6 +259,17 @@ with sync_playwright() as p:
                    "rgb(4, 5, 6)", "rgb(13, 14, 15)", "Georgia, serif"], look)
     page.close()
 
+    # ---------- the app chooses light or dark ----------
+    for os_mode, app_mode, panel, pdf, menu_bg in [("dark", "light", "rgb(255, 255, 255)", PDF_RED, "rgb(255, 255, 255)"),
+                                                   ("light", "dark", DARK_BG, "rgb(240, 122, 114)", "rgb(47, 50, 52)")]:
+        page = fresh(browser, os_mode)
+        page.evaluate(f"document.documentElement.dataset.taurisTheme = '{app_mode}'")
+        page.click(".tmn-title:text-is('File')")
+        look = page.evaluate("""() => [getComputedStyle(document.querySelector('.tf-panel')).backgroundColor,
+          getComputedStyle(document.querySelector('.tf-file:nth-child(3) .tf-kind')).color, getComputedStyle(document.querySelector('.tmn-menu')).backgroundColor]""")
+        check(f"system {os_mode}, app {app_mode} (data-tauris-theme): the files and menus follow the app", look == [panel, pdf, menu_bg], look)
+        page.close()
+
     # ---------- the row menu's hooks ----------
     page = fresh(browser)
     page.evaluate("""window.ev = []; demo.files.update({ onMenuOpen: i => ev.push(['open', i.label, i.how]),
@@ -363,6 +374,49 @@ with sync_playwright() as p:
     page.click(".tf-file:nth-child(1) .tf-c-name")
     page.click(".tf-file:nth-child(2) .tf-c-name", modifiers=["ControlOrMeta"])
     check("multiple: false keeps one file at a time", len(sel_names()) == 1 and page.get_attribute(".tf-list", "aria-multiselectable") == "false")
+    page.close()
+
+    # ---------- selecting several: the edges a review found ----------
+    page = fresh(browser)
+    mac = page.evaluate("/Mac|iPhone|iPad/.test(navigator.platform)")
+    sel_names = lambda: page.evaluate("demo.files.selection().map(f => f.name)")
+    off_by_default = page.evaluate("""() => { const box = document.createElement('div'); document.body.append(box);
+      const v = TaurisFiles.mount(box, { files: [{ id: 1, name: 'a.txt' }, { id: 2, name: 'b.txt' }] });
+      v.select([1, 2]); v.selectAll(); const n = v.selection().length; const flag = box.querySelector('.tf-list').getAttribute('aria-multiselectable');
+      v.destroy(); box.remove(); return [n, flag]; }""")
+    check("selecting several is off unless the app turns it on; select([..]) and selectAll() then keep one", off_by_default == [1, "false"], off_by_default)
+    page.evaluate("demo.files.update({ confirmDelete: f => `Delete “${f.name}”? (the app asks)` }); demo.files.select([3, 2, 7])")
+    page.focus(".tf-list")
+    page.keyboard.press("Delete")
+    check("an app's own question written for one file never stands for several: the library asks about all of them",
+          page.inner_text(".tf-ask-text") == "Delete 3 files? This cannot be undone.")
+    page.keyboard.press("Escape")
+    page.evaluate("demo.files.update({ confirmDelete: (f, files) => `Remove ${files.length} from the project?` })")
+    page.keyboard.press("Delete")
+    check("an app's question that takes (file, files) is asked about all of them", page.inner_text(".tf-ask-text") == "Remove 3 from the project?")
+    page.keyboard.press("Escape")
+    page.evaluate("demo.files.update({ confirmDelete: true })")
+    page.click(".tf-file:nth-child(3) .tf-c-name", modifiers=["ControlOrMeta"])
+    check("taking out the file with the focus moves the focus to the nearest selected file; the keys still work",
+          sel_names() == ["Brand assets.zip", "Budget 2027.xlsx"] and page.evaluate("demo.files.selected().name") == "Budget 2027.xlsx"
+          and page.get_attribute(".tf-list", "aria-activedescendant") is not None)
+    if mac:
+        page.click(".tf-file:nth-child(1) .tf-c-name", modifiers=["Control"])
+        check("on a Mac, Control-click is a right click: the selection stays, and its menu acts on both",
+              sel_names() == ["Brand assets.zip", "Budget 2027.xlsx"] and page.locator(".tmn-menu").count() == 1
+              and page.get_attribute(".tmn-item:has-text('Rename')", "aria-disabled") == "true")
+        page.keyboard.press("Escape")
+    page.click(".tf-file:nth-child(3) .tf-c-name")
+    page.fill(".tf-q", "deck")
+    page.wait_for_timeout(50)
+    page.fill(".tf-q", "pdf")
+    page.focus(".tf-list")
+    page.keyboard.press("ControlOrMeta+a")
+    check("⌘A after a search: the focus is on a file shown, so the keys work", page.evaluate("demo.files.selected()?.name") in ("Contract — signed.pdf",)
+          and sel_names() == ["Contract — signed.pdf"])
+    page.fill(".tf-q", "")
+    page.evaluate("demo.files.select([1, 2, 3]); demo.files.update({ multiple: false })")
+    check("turning multiple off keeps the file with the focus only", len(sel_names()) == 1)
     page.close()
 
     # ---------- the row's buttons, double-click, the row menu ----------

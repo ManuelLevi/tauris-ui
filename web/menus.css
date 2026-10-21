@@ -53,8 +53,10 @@
     --tmn-tool-on-bg: #dbe6f4;        /* pressed, or with its menu open */
   }
 
+  /* The system's dark mode, unless the app chose a mode with
+     data-tauris-theme on <html>; then the mode the app chose. */
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-tauris-theme="light"]) {
       --tmn-fg: var(--tauris-fg, #dfe1e5);
       --tmn-disabled: #6f737a;
       --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
@@ -71,6 +73,24 @@
       --tmn-tool-border: var(--tauris-line, #5e6165);
       --tmn-tool-on-bg: #4b6eaf;
     }
+  }
+
+  :root[data-tauris-theme="dark"] {
+    --tmn-fg: var(--tauris-fg, #dfe1e5);
+    --tmn-disabled: #6f737a;
+    --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
+    --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
+    --tmn-bar-line: var(--tauris-line, #515356);
+    --tmn-title-open-bg: #4b6eaf;
+    --tmn-menu-bg: var(--tauris-bg, #2f3234);
+    --tmn-menu-border: var(--tauris-line, #6b6e73);
+    --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
+    --tmn-item-on-bg: var(--tauris-sel-bg, #3570b0);
+    --tmn-danger: #f07a72;
+    --tmn-sep: var(--tauris-line, #515356);
+    --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
+    --tmn-tool-border: var(--tauris-line, #5e6165);
+    --tmn-tool-on-bg: #4b6eaf;
   }
 
   /* ---------- the bar ---------- */

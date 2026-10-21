@@ -87,8 +87,10 @@
     --tf-kind-aud: #7a4bc4;
   }
 
+  /* The system's dark mode, unless the app chose a mode with
+     data-tauris-theme on <html>; then the mode the app chose. */
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-tauris-theme="light"]) {
       --tf-fg: var(--tauris-fg, #dfe1e5);
       --tf-dim: var(--tauris-dim, #adb0b8);
       --tf-faint: #6f737a;
@@ -117,6 +119,36 @@
       --tf-kind-ppt: #e8955a;
       --tf-kind-aud: #b597f0;
     }
+  }
+
+  :root[data-tauris-theme="dark"] {
+    --tf-fg: var(--tauris-fg, #dfe1e5);
+    --tf-dim: var(--tauris-dim, #adb0b8);
+    --tf-faint: #6f737a;
+    --tf-bg: var(--tauris-bg, #2f3234);
+    --tf-chrome: var(--tauris-chrome, #34373a);
+    --tf-border: var(--tauris-line, #5e6165);
+    --tf-border-2: #6b6e73;
+    --tf-sep: var(--tauris-line, #515356);
+    --tf-grid: var(--tauris-line, #3a3d40);
+    --tf-badge-bg: #36393c;
+    --tf-hover: var(--tauris-hover, #4c5052);
+    --tf-row-hover: var(--tauris-hover, #3b4148);
+    --tf-accent: var(--tauris-accent, #3570b0);
+    --tf-accent-2: #2c5f98;
+    --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
+    --tf-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
+    --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
+    --tf-flash: #4b6eaf;
+    --tf-danger: #e5625a;
+    --tf-veil: rgb(0 0 0 / 0.3);
+    --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
+    --tf-kind-pdf: #f07a72;
+    --tf-kind-img: #4cc3a3;
+    --tf-kind-xls: #5ccb69;
+    --tf-kind-doc: #6aa6e0;
+    --tf-kind-ppt: #e8955a;
+    --tf-kind-aud: #b597f0;
   }
 
   /* ---------- frame ---------- */

@@ -532,6 +532,24 @@ with sync_playwright() as p:
     check("a plain arrow goes back to one row", len(picked()) == 1)
     page.close()
 
+    # ---------- selecting several: the edges a review found ----------
+    page = fresh(browser)
+    mac = page.evaluate("/Mac|iPhone|iPad/.test(navigator.platform)")
+    page.evaluate("(" + SORT_TREE + ")({ multiple: true })")
+    page.evaluate("sortHost.id = 'sortHost'; window.selEv = []; st.on('select', e => selEv.push([e.node && e.node.id, e.nodes.map(n => n.id)])); 0")
+    page.evaluate("st.select(['b169', 'b49', 'zoe'])")
+    page.evaluate("const d = sortData(); d[0].children = d[0].children.filter(c => c.id !== 'b169' && c.id !== 'b49'); st.setData(d)")
+    check("setData that drops selected rows says so, and a row still selected takes the focus",
+          page.evaluate("selEv.at(-1)") == ["zoe", ["zoe"]] and page.evaluate("st.selected().id") == "zoe")
+    page.evaluate("st.setData(sortData()); st.select(['b169', 'b49', 'anna'])")
+    page.click('#sortHost .tv-row[data-key="b169"] .tv-label', modifiers=["ControlOrMeta"])
+    check("taking out the row with the focus moves it to the nearest selected row",
+          page.evaluate("st.selection().map(n => n.id)") == ["b49", "anna"] and page.evaluate("st.selected().id") == "b49")
+    if mac:
+        page.click('#sortHost .tv-row[data-key="zoe"] .tv-label', modifiers=["Control"])
+        check("on a Mac, Control-click (a right click) changes nothing", page.evaluate("st.selection().map(n => n.id)") == ["b49", "anna"])
+    page.close()
+
     # ---------- one look for every component ----------
     page = fresh(browser)
     page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")
@@ -542,6 +560,14 @@ with sync_playwright() as p:
     check("the tree follows the shared --tauris-* colours and font",
           look == ["rgb(4, 5, 6)", "rgb(7, 8, 9)", "Georgia, serif", "rgb(13, 14, 15)", "rgb(10, 11, 12)"], look)
     page.close()
+
+    # ---------- the app chooses light or dark ----------
+    for os_mode, app_mode, bg in [("dark", "light", "rgb(255, 255, 255)"), ("light", "dark", "rgb(22, 22, 25)")]:
+        page = fresh(browser, os_mode)
+        page.evaluate(f"document.documentElement.dataset.taurisTheme = '{app_mode}'")
+        bg_now = page.evaluate("getComputedStyle(document.getElementById('files')).backgroundColor")
+        check(f"system {os_mode}, app {app_mode} (data-tauris-theme): the tree follows the app", bg_now == bg, bg_now)
+        page.close()
 
     # ---------- API ----------
     page = fresh(browser)

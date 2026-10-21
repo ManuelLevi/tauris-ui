@@ -140,75 +140,57 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
             app.manage(state);
             Ok(())
         })
-        .on_event(|app, event| match event {
-            RunEvent::WindowEvent { label, event, .. } => match event {
-                WindowEvent::Focused(true) => windows::bring_to_front(app, label),
-                // A page with onBeforeClose is asked before its window closes.
-                WindowEvent::CloseRequested { api, .. } => {
-                    if windows::ask_before_window_closes(app, label) {
-                        api.prevent_close();
+        .on_event(|app, event| {
+            // While this runs, Tauri holds its plugin lock: see windows::after_event.
+            let _inside = windows::InEvent::enter();
+            match event {
+                RunEvent::WindowEvent { label, event, .. } => match event {
+                    WindowEvent::Focused(true) => windows::bring_to_front(app, label),
+                    // A page with onBeforeClose is asked before its window closes.
+                    WindowEvent::CloseRequested { api, .. } => {
+                        if windows::ask_before_window_closes(app, label) {
+                            api.prevent_close();
+                        }
                     }
-                }
-                WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                    if let Some(w) = app.get_webview_window(label) {
-                        windows::frame_changed(&w);
+                    WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                        if let Some(w) = app.get_webview_window(label) {
+                            windows::frame_changed(&w);
+                        }
                     }
+                    WindowEvent::Destroyed => windows::forget_window(app, label),
+                    _ => {}
+                },
+                // ⌘T opens a window when none is open; ⌘N always does.
+                RunEvent::MenuEvent(e) => match e.id().as_ref() {
+                    menu::NEW_TAB => after_event(app, |app| {
+                        let _ = app.tabs().new_tab();
+                    }),
+                    menu::NEW_WINDOW => after_event(app, |app| {
+                        let _ = app.tabs().new_window();
+                    }),
+                    menu::CLOSE_TAB => app.tabs().close_active(),
+                    menu::CLOSE_WINDOW => windows::close_window(app),
+                    _ => {}
+                },
+                // Quitting (⌘Q sends only Exit): save what is open now, not a moment later.
+                RunEvent::ExitRequested { .. } | RunEvent::Exit => persist::save(app, true),
+                // The dock icon was clicked with no window open: the remembered ones
+                // come back (only in an app that uses tabs, i.e. called start()).
+                #[cfg(target_os = "macos")]
+                RunEvent::Reopen { has_visible_windows: false, .. }
+                    if windows::inner(app).started.load(std::sync::atomic::Ordering::SeqCst) =>
+                {
+                    after_event(app, |app| {
+                        let _ = persist::restore(app);
+                    });
                 }
-                WindowEvent::Destroyed => windows::forget_window(app, label),
                 _ => {}
-            },
-            // ⌘T opens a window when none is open; ⌘N always does.
-            RunEvent::MenuEvent(e) => match e.id().as_ref() {
-                menu::NEW_TAB => after_event(app, |app| {
-                    let _ = app.tabs().new_tab();
-                }),
-                menu::NEW_WINDOW => after_event(app, |app| {
-                    let _ = app.tabs().new_window();
-                }),
-                menu::CLOSE_TAB => app.tabs().close_active(),
-                menu::CLOSE_WINDOW => windows::close_window(app),
-                _ => {}
-            },
-            // Quitting (⌘Q sends only Exit): save what is open now, not a moment later.
-            RunEvent::ExitRequested { .. } | RunEvent::Exit => persist::save(app, true),
-            // The dock icon was clicked with no window open: the remembered ones
-            // come back (only in an app that uses tabs, i.e. called start()).
-            #[cfg(target_os = "macos")]
-            RunEvent::Reopen { has_visible_windows: false, .. }
-                if windows::inner(app).started.load(std::sync::atomic::Ordering::SeqCst) =>
-            {
-                after_event(app, |app| {
-                    let _ = persist::restore(app);
-                });
             }
-            _ => {}
         })
         .build()
 }
 
-// Tauri calls a plugin's on_event while it holds its plugin lock, and
-// opening a window takes that same lock, so a window opened inside the
-// handler waits forever (the Dock click and ⌘N froze the app).
-// run_on_main_thread is no way out: on the main thread it runs at once. The
-// work goes to one worker thread instead, which opens the window as soon as
-// the handler has returned, and does the jobs in order (a second ⌘T adds a
-// tab to the window the first one opened).
-fn after_event<R: Runtime>(app: &AppHandle<R>, job: impl FnOnce(&AppHandle<R>) + Send + 'static) {
-    let mut worker = windows::inner(app).after_events();
-    if worker.is_none() {
-        let (tx, rx) = std::sync::mpsc::channel::<windows::Job<R>>();
-        let app = app.clone();
-        std::thread::spawn(move || {
-            for job in rx {
-                job(&app);
-            }
-        });
-        *worker = Some(tx);
-    }
-    if let Some(tx) = worker.as_ref() {
-        let _ = tx.send(Box::new(job));
-    }
-}
+use windows::after_event;
 
 /// What an app does with its tabs from Rust. Get it with `app.tabs()`.
 pub struct Tabs<R: Runtime>(AppHandle<R>);

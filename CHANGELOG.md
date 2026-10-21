@@ -8,6 +8,20 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.9 — 2026-10-21
+
+Fixes from a review of 0.4.7 and 0.4.8:
+- **Files: selecting several is off by default again** (`multiple: true` turns it on). In 0.4.8 it was on, which changed apps that had not asked for it.
+- Files: an app's own `confirmDelete` question written for one file is never shown for several; the component asks "Delete 3 files?" itself. A function that takes `(file, files)` gets them all.
+- Files and tree: Control-click on a Mac is a right click and keeps the selection; taking the focused item out with ⌘-click moves the focus to the nearest selected one; after a search, ⌘A puts the focus on a file that is shown. `multiple: false` is kept by `select([ids])`, `selectAll()` and `update()`.
+- Tree: `setData` that drops selected rows fires `select`.
+- Fixed: an app's `on_change` hook that opened a window while a window closed froze the app. Inside the plugin's events the hook now runs a moment later on the worker; `test/freeze_check` checks this case too.
+- A job on the worker that panics no longer stops ⌘N, ⌘T and the Dock click for the rest of the session.
+- Sub-menus: moving with the keys closes a sub-menu the mouse opened; a sub-menu about to open is dropped when the mouse leaves the menu, unless it leaves beside its item.
+- `data-tauris-theme="light"` or `"dark"` on `<html>` sets the mode of every component when an app has its own light/dark switch. The README says which component follows which `--tauris-*` colour.
+
+**Upgrade** (TypeScript apps only): copy `web/files.d.ts` over the app's copy. An app that wants several files selected at once adds `multiple: true`.
+
 ## 0.4.8 — 2026-10-21
 
 - **One look for every component:** `--tauris-font`, `--tauris-bg`, `--tauris-chrome`, `--tauris-fg`, `--tauris-dim`, `--tauris-line`, `--tauris-hover`, `--tauris-accent`, `--tauris-accent-ink`, `--tauris-sel-bg`, `--tauris-sel-fg`, `--tauris-focus` and `--tauris-mono`, set once on `:root`, are followed by the tabs, the tree, the files table and the menus. Unset, every component looks as before; each component's own variables still win.

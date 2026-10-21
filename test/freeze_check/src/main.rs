@@ -5,9 +5,10 @@
 //
 //   cd test/freeze_check && cargo run
 //
-// A small window opens, closes, and comes back twice: once for a Dock click,
-// once for File › New Window pressed through the real menu. It ends with
-// "OK" twice and exit code 0, or "FROZEN" and exit code 1. Both actions are
+// A small window opens, closes, and comes back three times: for a Dock click,
+// for File › New Window pressed through the real menu, and for the app's own
+// on_change hook opening a window when the last one closes. It ends with "OK"
+// three times and exit code 0, or "FROZEN" and exit code 1. Both actions are
 // sent from the main dispatch queue, as macOS delivers them; sent from inside
 // one of the event loop's own callbacks, they would freeze tao instead.
 
@@ -81,8 +82,18 @@ mod mac {
         std::process::exit(1);
     }
 
+    // The app's hook opens a window when none is left (only in the last step).
+    static REOPEN_FROM_HOOK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
     pub fn main() {
-        let tabs = Config::new().no_layout().window_size(320.0, 200.0).new_tab(|_| NewTab::new("Freeze check"));
+        let tabs =
+            Config::new().no_layout().window_size(320.0, 200.0).new_tab(|_| NewTab::new("Freeze check")).on_change(
+                |app, _| {
+                    if REOPEN_FROM_HOOK.load(std::sync::atomic::Ordering::SeqCst) && app.tabs().window_count() == 0 {
+                        let _ = app.tabs().new_window();
+                    }
+                },
+            );
         tauri::Builder::default()
             .plugin(tauris_ui::init(tabs))
             .setup(|app| {
@@ -102,6 +113,13 @@ mod mac {
                     std::thread::sleep(Duration::from_millis(500));
                     dispatch2::DispatchQueue::main().exec_async(|| press_menu_item("New Window"));
                     wait_for(&handle, 2, "New Window (⌘N)");
+                    std::thread::sleep(Duration::from_millis(500));
+                    REOPEN_FROM_HOOK.store(true, std::sync::atomic::Ordering::SeqCst);
+                    for w in handle.webview_windows().into_values() {
+                        let _ = w.destroy();
+                    }
+                    std::thread::sleep(Duration::from_millis(300));
+                    wait_for(&handle, 1, "the app's hook opens a window when the last one closes");
                     std::process::exit(0);
                 });
                 Ok(())

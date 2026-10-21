@@ -83,9 +83,10 @@ declare global {
     /** Where a drop adds files: anywhere on the window (default), over the component only, or nowhere. */
     dropArea?: "window" | "element" | "none";
     /** Ask before onDelete: true (the component asks; default), false (the app asks), or the question.
-     * When several files go at once, files has all of them (onDelete is still called once per file). */
+     * For several files at once, a function that takes two parameters gets them all; one that takes
+     * only the file is not asked, and the component asks about all of them. onDelete runs once per file. */
     confirmDelete?: boolean | ((file: F, files: F[]) => string | null | false);
-    /** ⌘-click (Ctrl-click) and Shift-click select several files; ⌘A selects them all. Default true. */
+    /** ⌘-click (Ctrl-click) and Shift-click select several files; ⌘A selects them all. Default false. */
     multiple?: boolean;
     /** How a date shows in the Added column. Default short: "21 Oct", "21 Oct 25". */
     formatDate?: (date: Date, file: F) => string;

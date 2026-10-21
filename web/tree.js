@@ -235,6 +235,8 @@
     function setData(list) {
       finishEdit(false, false);
       const hadFocus = body.contains(document.activeElement);
+      const hadKey = selectedKey;
+      const hadPicked = picked.size;
       data = Array.isArray(list) ? list : [];
       nodes = new Map();
       parents = new Map();
@@ -257,12 +259,19 @@
       sorted = new Map(); // the order stays; the rows are sorted again
       if (selectedKey !== null && !nodes.has(selectedKey)) selectedKey = null;
       for (const k of [...picked]) if (!nodes.has(k)) picked.delete(k);
+      const dropped = selectedKey !== hadKey || picked.size !== hadPicked;
       if (focusKey !== null && !nodes.has(focusKey)) focusKey = null;
       // The rows may be in a new order: draw them all again.
       for (const node of pool.values()) node.remove();
       pool.clear();
       measure();
-      rebuild();
+      const moved = rebuild();
+      // The row with the focus is gone but others are still selected: one of them takes it.
+      if (selectedKey === null && picked.size) {
+        selectedKey = rows.find(r => picked.has(r.key))?.key ?? null;
+        render();
+      }
+      if (dropped && !moved) emitSelect();
       if (hadFocus) focusRow();
       requestAnimationFrame(checkHeight);
     }
@@ -400,6 +409,7 @@
       render();
       if (hadFocus && !body.contains(document.activeElement)) focusRow();
       if (moved) emitSelect();
+      return moved;
     }
 
     // ---------- drawing ----------
@@ -907,7 +917,8 @@
     // from the browser so focus and text selection stay under our control.
 
     body.addEventListener("mousedown", e => {
-      if (e.button !== 0) return;
+      // A right click (Control-click on a Mac) leaves the selection to the app's own menu.
+      if (e.button !== 0 || (MAC && e.ctrlKey)) return;
       if (e.target.closest(".tv-editor, .tv-picker")) return;
       const rowEl = e.target.closest(".tv-row");
       if (!rowEl) {
@@ -930,7 +941,7 @@
         focusRow();
         return;
       }
-      const toggleKey = MAC ? e.metaKey : e.ctrlKey; // on a Mac, Control-click is a right click
+      const toggleKey = MAC ? e.metaKey : e.ctrlKey;
       if (opt.multiple && (toggleKey || e.shiftKey)) {
         // ⌘-click adds or takes out one row; Shift-click selects the rows from the anchor.
         let keys;
@@ -942,8 +953,21 @@
         } else {
           keys = span(k);
         }
-        focusKey = k;
-        const changed = pick(keys, new Set(keys).has(k) ? k : [...keys].at(-1) ?? null);
+        const kept = new Set(keys);
+        // Taking out the row with the focus moves the focus to the nearest selected row.
+        let next = kept.has(k) ? k : null;
+        if (next === null) {
+          let gap = Infinity;
+          for (const key of kept) {
+            const d = Math.abs((index.get(key) ?? Infinity) - i);
+            if (d < gap) {
+              gap = d;
+              next = key;
+            }
+          }
+        }
+        focusKey = next ?? k;
+        const changed = pick(kept, next);
         render();
         focusRow();
         if (changed) emitSelect();

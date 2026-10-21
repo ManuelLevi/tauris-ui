@@ -97,11 +97,68 @@ pub(crate) fn all_windows<R: Runtime>(app: &AppHandle<R>) -> Vec<WindowTabs> {
 thread_local! {
     // Set while the app's change hook runs, so changes it makes do not call it again.
     static IN_HOOK: Cell<bool> = const { Cell::new(false) };
+    // True while the plugin's on_event runs on this thread.
+    static IN_EVENT: Cell<bool> = const { Cell::new(false) };
 }
 
-// Tells the app (its on_change hook) that window `label` changed.
+// Marks the plugin's on_event as running on this thread, until dropped.
+pub(crate) struct InEvent(bool);
+
+impl InEvent {
+    pub(crate) fn enter() -> Self {
+        InEvent(IN_EVENT.with(|e| e.replace(true)))
+    }
+}
+
+impl Drop for InEvent {
+    fn drop(&mut self) {
+        let was = self.0;
+        IN_EVENT.with(|e| e.set(was));
+    }
+}
+
+// Tauri calls a plugin's on_event while it holds its plugin lock, and
+// opening a window takes that same lock, so a window opened inside the
+// handler waits forever (the Dock click and ⌘N froze the app).
+// run_on_main_thread is no way out: on the main thread it runs at once. The
+// work goes to one worker thread instead, which runs it as soon as the
+// handler has returned, one job after the other (a second ⌘T adds a tab to
+// the window the first one opened). A job that panics is caught, so the
+// worker keeps going; a worker that is gone is replaced.
+pub(crate) fn after_event<R: Runtime>(app: &AppHandle<R>, job: impl FnOnce(&AppHandle<R>) + Send + 'static) {
+    let mut worker = inner(app).after_events();
+    let mut job: Job<R> = Box::new(job);
+    for _ in 0..2 {
+        if worker.is_none() {
+            let (tx, rx) = std::sync::mpsc::channel::<Job<R>>();
+            let app = app.clone();
+            std::thread::spawn(move || {
+                for job in rx {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&app)));
+                }
+            });
+            *worker = Some(tx);
+        }
+        match worker.as_ref().map(|tx| tx.send(job)) {
+            Some(Ok(())) | None => return,
+            Some(Err(std::sync::mpsc::SendError(back))) => {
+                job = back;
+                *worker = None;
+            }
+        }
+    }
+}
+
+// Tells the app (its on_change hook) that window `label` changed. Inside the
+// plugin's on_event the hook runs a moment later, on the worker: a hook may
+// open a window (see after_event).
 pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let Some(hook) = &inner(app).config.on_change else { return };
+    if IN_EVENT.with(|e| e.get()) {
+        let label = label.to_string();
+        after_event(app, move |app| changed(app, &label));
+        return;
+    }
     if IN_HOOK.with(|h| h.replace(true)) {
         return;
     }

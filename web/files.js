@@ -133,8 +133,9 @@
     onRename: null, // (file, name)
     onDelete: null, // (file)
     onSelect: null, // (file | null, files): the file with the focus, and every selected file
-    // ⌘-click (Ctrl-click) and Shift-click select several files; ⌘A selects them all
-    multiple: true,
+    // ⌘-click (Ctrl-click) and Shift-click select several files; ⌘A selects them all.
+    // Off by default: an app turns it on when its own actions use selection().
+    multiple: false,
     // the row's menu (right click, Shift+F10) opening and closing, as TaurisMenu's bar and buttons say it:
     // ({ label, how: "mouse" | "keyboard" }) and ({ label, chosen })
     onMenuOpen: null,
@@ -337,7 +338,7 @@
       el("div", "tf-thead", { role: "rowgroup" }, headRow));
     const tbody = el("div", "tf-tbody", { role: "rowgroup" });
     table.append(tbody);
-    const grid = el("div", "tf-list", { role: "grid", tabindex: "0", "aria-readonly": "true", "aria-multiselectable": String(opt.multiple !== false) }, table);
+    const grid = el("div", "tf-list", { role: "grid", tabindex: "0", "aria-readonly": "true", "aria-multiselectable": String(opt.multiple === true) }, table);
 
     const emptyTitle = el("div", "tf-empty-title");
     const emptyText = el("div", "tf-empty-text");
@@ -549,6 +550,14 @@
       empty.hidden = list.length !== 0;
       noMatch.hidden = !(list.length && !shown.length);
       noMatch.textContent = noMatch.hidden ? "" : say(words.noMatch, query.trim());
+      // The file with the focus hidden by a search: the focus goes to a selected file that is shown.
+      if (selId != null && !rows.has(selId)) {
+        const visible = shown.find(f => sel.has(keyOf(f.id)));
+        if (visible) {
+          selId = keyOf(visible.id);
+          if (typeof opt.onSelect === "function") opt.onSelect(current(), selection());
+        }
+      }
       paintSelection(false);
     }
 
@@ -603,7 +612,25 @@
       return keys.slice(Math.min(a, b), Math.max(a, b) + 1);
     }
 
-    const several = () => opt.multiple !== false;
+    const several = () => opt.multiple === true;
+
+    // The selected file nearest to `key` (in the order shown), for the focus to go to.
+    function nearestSelected(keys, key) {
+      const order = shown.map(f => keyOf(f.id));
+      const at = order.indexOf(key);
+      let best = null;
+      let gap = Infinity;
+      order.forEach((k, i) => {
+        if (keys.has(k) && Math.abs(i - at) < gap) {
+          best = k;
+          gap = Math.abs(i - at);
+        }
+      });
+      return best;
+    }
+
+    // Where the focus goes for a selection of every file shown: where it is, if shown.
+    const focusAmongShown = () => (selId != null && rows.has(selId) ? selId : shown[0] ? keyOf(shown[0].id) : null);
 
     // ---------- the app's actions ----------
 
@@ -758,7 +785,10 @@
       if (files.length < 2) return remove(files[0]);
       if (typeof opt.onDelete !== "function") return;
       const question = opt.confirmDelete === false ? null
-        : typeof opt.confirmDelete === "function" ? opt.confirmDelete(files[0], files) : say(L().confirmDeleteMany, files);
+        // An app's own question names the files only if it takes them (file, files); one written
+        // for a single file would name one while several go, so the library's question is used.
+        : typeof opt.confirmDelete === "function" && opt.confirmDelete.length >= 2 ? opt.confirmDelete(files[0], files)
+          : say(L().confirmDeleteMany, files);
       if (question && !(await ask(String(question)))) return;
       if (signal.aborted) return;
       const before = shown.slice();
@@ -977,16 +1007,17 @@
       if (!row || e.button > 2) return;
       const k = row.__tfKey;
       const onButton = e.target.closest(".tf-ib") != null;
-      const toggle = MAC ? e.metaKey : e.ctrlKey; // on a Mac, Control-click is a right click
-      if (e.button === 0 && several() && toggle && !onButton) {
+      const toggle = MAC ? e.metaKey : e.ctrlKey;
+      const rightClick = e.button === 2 || (MAC && e.button === 0 && e.ctrlKey); // Control-click on a Mac
+      if (!rightClick && several() && toggle && !onButton) {
         const next = new Set(sel);
         if (next.has(k)) next.delete(k);
         else next.add(k);
         anchor = k;
-        setSelection(next, next.has(k) ? k : null, false);
-      } else if (e.button === 0 && several() && e.shiftKey && !onButton) {
+        setSelection(next, next.has(k) ? k : nearestSelected(next, k), false);
+      } else if (!rightClick && several() && e.shiftKey && !onButton) {
         setSelection(range(k), k, false);
-      } else if (e.button !== 0 && sel.has(k)) {
+      } else if (rightClick && sel.has(k)) {
         // A right click on a selected file keeps the selection: its menu acts on all of them.
         setSelection(sel, k, false);
       } else {
@@ -1039,7 +1070,7 @@
       const all = (MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
       if (all && several()) {
         e.preventDefault();
-        setSelection(shown.map(f => keyOf(f.id)), selId ?? (shown[0] ? keyOf(shown[0].id) : null), false);
+        setSelection(shown.map(f => keyOf(f.id)), focusAmongShown(), false);
       } else if (e.key === "ArrowDown") to(i < 0 ? 0 : i + 1);
       else if (e.key === "ArrowUp") to(i < 0 ? shown.length - 1 : i - 1);
       else if (e.key === "Home") to(0);
@@ -1194,6 +1225,8 @@
       /** Changes options: title, place, subtitle, color, labels, columns, the on… functions, files. */
       update(changes = {}) {
         Object.assign(opt, changes);
+        // Turning off `multiple` keeps the file with the focus only.
+        if (!several() && sel.size > 1) setSelection(selId == null ? [] : [selId], selId, false);
         if (changes.sort && SORTABLE.has(changes.sort.key)) sort = { key: changes.sort.key, up: changes.sort.up !== false };
         if (Array.isArray(changes.files)) {
           if (renaming) held = changes.files.slice();
@@ -1204,7 +1237,7 @@
       /** Selects one file by id (null: none), or several: an array of ids (the first gets the focus). */
       select(fileId) {
         if (Array.isArray(fileId)) {
-          const keys = fileId.map(keyOf).filter(k => list.some(f => keyOf(f.id) === k));
+          const keys = fileId.map(keyOf).filter(k => list.some(f => keyOf(f.id) === k)).slice(0, several() ? undefined : 1);
           anchor = keys[0] ?? null;
           setSelection(keys, keys[0] ?? null);
         } else {
@@ -1214,7 +1247,9 @@
       /** Every selected file that is shown, top to bottom. */
       selection,
       /** Selects every file shown. */
-      selectAll() { setSelection(shown.map(f => keyOf(f.id)), selId ?? (shown[0] ? keyOf(shown[0].id) : null), false); },
+      selectAll() {
+        if (several()) setSelection(shown.map(f => keyOf(f.id)), focusAmongShown(), false);
+      },
       /** The selected file, or null. */
       selected() { return current(); },
       /** Opens the picker, then adds what was chosen (as "Add files…"). */

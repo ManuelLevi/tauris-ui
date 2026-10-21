@@ -399,3 +399,69 @@ fn the_event_handler_opens_no_window_itself() {
         }
     }
 }
+
+fn eventually(what: &str, ok: impl Fn() -> bool) {
+    for _ in 0..200 {
+        if ok() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("{what} did not happen within 2s");
+}
+
+// Inside the plugin's on_event the app's hook runs on the worker, a moment
+// later: a hook that opens a window there would freeze the app.
+#[test]
+fn inside_an_event_the_hook_runs_after_it() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let app = app(quiet().on_change(move |_, _| {
+        seen.fetch_add(1, Ordering::SeqCst);
+    }));
+    app.tabs().start().unwrap();
+    let before = calls.load(Ordering::SeqCst);
+    {
+        let _inside = windows::InEvent::enter();
+        windows::changed(app.handle(), "tabs-1");
+        assert_eq!(calls.load(Ordering::SeqCst), before, "the hook ran inside the event");
+    }
+    eventually("the hook after the event", || calls.load(Ordering::SeqCst) == before + 1);
+    windows::changed(app.handle(), "tabs-1");
+    assert_eq!(calls.load(Ordering::SeqCst), before + 2, "outside an event the hook runs at once");
+}
+
+// A job that panics does not stop the ones after it (⌘N, ⌘T, the Dock click).
+#[test]
+fn a_job_that_panics_does_not_stop_the_worker() {
+    let app = app(quiet());
+    let done = Arc::new(AtomicUsize::new(0));
+    windows::after_event(app.handle(), |_| panic!("a hook failed"));
+    let d = done.clone();
+    windows::after_event(app.handle(), move |_| {
+        d.fetch_add(1, Ordering::SeqCst);
+    });
+    eventually("the job after the panic", || done.load(Ordering::SeqCst) == 1);
+}
+
+// Each stylesheet has its second colour mode twice: for the system's setting
+// and for data-tauris-theme. The two copies must say the same thing.
+#[test]
+fn the_colour_modes_chosen_by_the_app_match_the_systems() {
+    for (name, css, mode, other) in [
+        ("tabs", include_str!("../web/tabs.css"), "light", "dark"),
+        ("tree", include_str!("../web/tree.css"), "light", "dark"),
+        ("files", include_str!("../web/files.css"), "dark", "light"),
+        ("menus", include_str!("../web/menus.css"), "dark", "light"),
+    ] {
+        let body = |start: &str| -> Vec<String> {
+            let from = css.find(start).unwrap_or_else(|| panic!("{name}: no {start}")) + start.len();
+            let to = from + css[from..].find('}').expect("the end of the block");
+            css[from..to].lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()
+        };
+        let system = body(&format!(":root:not([data-tauris-theme=\"{other}\"]) {{"));
+        let chosen = body(&format!(":root[data-tauris-theme=\"{mode}\"] {{"));
+        assert!(!system.is_empty(), "{name}: the {mode} block is empty");
+        assert_eq!(system, chosen, "{name}: the two {mode} blocks differ");
+    }
+}

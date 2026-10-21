@@ -73,8 +73,10 @@
     --tv-icon-lock: #9d9da8;
   }
 
+  /* The system's light mode, unless the app chose a mode with
+     data-tauris-theme on <html>; then the mode the app chose. */
   @media (prefers-color-scheme: light) {
-    :root {
+    :root:not([data-tauris-theme="dark"]) {
       --tv-bg: var(--tauris-bg, #ffffff);
       --tv-fg: var(--tauris-fg, #1d1d21);
       --tv-muted: var(--tauris-dim, #6f6f79);
@@ -110,6 +112,43 @@
       --tv-icon-package: #cc6a22;
       --tv-icon-lock: #7a7a83;
     }
+  }
+
+  :root[data-tauris-theme="light"] {
+    --tv-bg: var(--tauris-bg, #ffffff);
+    --tv-fg: var(--tauris-fg, #1d1d21);
+    --tv-muted: var(--tauris-dim, #6f6f79);
+    --tv-line: #9a9aa4;
+    --tv-box-border: #8b8b95;
+    --tv-box-fg: #2c2c32;
+    --tv-box-hover: var(--tauris-accent, #2f6bff);
+    --tv-hover-bg: var(--tauris-hover, #f0f2f6);
+    --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
+    --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
+    --tv-sel-line: rgb(255 255 255 / 0.6);
+    --tv-sel-inactive-bg: #e2e3e8;
+    --tv-focus: var(--tauris-accent, #2f6bff);
+    --tv-head-bg: var(--tauris-chrome, #f6f6f8);
+    --tv-head-fg: var(--tauris-dim, #5c5c66);
+    --tv-head-line: var(--tauris-line, #dadade);
+    --tv-grid: var(--tauris-line, #ececef);
+    --tv-group-bg: #f6f6f8;
+    --tv-edit-bg: var(--tauris-bg, #ffffff);
+    --tv-edit-fg: var(--tauris-fg, #111114);
+    --tv-check-bg: #ffffff;
+    --tv-check-border: #8b8b95;
+    --tv-check-on: var(--tauris-accent, #2f6bff);
+    --tv-swatch-line: rgb(0 0 0 / 0.22);
+    --tv-scroll-thumb: #c8c8cf;
+    --tv-icon-tint: 0.16;
+    --tv-icon-folder: #cf9620;
+    --tv-icon-file: #84848e;
+    --tv-icon-code: #2f6bff;
+    --tv-icon-doc: #677284;
+    --tv-icon-data: #7a52dc;
+    --tv-icon-image: #17985c;
+    --tv-icon-package: #cc6a22;
+    --tv-icon-lock: #7a7a83;
   }
 
   /* ---------- frame ---------- */

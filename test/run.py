@@ -180,6 +180,13 @@ with sync_playwright() as p:
     check("the tabs follow the shared --tauris-* colours and font", look == ["rgb(1, 2, 3)", "rgb(4, 5, 6)", "rgb(10, 11, 12)", "rgb(7, 8, 9)", "Georgia, serif"], look)
     page.close()
 
+    # --- the app chooses light or dark ---
+    page = fresh(browser, color_scheme="dark")
+    page.evaluate("document.documentElement.dataset.taurisTheme = 'light'")
+    strip = page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--tt-strip-bg').trim()")
+    check("system dark, app light (data-tauris-theme): the strip follows the app", strip == "#ececef", strip)
+    page.close()
+
     # --- right click on the empty strip ---
     page = fresh(browser)
     page.mouse.click(745, 20, button="right")

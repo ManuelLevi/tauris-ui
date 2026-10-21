@@ -67,8 +67,10 @@
     --tt-menu-danger: #ef4444;
   }
 
+  /* The system's light mode, unless the app chose a mode with
+     data-tauris-theme on <html>; then the mode the app chose. */
   @media (prefers-color-scheme: light) {
-    :root {
+    :root:not([data-tauris-theme="dark"]) {
       --tt-strip-bg: var(--tauris-chrome, #ececef);
       --tt-line: var(--tauris-line, #d4d4d9);
       --tt-fg: var(--tauris-dim, #5d5d66);
@@ -86,6 +88,25 @@
       --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
       --tt-menu-muted: #7a7a83;
     }
+  }
+
+  :root[data-tauris-theme="light"] {
+    --tt-strip-bg: var(--tauris-chrome, #ececef);
+    --tt-line: var(--tauris-line, #d4d4d9);
+    --tt-fg: var(--tauris-dim, #5d5d66);
+    --tt-fg-hover: #2a2a30;
+    --tt-fg-active: var(--tauris-fg, #111114);
+    --tt-hover-bg: var(--tauris-hover, #e1e1e6);
+    --tt-active-bg: var(--tauris-bg, #ffffff);
+    --tt-accent: var(--tauris-accent, #2f6bff);
+    --tt-separator: var(--tauris-line, #d0d0d6);
+    --tt-drag-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+    --tt-menu-bg: var(--tauris-bg, #ffffff);
+    --tt-menu-fg: var(--tauris-fg, #18181b);
+    --tt-menu-border: var(--tauris-line, #dcdce1);
+    --tt-menu-hover-bg: var(--tauris-hover, #ececf1);
+    --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
+    --tt-menu-muted: #7a7a83;
   }
 
   .tt-strip {

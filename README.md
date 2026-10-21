@@ -32,10 +32,27 @@ Set a few `--tauris-*` colours once, and the tabs, the tree, the files table and
   --tauris-sel-fg: #ffffff;
   --tauris-focus: rgb(38 117 191 / 0.32); /* focus rings */
 }
-@media (prefers-color-scheme: dark) { :root { --tauris-bg: #2f3234; /* and the others for dark */ } }
 ```
 
-Set them on `:root`. An app with its own light/dark switch sets them for each.
+Set them on `:root` (on another element they do not reach the components). Which component follows which:
+
+| Variable | Tabs | Tree | Files | Menus |
+|---|---|---|---|---|
+| `--tauris-font` | ✓ | ✓ | ✓ | ✓ |
+| `--tauris-bg`, `--tauris-fg`, `--tauris-line`, `--tauris-hover` | ✓ | ✓ | ✓ | ✓ |
+| `--tauris-chrome`, `--tauris-dim` | ✓ | ✓ | ✓ | ✓ (chrome) |
+| `--tauris-accent` | ✓ | ✓ (also its focus lines) | ✓ | |
+| `--tauris-sel-bg`, `--tauris-sel-fg` | | ✓ | ✓ | ✓ |
+| `--tauris-focus` | | | ✓ | ✓ |
+| `--tauris-mono`, `--tauris-accent-ink` | | | ✓ | |
+
+**Light and dark.** Every component follows the system's light or dark mode. An app with its own switch sets `data-tauris-theme="light"` or `"dark"` on `<html>`, and every component (all its colours, not only the ones above) follows the app instead:
+
+```js
+document.documentElement.dataset.taurisTheme = theme; // "light" or "dark"; remove it to follow the system again
+```
+
+Set the `--tauris-*` colours for each mode the same way: `:root[data-tauris-theme="dark"] { --tauris-bg: #2f3234; ... }`.
 
 ## Tabs
 
@@ -453,7 +470,7 @@ A place's shared files (a project's, a client's, a folder's) as a dense table:
 - **Add files…** opens the system's picker; files dropped on the window are added too, with a "Drop to add to …" ring round the list while they hover
 - a card with a segmented bar while files are being added, an empty state, and a "no match" line
 - renaming in place (the name without its extension selected), and a question before deleting
-- several files at once: ⌘-click, Shift-click, Shift+arrows and ⌘A select them; Enter opens them all, Delete deletes them all after one question
+- several files at once, with `multiple: true`: ⌘-click, Shift-click, Shift+arrows and ⌘A select them; Enter opens them all, Delete deletes them all after one question
 - light and dark mode
 
 Open `test/files_demo.html` in a browser to try it with the menus below.
@@ -563,9 +580,9 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 | `columns` | all | Any of `kind`, `name`, `size`, `added`, `by`, in order |
 | `sort` | `{ key: "name", up: true }` | The first order. A new column starts A to Z for names, biggest and newest first for sizes and dates |
 | `header`, `search` | `true` | The header row, and its search field (shown once there are files) |
-| `multiple` | `true` | ⌘-click (Ctrl-click) and Shift-click select several files |
+| `multiple` | `false` | ⌘-click (Ctrl-click) and Shift-click select several files. Turn it on when the app's own actions (a File › Delete) use `selection()` |
 | `dropArea` | `"window"` | Where a drop adds files: `"window"`, `"element"` (over the component only: use it when two are shown at once) or `"none"` |
-| `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function: its own question |
+| `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function: its own question. For several files at once it gets `(file, files)` only if it takes two parameters; otherwise the component asks "Delete 3 files?" itself |
 | `formatDate` | short | `(date, file) => text` for the Added column |
 | `pick` | the system's | `(title) => Promise<paths>` behind Add files… |
 | `labels` | English | Any word or sentence it shows (`web/files.d.ts` lists them), e.g. `{ add: "Ajouter…", dropHint: "Up to 50 MB per file" }` |
@@ -699,11 +716,11 @@ Types are in `web/terminal.d.ts`: copy it into a TypeScript app.
 
 ```
 cargo fmt --check && cargo clippy --all-targets && cargo test   # the model, the windows on Tauri's test runtime, saving, the command lists
-python test/run.py [shots-dir]             # the tabs page side: 104 checks in headless Chrome, nothing on screen
-python test/tree_run.py [shots-dir]        # the tree view: 129 checks, including the pixels of its lines and boxes
+python test/run.py [shots-dir]             # the tabs page side: 105 checks in headless Chrome, nothing on screen
+python test/tree_run.py [shots-dir]        # the tree view: 134 checks, including the pixels of its lines and boxes
 python test/terminal_run.py [shots-dir]    # the terminal: 95 checks, including its gaps and bars by pixel
-python test/files_run.py [shots-dir]       # the files component: 129 checks, with drops and the picker stood in for
-python test/menus_run.py [shots-dir]       # the menus: 84 checks, mouse and keyboard
+python test/files_run.py [shots-dir]       # the files component: 138 checks, with drops and the picker stood in for
+python test/menus_run.py [shots-dir]       # the menus: 88 checks, mouse and keyboard
 cargo clippy --all-targets --features files && cargo test --features files   # the Rust side of the files component
 cd examples/basic/src-tauri && cargo build
 ```
@@ -715,7 +732,7 @@ cd examples/basic/src-tauri && cargo build
 - The page tests run in Chrome. Tauri on macOS uses WebKit; the tabs suite has also been run in WebKit.
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
 - The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
-- A window opened from the plugin's event handler (the Dock click, ⌘N) freezes only the real event loop. `test/freeze_check` clicks the Dock and presses ⌘N in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here.
+- A window opened from the plugin's event handler (the Dock click, ⌘N, or an `on_change` hook while a window closes) freezes only the real event loop. `test/freeze_check` does all three in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. Inside those events the `on_change` hook runs a moment later, on a worker thread.
 - A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing

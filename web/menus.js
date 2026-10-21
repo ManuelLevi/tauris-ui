@@ -227,7 +227,7 @@
       const menu = build(list, label);
       host.append(menu);
       place(menu, where);
-      const lv = { menu, parent, row, child: null, timer: 0 };
+      const lv = { menu, parent, row, child: null, timer: 0, hover: null, opening: null };
       levels.push(lv);
       if (!handle.el) handle.el = menu;
 
@@ -240,8 +240,10 @@
         const focused = i >= 0 ? list[i] : null;
         // A space in the middle of typing a label is part of it, not a choice.
         const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < 700;
+        // Moving with the keys leaves a sub-menu opened by the mouse behind: it closes.
         const to = n => {
           e.preventDefault();
+          if (lv.child) closeSub(lv);
           if (list.length) go(lv, list[(n + list.length) % list.length]);
         };
         if (e.key === "ArrowDown") to(i + 1);
@@ -284,7 +286,10 @@
           const from = typed.length > 1 ? Math.max(i, 0) : i + 1;
           const order = list.slice(from).concat(list.slice(0, from));
           const hit = order.find(node => text(node).startsWith(typed));
-          if (hit) go(lv, hit);
+          if (hit) {
+            if (lv.child && lv.child.row !== hit) closeSub(lv);
+            go(lv, hit);
+          }
         }
       }, { signal });
 
@@ -303,8 +308,12 @@
         if (item === lv.hover) return;
         lv.hover = item;
         clearTimeout(lv.timer);
+        lv.opening = null;
         if (item && hasSub(item.__tmnItem) && !off(item)) {
-          if (lv.child?.row !== item) lv.timer = setTimeout(() => openSub(lv, item, "mouse"), 150);
+          if (lv.child?.row !== item) {
+            lv.opening = item;
+            lv.timer = setTimeout(() => openSub(lv, item, "mouse"), 150);
+          }
         } else if (lv.child) {
           lv.timer = setTimeout(() => closeSub(lv), 250);
         }
@@ -312,8 +321,12 @@
       menu.addEventListener("pointerenter", () => {
         if (parent) clearTimeout(parent.timer);
       }, { signal });
-      menu.addEventListener("pointerleave", () => {
+      // Leaving the menu drops what was about to happen, except a sub-menu about
+      // to open when the mouse leaves beside its item, on its way there.
+      menu.addEventListener("pointerleave", e => {
         lv.hover = null;
+        const r = lv.opening?.getBoundingClientRect();
+        if (!r || e.clientY < r.top - 4 || e.clientY > r.bottom + 4) clearTimeout(lv.timer);
         if (!lv.child) menu.focus({ preventScroll: true });
       }, { signal });
       menu.addEventListener("click", e => {

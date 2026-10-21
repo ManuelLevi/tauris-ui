@@ -89,6 +89,7 @@ window.uploadMs = 500;
 const files = TaurisFiles.mount(document.getElementById("files"), {
   title: "Northwind Launch",
   subtitle: "Documents",
+  multiple: true,
   color: "#2a78d6",
   files: store,
   labels: { dropHint: "Up to 50 MB per file", emptyText: "Shared files for this project live here: contracts, decks, plans, photos. Drop files anywhere on this window, or add them." },

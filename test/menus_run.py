@@ -344,6 +344,40 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.close()
 
+    # ---------- sub-menus: the edges a review found ----------
+    page = fresh(browser)
+    page.evaluate("""() => { demo.bar.setMenus([{ label: 'File', items: [{ label: 'New' },
+      { label: 'Open Recent', items: [{ label: 'Budget.xlsx' }] }, { label: 'Share', disabled: true, items: [{ label: 'Mail' }] },
+      { label: 'Quit' }] }]); return 0; }""")
+    page.click(title("File"))
+    page.hover(".tmn-item:has-text('Open Recent')")
+    page.wait_for_timeout(300)
+    page.keyboard.press("ArrowDown")
+    check("moving with the keys closes a sub-menu the mouse opened: one item lit",
+          page.locator(".tmn-menu").count() == 1 and page.locator('.tmn-item[aria-expanded="true"]').count() == 0)
+    page.keyboard.press("Escape")
+    page.click(title("File"))
+    item = page.locator(".tmn-item:has-text('Open Recent')").bounding_box()
+    page.mouse.move(item["x"] + 20, item["y"] + item["height"] / 2)
+    page.mouse.move(item["x"] + 20, item["y"] + 400, steps=2)
+    page.wait_for_timeout(300)
+    check("leaving the menu downwards drops a sub-menu that was about to open", page.locator(".tmn-menu").count() == 1)
+    page.mouse.move(item["x"] + 20, item["y"] + item["height"] / 2)
+    page.mouse.move(item["x"] + item["width"] + 30, item["y"] + item["height"] / 2, steps=2)
+    page.wait_for_timeout(300)
+    check("leaving it sideways, towards the sub-menu, still opens it", page.locator(".tmn-menu").count() == 2)
+    page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
+    page.click(title("File"))
+    page.locator(".tmn-item:has-text('Share')").focus()
+    page.keyboard.press("Enter")
+    enter_opens = page.locator(".tmn-menu").count()
+    page.locator(".tmn-item:has-text('Share')").focus()
+    page.keyboard.press("ArrowRight")
+    check("Enter or Right on a sub-menu item that is off opens no sub-menu",
+          enter_opens == 1 and page.locator(".tmn-menu[aria-label='Share']").count() == 0)
+    page.close()
+
     # ---------- onOpen and onClose (for a sound) ----------
     page = fresh(browser)
     page.evaluate("""() => { demo.bar.destroy(); window.ev = [];
