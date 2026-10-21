@@ -200,6 +200,7 @@
       child.menu.remove();
       levels.splice(levels.indexOf(child), 1);
       child.row.setAttribute("aria-expanded", "false");
+      child.row.removeAttribute("aria-controls");
       lv.child = null;
     }
 
@@ -212,6 +213,7 @@
       closeSub(lv);
       if (off(row)) return;
       const item = row.__tmnItem;
+      if (!listOf(item.items).length) return; // an empty sub-menu does not open
       const r = row.getBoundingClientRect();
       const child = level(listOf(item.items), item.label, { x: r.right - 3, y: r.top - 5, flipX: r.left + 3 }, how, lv, row);
       row.setAttribute("aria-expanded", "true");

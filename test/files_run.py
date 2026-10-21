@@ -432,6 +432,37 @@ with sync_playwright() as p:
     check("⌘A in the list never selects the page's text", page.evaluate("String(window.getSelection())") == "")
     page.close()
 
+    # ---------- a third review ----------
+    page = fresh(browser)
+    page.evaluate("""window.got = []; demo.files.update({ onOpen: async f => got.push(f.url), onSelect: (f, all) => { window.last = [f && f.url, all.map(x => x.url)]; } })""")
+    page.evaluate("demo.files.select([1, 2]); demo.files.setFiles(demo.store.map(f => ({ ...f, url: 'v2' })))")
+    page.focus(".tf-list")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(200)
+    check("new objects with the same look: every callback gets the new ones",
+          page.evaluate("got") == ["v2", "v2"] and page.evaluate("demo.files.selection().every(f => f.url === 'v2')"), page.evaluate("got"))
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("ControlOrMeta+ArrowDown")
+    page.keyboard.press("ControlOrMeta+ArrowDown")
+    page.keyboard.press("ControlOrMeta+Space")
+    names_now = page.evaluate("demo.files.selection().map(f => f.name)")
+    check("from the keyboard alone: ⌘↓ moves the focus without selecting, ⌘Space adds that file",
+          names_now == ["Brand assets.zip", "Contract — signed.pdf"], names_now)
+    ring = page.evaluate("getComputedStyle(document.querySelector('.tf-file.tf-focused .tf-cell')).boxShadow")
+    plain = page.evaluate("getComputedStyle(document.querySelector('.tf-file:not(.tf-focused)[aria-selected=\"true\"] .tf-cell')).boxShadow")
+    check("with several selected, the file with the focus has a ring the others do not", ring != "none" and plain == "none", (ring, plain))
+    page.keyboard.press("ControlOrMeta+ArrowUp")
+    ring2 = page.evaluate("getComputedStyle(document.querySelector('.tf-file.tf-focused .tf-cell')).boxShadow")
+    check("the focus on a file that is not selected shows the ring too", ring2 != "none" and page.get_attribute(".tf-file.tf-focused", "aria-selected") == "false")
+    page.keyboard.press("Delete")
+    check("the delete question is named by its text", page.evaluate(
+        "document.getElementById(document.querySelector('.tf-ask').getAttribute('aria-labelledby')).textContent") == page.inner_text(".tf-ask-text"))
+    page.keyboard.press("Escape")
+    page.focus(".tf-th.tf-c-name .tf-sort")
+    page.keyboard.press("ControlOrMeta+a")
+    check("⌘A on a column header does not select the page's text", page.evaluate("String(window.getSelection())") == "")
+    page.close()
+
     # ---------- the row's buttons, double-click, the row menu ----------
     page = fresh(browser)
     page.dblclick(".tf-file:nth-child(2) .tf-c-name")

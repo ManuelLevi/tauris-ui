@@ -63,6 +63,32 @@ mod mac {
         }
     }
 
+    // Every window must be gone first, or a slow close would pass for a reopen.
+    fn wait_closed(handle: &AppHandle, what: &str) {
+        for _ in 0..30 {
+            if handle.webview_windows().is_empty() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        eprintln!("STUCK: {what}: the windows did not close");
+        std::process::exit(1);
+    }
+
+    // A window that was not there before (the old ones closed, a new one opened).
+    fn wait_new(handle: &AppHandle, old: &[String], what: &str) {
+        for _ in 0..30 {
+            std::thread::sleep(Duration::from_millis(100));
+            let now: Vec<String> = handle.webview_windows().into_keys().collect();
+            if now.iter().all(|l| !old.contains(l)) && !now.is_empty() {
+                eprintln!("OK: {what}: {} new window(s)", now.len());
+                return;
+            }
+        }
+        eprintln!("STUCK: {what}: no new window 3s later");
+        std::process::exit(1);
+    }
+
     fn wait_for(handle: &AppHandle, n: usize, what: &str) {
         for _ in 0..30 {
             std::thread::sleep(Duration::from_millis(100));
@@ -111,7 +137,7 @@ mod mac {
                     for w in handle.webview_windows().into_values() {
                         let _ = w.destroy();
                     }
-                    std::thread::sleep(Duration::from_millis(800));
+                    wait_closed(&handle, "before the Dock click");
                     eprintln!("windows before reopen: {}", handle.webview_windows().len());
                     // From the run loop, as AppKit delivers a Dock click; not from inside one of tao's callbacks.
                     dispatch2::DispatchQueue::main().exec_async(reopen_like_a_dock_click);
@@ -121,11 +147,11 @@ mod mac {
                     wait_for(&handle, 2, "New Window (⌘N)");
                     std::thread::sleep(Duration::from_millis(500));
                     REOPEN_FROM_HOOK.store(true, std::sync::atomic::Ordering::SeqCst);
+                    let old: Vec<String> = handle.webview_windows().into_keys().collect();
                     for w in handle.webview_windows().into_values() {
                         let _ = w.destroy();
                     }
-                    std::thread::sleep(Duration::from_millis(300));
-                    wait_for(&handle, 1, "the app's hook opens a window when the last one closes");
+                    wait_new(&handle, &old, "the app's hook opens a window when the last one closes");
                     REOPEN_FROM_HOOK.store(false, std::sync::atomic::Ordering::SeqCst);
                     std::thread::sleep(Duration::from_millis(1000));
                     OPEN_AFTER_PLUS.store(true, std::sync::atomic::Ordering::SeqCst);

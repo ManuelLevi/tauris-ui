@@ -13,12 +13,14 @@ fn not_here(tab: u64, label: &str) -> String {
 
 #[tauri::command]
 pub fn window_state<R: Runtime>(window: WebviewWindow<R>) -> Result<WindowTabs, String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     Ok(windows::window_tabs(window.app_handle(), window.label()))
 }
 
 // The + button: the app's starting tab, at the end of this window's strip.
 #[tauri::command]
 pub fn new_tab<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>) -> Result<u64, String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     windows::add_tab(&app, window.label(), windows::default_tab(&app), false)
         .ok_or_else(|| format!("window {} is not a window of tabs", window.label()))
 }
@@ -31,12 +33,14 @@ pub fn open_tab<R: Runtime>(
     title: String,
     fields: Fields,
 ) -> Result<u64, String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     windows::add_tab(&app, window.label(), NewTab { title, fields }, true)
         .ok_or_else(|| format!("window {} is not a window of tabs", window.label()))
 }
 
 #[tauri::command]
 pub fn close_tab<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>, tab: u64) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     if !windows::owns(&app, window.label(), tab) {
         return Err(not_here(tab, window.label()));
     }
@@ -47,6 +51,7 @@ pub fn close_tab<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>, tab: u
 // The page shows the tab already; only the app is told.
 #[tauri::command]
 pub fn activate_tab<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>, tab: u64) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     if !windows::owns(&app, window.label(), tab) {
         return Err(not_here(tab, window.label()));
     }
@@ -56,6 +61,7 @@ pub fn activate_tab<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>, tab
 
 #[tauri::command]
 pub fn move_tab<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>, tab: u64, index: usize) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     if !windows::owns(&app, window.label(), tab) {
         return Err(not_here(tab, window.label()));
     }
@@ -72,6 +78,7 @@ pub fn update_tab<R: Runtime>(
     title: String,
     fields: Fields,
 ) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     if !windows::owns(&app, window.label(), tab) {
         return Err(not_here(tab, window.label()));
     }
@@ -82,6 +89,7 @@ pub fn update_tab<R: Runtime>(
 // The page tells where its tabs sit, so another window can drop a tab among them.
 #[tauri::command]
 pub fn report_strip<R: Runtime>(window: WebviewWindow<R>, height: f64, mids: Vec<f64>) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     let mut m = inner(window.app_handle()).model();
     if let Some(win) = m.win(window.label()) {
         win.strip = Strip { height, mids };
@@ -97,6 +105,7 @@ pub fn set_close_guard<R: Runtime>(
     on: bool,
     seq: u64,
 ) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     windows::set_guard(&app, window.label(), on, seq);
     Ok(())
 }
@@ -104,6 +113,7 @@ pub fn set_close_guard<R: Runtime>(
 // The page has seen a request to close its window and is asking its tabs.
 #[tauri::command]
 pub fn close_asked<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
     windows::close_asked(&app, window.label());
     Ok(())
 }

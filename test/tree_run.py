@@ -563,6 +563,29 @@ with sync_playwright() as p:
     check("and Down goes on from there", page.evaluate("st.selected().id") == "anna")
     page.close()
 
+    # ---------- a third review ----------
+    page = fresh(browser)
+    page.evaluate("(" + SORT_TREE + ")({})")
+    page.evaluate("sortHost.id = 'sortHost'; window.selEv = []; st.on('select', e => selEv.push(e.node && e.node.id)); 0")
+    page.evaluate("st.select('anna'); st.focus(); selEv.length = 0")
+    page.evaluate("const d = sortData(); d[0].children = d[0].children.filter(c => c.id !== 'anna'); st.setData(d)")
+    check("one selected row dropped by setData: the row now in its place takes the selection and the focus",
+          page.evaluate("st.selected().id") == "zoe" == active_key(page) and page.evaluate("selEv") == ["zoe"], (page.evaluate("selEv"), active_key(page)))
+    page.keyboard.press("ControlOrMeta+a")
+    check("⌘A in a tree without multiple does not select the page's text", page.evaluate("String(window.getSelection())") == "")
+    page.close()
+    page = fresh(browser)
+    page.evaluate("(" + SORT_TREE + ")({ multiple: true })")
+    page.evaluate("sortHost.id = 'sortHost'; st.select('b169'); st.focus()")
+    page.keyboard.press("ControlOrMeta+ArrowDown")
+    page.keyboard.press("ControlOrMeta+ArrowDown")
+    page.keyboard.press("ControlOrMeta+Space")
+    picked = page.evaluate("st.selection().map(n => n.id)")
+    check("tree, from the keyboard alone: ⌘↓ moves the focus, ⌘Space adds the row", picked == ["b169", "anna"] and active_key(page) == "anna", picked)
+    ring = page.evaluate("getComputedStyle(document.querySelector('#sortHost .tv-row:focus')).boxShadow")
+    check("with several selected, the row with the focus has a ring", ring != "none", ring)
+    page.close()
+
     # ---------- one look for every component ----------
     page = fresh(browser)
     page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")

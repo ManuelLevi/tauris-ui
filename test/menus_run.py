@@ -401,6 +401,20 @@ with sync_playwright() as p:
     check("leaving beside the item but away from the sub-menu's side does not open it", page.locator(".tmn-menu").count() == 1)
     page.close()
 
+    # ---------- sub-menus: a third review ----------
+    page = fresh(browser)
+    page.evaluate("""() => { demo.bar.setMenus([{ label: 'File', items: [{ label: 'Open Recent', items: [{ label: 'A' }] },
+      { label: 'Empty', items: [] }] }]); return 0; }""")
+    page.click(title("File"))
+    page.locator(".tmn-item:has-text('Open Recent')").focus()
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("ArrowLeft")
+    check("a closed sub-menu leaves no pointer to it", page.get_attribute(".tmn-item:has-text('Open Recent')", "aria-controls") is None)
+    page.locator(".tmn-item:has-text('Empty')").focus()
+    page.keyboard.press("ArrowRight")
+    check("an empty sub-menu does not open", page.locator(".tmn-menu").count() == 1)
+    page.close()
+
     # ---------- onOpen and onClose (for a sound) ----------
     page = fresh(browser)
     page.evaluate("""() => { demo.bar.destroy(); window.ev = [];

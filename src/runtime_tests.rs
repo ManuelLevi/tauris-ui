@@ -285,11 +285,10 @@ fn a_panicking_hook_is_called_again_next_time() {
             panic!("the app's hook failed once");
         }
     }));
-    // The hook runs on the worker: the panic is caught there, and the next change still reaches it.
     let handle = app.handle().clone();
+    let first = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| windows::changed(&handle, "x")));
+    assert!(first.is_err());
     windows::changed(&handle, "x");
-    windows::changed(&handle, "x");
-    windows::drain(&handle, std::time::Duration::from_secs(2));
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
@@ -389,20 +388,66 @@ fn the_file_pickers_find_the_dialog_plugin() {
 
 // Tauri runs the plugin's on_event while it holds its plugin lock, and opening
 // a window takes that lock: a window opened inside the handler freezes the app
-// (the Dock click, ⌘N). Only the real event loop shows the freeze, so this
-// checks the source: whatever can open a window runs through after_event.
+// (the Dock click, ⌘N). Only the real event loop shows the freeze (CI runs
+// test/freeze_check), so this checks the source: outside after_event(...), the
+// handler calls nothing that can open a window, and it marks the lock.
 #[test]
 fn the_event_handler_opens_no_window_itself() {
     let source = include_str!("lib.rs");
     let from = source.find(".on_event(|app, event|").expect("the plugin's on_event");
     let to = from + source[from..].find(".build()").expect("the end of on_event");
     let handler = &source[from..to];
-    let opens = ["new_tab()", "new_window()", "persist::restore(", "open_or_focus(", "create_window("];
-    let lines: Vec<&str> = handler.lines().collect();
-    for (i, line) in lines.iter().enumerate() {
-        if let Some(call) = opens.iter().find(|call| line.contains(*call)) {
-            let before = &lines[i.saturating_sub(2)..i];
-            assert!(before.iter().any(|l| l.contains("after_event(")), "{call} runs inside on_event: {line}");
+    assert!(handler.contains("InPlugin::enter()"), "on_event does not mark Tauri's lock");
+    assert!(handler.contains("RunEvent::Exit => exiting(app)"), "quitting does not wait for the hook");
+    // Everything inside after_event( ... ) runs later, on the worker: take it out.
+    let mut outside = String::new();
+    let mut rest = handler;
+    while let Some(at) = rest.find("after_event(") {
+        outside.push_str(&rest[..at]);
+        let mut depth = 0;
+        let mut end = rest.len();
+        for (i, c) in rest[at..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = at + i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        rest = &rest[end..];
+    }
+    outside.push_str(rest);
+    for call in [
+        "new_tab(",
+        "new_window(",
+        "new_window_with(",
+        ".open(",
+        "open_or_focus(",
+        "open_many(",
+        "open_in(",
+        "restore(",
+        "create_window(",
+        "open_window(",
+        "move_to_new_window(",
+    ] {
+        assert!(!outside.contains(call), "on_event calls {call} itself; send it through after_event");
+    }
+}
+
+// Every plain (not async) page command runs inside Tauri's plugin lock and must say so.
+#[test]
+fn every_plain_command_marks_the_lock() {
+    let source = include_str!("commands.rs");
+    for part in source.split("#[tauri::command]").skip(1) {
+        let name = part.split(" fn ").nth(1).and_then(|s| s.split(['<', '(']).next()).unwrap_or("?");
+        let body = &part[part.find('{').expect("a body")..];
+        if part.trim_start().starts_with("pub fn") {
+            assert!(body.contains("InPlugin::enter()"), "the command {name} does not mark Tauri's lock");
         }
     }
 }
@@ -417,9 +462,9 @@ fn eventually(what: &str, ok: impl Fn() -> bool) {
     panic!("{what} did not happen within 2s");
 }
 
-// The app's hook never runs where the change happened: that can be inside the
-// plugin's on_event or a page's command, where Tauri holds its plugin lock and
-// a hook that opened a window would freeze the app. It runs on the worker, in order.
+// Inside Tauri's plugin lock (the plugin's on_event, a page's plain command)
+// the hook runs a moment later, on the worker, in order: a hook that opened a
+// window there would freeze the app. Outside it, it runs at once, as before.
 #[test]
 fn the_hook_runs_after_the_change_in_order() {
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -435,15 +480,20 @@ fn the_hook_runs_after_the_change_in_order() {
     let held = gate.lock().unwrap();
     let g = gate.clone();
     windows::after_event(app.handle(), move |_| drop(g.lock()));
-    windows::changed(app.handle(), "tabs-1");
-    windows::changed(app.handle(), "tabs-2");
-    assert!(calls.lock().unwrap().is_empty(), "the hook ran where the change happened");
+    {
+        let _locked = windows::InPlugin::enter();
+        windows::changed(app.handle(), "tabs-1");
+        windows::changed(app.handle(), "tabs-2");
+    }
+    assert!(calls.lock().unwrap().is_empty(), "the hook ran inside Tauri's lock");
     drop(held);
     windows::drain(app.handle(), std::time::Duration::from_secs(2));
     assert_eq!(*calls.lock().unwrap(), ["tabs-1", "tabs-2"]);
+    windows::changed(app.handle(), "tabs-3");
+    assert_eq!(calls.lock().unwrap().len(), 3, "outside the lock the hook runs at once");
 }
 
-// Quitting waits (a moment at most) for the hook to hear the last changes.
+// Quitting waits (half a second at most) for the hook to hear the last changes.
 #[test]
 fn quitting_waits_for_the_last_hook_calls() {
     let app = app(quiet());
@@ -453,7 +503,7 @@ fn quitting_waits_for_the_last_hook_calls() {
         std::thread::sleep(std::time::Duration::from_millis(100));
         d.fetch_add(1, Ordering::SeqCst);
     });
-    windows::drain(app.handle(), std::time::Duration::from_secs(2));
+    crate::exiting(app.handle());
     assert_eq!(done.load(Ordering::SeqCst), 1);
 }
 
@@ -512,4 +562,24 @@ fn the_colour_modes_chosen_by_the_app_match_the_systems() {
         assert!(!system.is_empty(), "{name}: the {mode} block is empty");
         assert_eq!(system, chosen, "{name}: the two {mode} blocks differ");
     }
+}
+
+// Moving a tab to a new window whose opening panicked puts the tab back and
+// leaves no window record (later tabs would go into a window nobody sees).
+#[test]
+fn a_tab_moved_to_a_window_that_failed_to_open_comes_back() {
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let f = fail.clone();
+    let app = app(quiet().window(move |w| {
+        if f.load(Ordering::SeqCst) {
+            panic!("the app's window hook failed");
+        }
+        w
+    }));
+    app.tabs().start().unwrap();
+    let report = app.tabs().open(NewTab::new("Report")).unwrap();
+    fail.store(true, Ordering::SeqCst);
+    assert!(app.tabs().move_to_new_window(report).is_err());
+    assert_eq!(app.tabs().window_count(), 1);
+    assert_eq!(titles(&app), [["Home", "Report"]]);
 }

@@ -237,6 +237,7 @@
       const hadFocus = body.contains(document.activeElement);
       const hadKey = selectedKey;
       const hadPicked = picked.size;
+      const hadAt = selectedKey !== null ? index.get(selectedKey) : undefined;
       data = Array.isArray(list) ? list : [];
       nodes = new Map();
       parents = new Map();
@@ -265,7 +266,18 @@
       for (const node of pool.values()) node.remove();
       pool.clear();
       measure();
-      const moved = rebuild();
+      let moved = rebuild();
+      // The only selected row is gone: the row now in its place takes the
+      // selection and the focus, as in a file manager.
+      if (hadKey !== null && selectedKey === null && !picked.size && rows.length) {
+        const row = rows[Math.min(hadAt ?? 0, rows.length - 1)];
+        anchorKey = focusKey = row.key;
+        pick([row.key], row.key);
+        reveal(index.get(row.key));
+        render();
+        moved = true;
+        emitSelect();
+      }
       if (dropped && !moved) emitSelect();
       if (hadFocus) focusRow();
       requestAnimationFrame(checkHeight);
@@ -474,6 +486,7 @@
       if (row.kids) node.setAttribute("aria-expanded", String(row.open));
       else node.removeAttribute("aria-expanded");
       node.setAttribute("aria-selected", String(picked.has(row.key)));
+      node.classList.toggle("tv-many", picked.size > 1);
       node.tabIndex = row.key === focusKey ? 0 : -1;
     }
 
@@ -850,14 +863,43 @@
       if (e.target.closest(".tv-editor, .tv-picker")) return;
       const at = index.get(focusKey);
       if (at === undefined) return;
-      // ⌘A (Ctrl+A): every row shown.
-      if (opt.multiple && (MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a") {
+      const toggleKey = MAC ? e.metaKey : e.ctrlKey;
+      // ⌘A (Ctrl+A): every row shown; never the page's own Select All.
+      if (toggleKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        if (pick(rows.map(r => r.key), selectedKey ?? focusKey)) {
+        if (opt.multiple && pick(rows.map(r => r.key), selectedKey ?? focusKey)) {
           render();
           emitSelect();
         }
         return;
+      }
+      // ⌘ (Ctrl) with the arrows moves the focus alone; with Space it selects or unselects that row.
+      if (opt.multiple && toggleKey && !e.altKey && !e.shiftKey) {
+        const page = Math.max(1, Math.floor((scroller.clientHeight - headH) / rowH) - 1);
+        const moves = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1, PageDown: at + page, PageUp: at - page };
+        if (e.key in moves) {
+          e.preventDefault();
+          const row = rows[Math.max(0, Math.min(moves[e.key], rows.length - 1))];
+          focusKey = row.key;
+          reveal(index.get(row.key));
+          render();
+          focusRow();
+          return;
+        }
+        if (e.key === " ") {
+          e.preventDefault();
+          const keys = new Set(picked);
+          if (keys.has(focusKey)) keys.delete(focusKey);
+          else keys.add(focusKey);
+          anchorKey = focusKey;
+          let next = keys.has(focusKey) ? focusKey : selectedKey;
+          if (next !== null && !keys.has(next)) next = rows.find(r => keys.has(r.key))?.key ?? null;
+          if (pick(keys, next)) {
+            render();
+            emitSelect();
+          }
+          return;
+        }
       }
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       const row = rows[at];
@@ -1107,10 +1149,10 @@
         if (Array.isArray(id)) {
           // Several rows (with `multiple`): the first gets the focus. Their parents open.
           const keys = id.map(keyOf).filter(k => nodes.has(k));
-          const closed = [];
-          for (const k of keys) for (let q = parents.get(k); q !== null && q !== undefined; q = parents.get(q)) if (!expanded.has(q)) closed.push(q);
-          setOpen(closed, true);
           const list = opt.multiple ? keys : keys.slice(0, 1);
+          const closed = [];
+          for (const k of list) for (let q = parents.get(k); q !== null && q !== undefined; q = parents.get(q)) if (!expanded.has(q)) closed.push(q);
+          setOpen(closed, true);
           anchorKey = list[0] ?? null;
           if (list[0] !== undefined) focusKey = list[0];
           const changed = pick(list, list[0] ?? null);

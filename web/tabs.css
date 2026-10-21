@@ -10,6 +10,7 @@
  */
 @layer tauris-ui {
   :root {
+    --tt-scheme: dark;             /* scrollbars and native controls inside follow it */
     /* strip */
     --tt-strip-h: 40px;
     --tt-strip-bg: var(--tauris-chrome, #18181b);
@@ -28,7 +29,7 @@
     --tt-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif);
     --tt-font-size: 12px;
     --tt-fg: var(--tauris-dim, #9b9ba4);
-    --tt-fg-hover: #d6d6dc;
+    --tt-fg-hover: var(--tauris-fg, #d6d6dc);
     --tt-fg-active: var(--tauris-fg, #f4f4f6);
     --tt-tab-bg: transparent;
     --tt-hover-bg: var(--tauris-hover, #222226);
@@ -63,7 +64,7 @@
     --tt-menu-hover-bg: var(--tauris-hover, #34343a);
     --tt-menu-radius: 8px;
     --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
-    --tt-menu-muted: #8e8e97;
+    --tt-menu-muted: var(--tauris-dim, #8e8e97);
     --tt-menu-danger: #ef4444;
   }
 
@@ -71,10 +72,11 @@
      data-tauris-theme on <html>; then the mode the app chose. */
   @media (prefers-color-scheme: light) {
     :root:not([data-tauris-theme="dark"]) {
+      --tt-scheme: light;
       --tt-strip-bg: var(--tauris-chrome, #ececef);
       --tt-line: var(--tauris-line, #d4d4d9);
       --tt-fg: var(--tauris-dim, #5d5d66);
-      --tt-fg-hover: #2a2a30;
+      --tt-fg-hover: var(--tauris-fg, #2a2a30);
       --tt-fg-active: var(--tauris-fg, #111114);
       --tt-hover-bg: var(--tauris-hover, #e1e1e6);
       --tt-active-bg: var(--tauris-bg, #ffffff);
@@ -86,15 +88,16 @@
       --tt-menu-border: var(--tauris-line, #dcdce1);
       --tt-menu-hover-bg: var(--tauris-hover, #ececf1);
       --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
-      --tt-menu-muted: #7a7a83;
+      --tt-menu-muted: var(--tauris-dim, #7a7a83);
     }
   }
 
   :root[data-tauris-theme="light"] {
+    --tt-scheme: light;
     --tt-strip-bg: var(--tauris-chrome, #ececef);
     --tt-line: var(--tauris-line, #d4d4d9);
     --tt-fg: var(--tauris-dim, #5d5d66);
-    --tt-fg-hover: #2a2a30;
+    --tt-fg-hover: var(--tauris-fg, #2a2a30);
     --tt-fg-active: var(--tauris-fg, #111114);
     --tt-hover-bg: var(--tauris-hover, #e1e1e6);
     --tt-active-bg: var(--tauris-bg, #ffffff);
@@ -106,10 +109,11 @@
     --tt-menu-border: var(--tauris-line, #dcdce1);
     --tt-menu-hover-bg: var(--tauris-hover, #ececf1);
     --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
-    --tt-menu-muted: #7a7a83;
+    --tt-menu-muted: var(--tauris-dim, #7a7a83);
   }
 
   .tt-strip {
+    color-scheme: var(--tt-scheme);
     position: fixed;
     inset: 0 0 auto 0;
     z-index: 1000;

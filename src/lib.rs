@@ -142,6 +142,7 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
         })
         // While this runs, Tauri holds its plugin lock: see windows::after_event.
         .on_event(|app, event| {
+            let _locked = windows::InPlugin::enter();
             match event {
                 RunEvent::WindowEvent { label, event, .. } => match event {
                     WindowEvent::Focused(true) => windows::bring_to_front(app, label),
@@ -173,11 +174,7 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
                 },
                 // Quitting (⌘Q sends only Exit): save what is open now, not a moment later.
                 RunEvent::ExitRequested { .. } => persist::save(app, true),
-                // The app's hook still hears the last changes (a moment at most).
-                RunEvent::Exit => {
-                    windows::drain(app, std::time::Duration::from_millis(500));
-                    persist::save(app, true);
-                }
+                RunEvent::Exit => exiting(app),
                 // The dock icon was clicked with no window open: the remembered ones
                 // come back (only in an app that uses tabs, i.e. called start()).
                 #[cfg(target_os = "macos")]
@@ -195,6 +192,13 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
 }
 
 use windows::after_event;
+
+// Quitting: the app's hook still hears the last changes (half a second at most;
+// it cannot open windows now), then the layout is saved.
+pub(crate) fn exiting<R: Runtime>(app: &AppHandle<R>) {
+    windows::drain(app, std::time::Duration::from_millis(500));
+    persist::save(app, true);
+}
 
 /// What an app does with its tabs from Rust. Get it with `app.tabs()`.
 pub struct Tabs<R: Runtime>(AppHandle<R>);

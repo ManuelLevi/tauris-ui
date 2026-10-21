@@ -49,7 +49,7 @@ Set them on `:root` (on another element they do not reach the components). Which
 | `--tauris-focus` | | | ✓ | ✓ |
 | `--tauris-mono`, `--tauris-accent-ink` | | | ✓ | |
 
-**Light and dark.** Every component follows the system's light or dark mode. An app with its own switch sets `data-tauris-theme="light"` or `"dark"` on `<html>`, and every component (all its colours, not only the ones above) follows the app instead:
+**Light and dark.** Every component follows the system's light or dark mode. An app with its own switch, or one that is always light or always dark, sets `data-tauris-theme="light"` or `"dark"` on `<html>`, and every component (all its colours, its scrollbars and checkboxes, not only the ones above) follows the app instead:
 
 ```js
 document.documentElement.dataset.taurisTheme = theme; // "light" or "dark"; remove it to follow the system again
@@ -438,7 +438,7 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 | `styles` | `true` | Add the stylesheet |
 
 **Keyboard** (as in Windows and Qt):
-- Up and Down move. With `multiple`, Shift extends the selection and ⌘A selects every row shown.
+- Up and Down move. With `multiple`, Shift extends the selection, ⌘A selects every row shown, ⌘ (Ctrl) with the arrows moves the focus alone and ⌘Space adds or takes out that row.
 - Right opens a row, or goes to its first child.
 - Left closes a row, or goes to its parent.
 - Home, End, PageUp and PageDown jump.
@@ -600,7 +600,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 
 **Methods:** `setFiles(files)`, `update(options)`, `select(id)` (an array selects several), `selected()`, `selection()`, `selectAll()`, `add()` (as Add files…, for a File menu), `addPaths(paths)`, `open(id)`, `rename(id)`, `remove(id)`, `search(text)`, `dragDrop(event)` (to feed drag-and-drop events yourself), `busy(text)`, `message(text, kind)`, `focus()`, `focusSearch()`, `destroy()`. Helpers: `TaurisFiles.kindOf(file)`, `TaurisFiles.formatSize(bytes)`.
 
-**Keyboard:** Up, Down, Home, End, PageUp and PageDown move (with `multiple: true`, Shift selects along the way and ⌘A selects every file); a letter jumps to the next name starting with it; Enter opens; F2 renames (Enter saves, Escape cancels); Delete or ⌘⌫ deletes after the question; Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
+**Keyboard:** Up, Down, Home, End, PageUp and PageDown move (with `multiple: true`, Shift selects along the way, ⌘A selects every file, ⌘ (Ctrl) with the arrows moves the focus alone and ⌘Space adds or takes out that file); a letter jumps to the next name starting with it; Enter opens; F2 renames (Enter saves, Escape cancels); Delete or ⌘⌫ deletes after the question; Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
 
 Types are in `web/files.d.ts`: copy it into a TypeScript app.
 
@@ -720,10 +720,10 @@ Types are in `web/terminal.d.ts`: copy it into a TypeScript app.
 ```
 cargo fmt --check && cargo clippy --all-targets && cargo test   # the model, the windows on Tauri's test runtime, saving, the command lists
 python test/run.py [shots-dir]             # the tabs page side: 105 checks in headless Chrome, nothing on screen
-python test/tree_run.py [shots-dir]        # the tree view: 136 checks, including the pixels of its lines and boxes
+python test/tree_run.py [shots-dir]        # the tree view: 140 checks, including the pixels of its lines and boxes
 python test/terminal_run.py [shots-dir]    # the terminal: 95 checks, including its gaps and bars by pixel
-python test/files_run.py [shots-dir]       # the files component: 140 checks, with drops and the picker stood in for
-python test/menus_run.py [shots-dir]       # the menus: 91 checks, mouse and keyboard
+python test/files_run.py [shots-dir]       # the files component: 146 checks, with drops and the picker stood in for
+python test/menus_run.py [shots-dir]       # the menus: 93 checks, mouse and keyboard
 cargo clippy --all-targets --features files && cargo test --features files   # the Rust side of the files component
 cd examples/basic/src-tauri && cargo build
 ```
@@ -735,7 +735,7 @@ cd examples/basic/src-tauri && cargo build
 - The page tests run in Chrome. Tauri on macOS uses WebKit; the tabs suite has also been run in WebKit.
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
 - The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
-- A window opened from the plugin's event handler (the Dock click, ⌘N, or an `on_change` hook while a window closes) freezes only the real event loop. `test/freeze_check` does all three in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. The `on_change` hook runs a moment after each change, on a worker thread, so it may open windows; a quitting app waits for it (half a second at most).
+- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once; one made inside that lock reaches it a moment later on a worker thread, so the hook may open windows. A quitting app waits for it (half a second at most; it cannot open windows then).
 - A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing

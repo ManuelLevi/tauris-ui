@@ -76,8 +76,9 @@ pub fn mime_for(name: &str) -> &'static str {
 }
 
 /// A file name that is safe to create on disk, on every system: no folders,
-/// no characters Windows refuses, no control characters, no leading dot, at
-/// most 200 characters (the extension is kept). Empty becomes "file".
+/// no characters Windows refuses, none of Windows' device names (CON, NUL,
+/// COM1…, which get a "_" in front), no control characters, no leading dot,
+/// at most 200 characters (the extension is kept). Empty becomes "file".
 pub fn safe_name(name: &str) -> String {
     let swapped: String =
         name.chars()
@@ -93,6 +94,14 @@ pub fn safe_name(name: &str) -> String {
     if trimmed.is_empty() {
         return "file".into();
     }
+    // Windows keeps these names for devices, with any extension ("con.txt" too).
+    let stem = trimmed.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit()
+            && stem.as_bytes()[3] != b'0');
+    let trimmed = if device { format!("_{trimmed}") } else { trimmed };
     if trimmed.chars().count() <= 200 {
         return trimmed;
     }
@@ -352,6 +361,11 @@ mod tests {
         assert_eq!(safe_name("..."), "file");
         assert_eq!(safe_name("report. "), "report");
         assert_eq!(safe_name("Ação — plan €480.pdf"), "Ação — plan €480.pdf");
+        assert_eq!(safe_name("CON.txt"), "_CON.txt");
+        assert_eq!(safe_name("nul"), "_nul");
+        assert_eq!(safe_name("com1.log"), "_com1.log");
+        assert_eq!(safe_name("console.txt"), "console.txt");
+        assert_eq!(safe_name("COM0.txt"), "COM0.txt");
         let long = format!("{}.pdf", "x".repeat(300));
         let cut = safe_name(&long);
         assert_eq!(cut.chars().count(), 200);

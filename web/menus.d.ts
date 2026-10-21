@@ -20,7 +20,7 @@ declare global {
   }
 
   /** An item, "-" for a line between groups; null and false are skipped. */
-  type TaurisMenuItem = TaurisMenuItemOptions | "-" | null | false | undefined;
+  type TaurisMenuItem = TaurisMenuItemOptions | "-" | { separator: true } | null | false | undefined;
   /** The items, or a function that makes them each time the menu opens. */
   type TaurisMenuItems = TaurisMenuItem[] | (() => TaurisMenuItem[]);
 

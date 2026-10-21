@@ -8,6 +8,19 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.11 — 2026-10-21
+
+Fixes from a third review:
+- `on_change` runs at once again when the app's own code makes the change, as up to 0.4.9. Only a change made inside Tauri's plugin lock (the plugin's own events, the page's commands) reaches it a moment later on the worker, where a hook that opened a window would freeze the app.
+- A window whose opening panicked (the app's window hook) leaves no record on every path: a new window, a tab moved to a new window, a tab dragged out, restored windows.
+- Files: when the app hands new objects that look the same, every callback gets the new ones.
+- Files and tree: with `multiple`, ⌘ (Ctrl) with the arrows moves the focus alone and ⌘Space adds or takes out that item, so any selection can be made from the keyboard. The item with the focus has a thin ring when several are selected or when it is not selected. ⌘A never selects the page's text.
+- Tree: when `setData` drops the only selected row, the row now in its place takes the selection and the focus. `select([ids])` without `multiple` opens only the first row's parents.
+- More colours follow the shared `--tauris-*` colours (the tree's lines, boxes, group rows and checkboxes, the menus' disabled items), and each component tells the browser its light or dark mode, so its scrollbars and checkboxes match. An app that is always light or always dark sets `data-tauris-theme`.
+- The delete question is named by its text for screen readers. A closed sub-menu leaves no `aria-controls` behind; an empty sub-menu does not open.
+- `safe_name` puts "_" in front of Windows' device names (CON, NUL, COM1…).
+- `test/freeze_check` waits for windows to close before each reopen and checks the window is new.
+
 ## 0.4.10 — 2026-10-21
 
 Fixes from a second review:

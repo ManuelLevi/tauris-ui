@@ -18,17 +18,18 @@
  */
 @layer tauris-ui {
   :root {
+    --tmn-scheme: light;             /* scrollbars and native controls inside follow it */
     --tmn-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
     --tmn-font-size: 13px;
     --tmn-fg: var(--tauris-fg, #1e1f22);
-    --tmn-disabled: #a3a6ad;
+    --tmn-disabled: var(--tauris-dim, #a3a6ad);
     --tmn-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));
     /* the bar */
     --tmn-bar-h: 24px;
     --tmn-bar-bg: var(--tauris-chrome, #f2f2f3);
     --tmn-bar-line: var(--tauris-line, #d3d5da);
     --tmn-title-pad: 9px;
-    --tmn-title-open-bg: #dbe6f4;     /* the title under the mouse or with its menu open */
+    --tmn-title-open-bg: var(--tauris-hover, #dbe6f4);     /* the title under the mouse or with its menu open */
     /* a menu */
     --tmn-menu-min-w: 220px;
     --tmn-menu-bg: var(--tauris-bg, #ffffff);
@@ -50,19 +51,20 @@
     --tmn-tool-font-size: 12px;
     --tmn-tool-hover-bg: var(--tauris-hover, #e6e8ec);
     --tmn-tool-border: var(--tauris-line, #c4c6cc);
-    --tmn-tool-on-bg: #dbe6f4;        /* pressed, or with its menu open */
+    --tmn-tool-on-bg: var(--tauris-hover, #dbe6f4);        /* pressed, or with its menu open */
   }
 
   /* The system's dark mode, unless the app chose a mode with
      data-tauris-theme on <html>; then the mode the app chose. */
   @media (prefers-color-scheme: dark) {
     :root:not([data-tauris-theme="light"]) {
+      --tmn-scheme: dark;
       --tmn-fg: var(--tauris-fg, #dfe1e5);
-      --tmn-disabled: #6f737a;
+      --tmn-disabled: var(--tauris-dim, #6f737a);
       --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
       --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
       --tmn-bar-line: var(--tauris-line, #515356);
-      --tmn-title-open-bg: #4b6eaf;
+      --tmn-title-open-bg: var(--tauris-hover, #4b6eaf);
       --tmn-menu-bg: var(--tauris-bg, #2f3234);
       --tmn-menu-border: var(--tauris-line, #6b6e73);
       --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
@@ -71,17 +73,18 @@
       --tmn-sep: var(--tauris-line, #515356);
       --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
       --tmn-tool-border: var(--tauris-line, #5e6165);
-      --tmn-tool-on-bg: #4b6eaf;
+      --tmn-tool-on-bg: var(--tauris-hover, #4b6eaf);
     }
   }
 
   :root[data-tauris-theme="dark"] {
+    --tmn-scheme: dark;
     --tmn-fg: var(--tauris-fg, #dfe1e5);
-    --tmn-disabled: #6f737a;
+    --tmn-disabled: var(--tauris-dim, #6f737a);
     --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
     --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
     --tmn-bar-line: var(--tauris-line, #515356);
-    --tmn-title-open-bg: #4b6eaf;
+    --tmn-title-open-bg: var(--tauris-hover, #4b6eaf);
     --tmn-menu-bg: var(--tauris-bg, #2f3234);
     --tmn-menu-border: var(--tauris-line, #6b6e73);
     --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
@@ -90,12 +93,13 @@
     --tmn-sep: var(--tauris-line, #515356);
     --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
     --tmn-tool-border: var(--tauris-line, #5e6165);
-    --tmn-tool-on-bg: #4b6eaf;
+    --tmn-tool-on-bg: var(--tauris-hover, #4b6eaf);
   }
 
   /* ---------- the bar ---------- */
 
   .tmn-bar {
+    color-scheme: var(--tmn-scheme);
     display: flex;
     align-items: stretch;
     box-sizing: border-box;
@@ -126,6 +130,7 @@
   /* ---------- a menu ---------- */
 
   .tmn-menu {
+    color-scheme: var(--tmn-scheme);
     position: fixed;
     z-index: 2147483000;
     box-sizing: border-box;
@@ -245,6 +250,7 @@
   }
 
   .tmn-toolbar {
+    color-scheme: var(--tmn-scheme);
     display: flex;
     align-items: center;
     gap: 2px;

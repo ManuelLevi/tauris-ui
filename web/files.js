@@ -360,7 +360,7 @@
     const askText = el("div", "tf-ask-text", { id: `${id}-ask` });
     const askNo = el("span", "tf-btn", { role: "button", tabindex: "0" });
     const askYes = el("span", "tf-btn tf-danger", { role: "button", tabindex: "0" });
-    const askCard = el("div", "tf-ask", { role: "alertdialog", "aria-describedby": `${id}-ask` },
+    const askCard = el("div", "tf-ask", { role: "alertdialog", "aria-labelledby": `${id}-ask` },
       askText, el("div", "tf-ask-acts", {}, askNo, askYes));
     const veil = el("div", "tf-veil", { hidden: "" }, askCard);
     pressable(askYes, () => asking?.finish(true));
@@ -566,15 +566,17 @@
     // The selected files that are shown, top to bottom (a search hides the others,
     // and nothing hidden is ever opened or deleted).
     function selection() {
-      return shown.filter(f => sel.has(keyOf(f.id)));
+      return shown.filter(f => sel.has(keyOf(f.id))).map(f => fileById(keyOf(f.id)) ?? f);
     }
 
     function paintSelection(scroll) {
       let active = null;
       for (const [key, row] of rows) {
         row.setAttribute("aria-selected", sel.has(key) ? "true" : "false");
+        row.classList.toggle("tf-focused", key === selId);
         if (key === selId) active = row;
       }
+      grid.classList.toggle("tf-many", sel.size > 1);
       if (active) {
         grid.setAttribute("aria-activedescendant", active.id);
         if (scroll) active.scrollIntoView({ block: "nearest" });
@@ -1061,16 +1063,20 @@
     let typed = "";
     let typedAt = 0;
     grid.addEventListener("keydown", e => {
+      const selectAll = (MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
+      if (selectAll && e.target !== grid && !(e.target instanceof HTMLInputElement)) e.preventDefault();
       if (e.target !== grid || e.isComposing || asking) return;
       const file = current();
       const i = file ? shown.indexOf(file) : -1;
       const page = Math.max(1, Math.floor(grid.clientHeight / (rows.values().next().value?.offsetHeight || 25)) - 1);
       // Shift extends the selection from the anchor, as in a file manager.
+      const toggleKey = MAC ? e.metaKey : e.ctrlKey;
       const to = n => {
         e.preventDefault();
         if (!shown.length) return;
         const k = keyOf(shown[Math.max(0, Math.min(shown.length - 1, n))].id);
         if (e.shiftKey && several()) setSelection(range(k), k);
+        else if (toggleKey && several()) setSelection(sel, k); // the focus moves; the selection stays
         else select(k);
       };
       const all = (MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
@@ -1078,6 +1084,14 @@
         // Inside the list ⌘A is never the page's own Select All.
         e.preventDefault();
         if (several()) setSelection(shown.map(f => keyOf(f.id)), focusAmongShown(), false);
+      } else if (e.key === " " && toggleKey && several() && selId != null) {
+        // Selects or unselects the file with the focus, keeping the others.
+        e.preventDefault();
+        const next = new Set(sel);
+        if (next.has(selId)) next.delete(selId);
+        else next.add(selId);
+        anchor = selId;
+        setSelection(next, selId);
       } else if (e.key === "ArrowDown") to(i < 0 ? 0 : i + 1);
       else if (e.key === "ArrowUp") to(i < 0 ? shown.length - 1 : i - 1);
       else if (e.key === "Home") to(0);
@@ -1225,7 +1239,9 @@
         }
         const same = signature(next) === drawn;
         list = next;
-        if (!same) draw();
+        // Nothing shown changed, but the objects are new: callbacks get the new ones.
+        if (same) shown = shown.map(f => fileById(keyOf(f.id)) ?? f);
+        else draw();
       },
       /** The files as the component has them now. */
       files() { return list.slice(); },

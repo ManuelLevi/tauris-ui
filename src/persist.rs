@@ -90,18 +90,12 @@ pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
         };
         // A window remembered on a screen no longer attached opens centred.
         let frame = w.frame.filter(|f| on_screen(app, f));
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| open_window(app, &label, frame, i + 1 == count)))
-        {
-            Ok(Ok(_)) => {
+        match open_window(app, &label, frame, i + 1 == count) {
+            Ok(_) => {
                 opened += 1;
                 crate::windows::changed(app, &label);
             }
-            Ok(Err(_)) => inner(app).model().remove_win(&label),
-            // The app's window hook panicked: no window, so no record of one.
-            Err(panic) => {
-                inner(app).model().remove_win(&label);
-                std::panic::resume_unwind(panic);
-            }
+            Err(_) => inner(app).model().remove_win(&label),
         }
     }
     opened > 0

@@ -100,6 +100,9 @@ pub(crate) fn all_windows<R: Runtime>(app: &AppHandle<R>) -> Vec<WindowTabs> {
 thread_local! {
     // Set while the app's change hook runs, so changes it makes do not call it again.
     static IN_HOOK: Cell<bool> = const { Cell::new(false) };
+    // Set while Tauri holds its plugin lock on this thread: the plugin's
+    // on_event, and its plain (not async) page commands.
+    static IN_PLUGIN: Cell<bool> = const { Cell::new(false) };
 
 }
 
@@ -141,6 +144,22 @@ pub(crate) fn after_event<R: Runtime>(app: &AppHandle<R>, job: impl FnOnce(&AppH
     state.pending.fetch_sub(1, Ordering::SeqCst);
 }
 
+// Marks this thread as running inside Tauri's plugin lock, until dropped.
+pub(crate) struct InPlugin(bool);
+
+impl InPlugin {
+    pub(crate) fn enter() -> Self {
+        InPlugin(IN_PLUGIN.with(|p| p.replace(true)))
+    }
+}
+
+impl Drop for InPlugin {
+    fn drop(&mut self) {
+        let was = self.0;
+        IN_PLUGIN.with(|p| p.set(was));
+    }
+}
+
 // Waits, at most `limit`, for the worker to finish what it was given: the app
 // is quitting, and its hook should still hear the last changes.
 pub(crate) fn drain<R: Runtime>(app: &AppHandle<R>, limit: std::time::Duration) {
@@ -150,17 +169,22 @@ pub(crate) fn drain<R: Runtime>(app: &AppHandle<R>, limit: std::time::Duration) 
     }
 }
 
-// Tells the app (its on_change hook) that window `label` changed. The hook
-// runs a moment later, on the worker, in order: a change can come from inside
-// the plugin's on_event or a page's command, where a hook that opened a window
-// would freeze the app (see after_event). Changes the hook itself makes do not
-// call it again.
+// Tells the app (its on_change hook) that window `label` changed. A change
+// the app makes itself reaches the hook at once, as it always did. One made
+// inside Tauri's plugin lock (the plugin's on_event, a page's plain command)
+// reaches it a moment later, on the worker, in order: there a hook that opened
+// a window would freeze the app (see after_event). Changes the hook itself
+// makes do not call it again.
 pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if inner(app).config.on_change.is_none() || IN_HOOK.with(|h| h.get()) {
         return;
     }
-    let label = label.to_string();
-    after_event(app, move |app| run_hook(app, &label));
+    if IN_PLUGIN.with(|p| p.get()) {
+        let label = label.to_string();
+        after_event(app, move |app| run_hook(app, &label));
+    } else {
+        run_hook(app, label);
+    }
 }
 
 fn run_hook<R: Runtime>(app: &AppHandle<R>, label: &str) {
@@ -204,8 +228,25 @@ fn log_layout<R: Runtime>(app: &AppHandle<R>) {
     eprintln!("tauris-ui layout: {}", windows.join("  "));
 }
 
-// `frame`: where to put it; the default size, centred, when None.
+// `frame`: where to put it; the default size, centred, when None. A panic in
+// the app's window hook comes back as an error, so every caller takes back
+// the window it recorded (no tabs go into a window nobody sees).
 pub(crate) fn open_window<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+    frame: Option<Frame>,
+    focused: bool,
+) -> tauri::Result<WebviewWindow<R>> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_window(app, label, frame, focused))).unwrap_or_else(
+        |_| {
+            Err(tauri::Error::Io(std::io::Error::other(format!(
+                "window {label} did not open: the app's window hook panicked"
+            ))))
+        },
+    )
+}
+
+fn build_window<R: Runtime>(
     app: &AppHandle<R>,
     label: &str,
     frame: Option<Frame>,
@@ -253,17 +294,9 @@ pub(crate) fn create_window<R: Runtime>(
         let ids: Vec<u64> = tabs.into_iter().map(|t| m.create_tab(t)).collect();
         (m.create_win(ids.clone()), ids)
     };
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| open_window(app, &label, frame, focused))) {
-        Ok(Ok(_)) => {}
-        Ok(Err(e)) => {
-            state.model().remove_win(&label);
-            return Err(e);
-        }
-        // The app's window hook panicked: no window, so no record of one.
-        Err(panic) => {
-            state.model().remove_win(&label);
-            std::panic::resume_unwind(panic);
-        }
+    if let Err(e) = open_window(app, &label, frame, focused) {
+        state.model().remove_win(&label);
+        return Err(e);
     }
     changed(app, &label);
     Ok((label, ids))
