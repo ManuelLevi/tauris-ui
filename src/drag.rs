@@ -44,6 +44,8 @@ pub(crate) fn start<R: Runtime>(
         return Ok(());
     }
     let alone = m.win(&source).map(|w| w.tabs.len() <= 1).unwrap_or(true);
+    let at = m.win(&source).and_then(|w| w.tabs.iter().position(|t| *t == tab)).unwrap_or(usize::MAX);
+    let active = m.win(&source).and_then(|w| w.active);
     let moving = if alone {
         source.clone()
     } else {
@@ -64,7 +66,7 @@ pub(crate) fn start<R: Runtime>(
             m.drag = None;
             m.detach(&moving, tab);
             m.wins.retain(|w| w.label != moving);
-            m.attach(&source, tab, usize::MAX);
+            m.put_back(&source, tab, at, active);
             drop(m);
             notify(app, &source);
             return Err(e.to_string());
@@ -172,6 +174,8 @@ fn follow_mouse<R: Runtime>(app: AppHandle<R>) {
 fn finish<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>, tab: u64, hover: Option<(String, usize)>) {
     let mut m = inner(app).model();
     m.drag = None;
+    // A target window that closed while the tab was over it: no drop.
+    let hover = hover.filter(|(target, _)| m.win(target).is_some());
     let Some((target, index)) = hover else {
         drop(m);
         set_alpha(window, 1.0);

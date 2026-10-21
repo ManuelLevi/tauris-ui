@@ -21,6 +21,48 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 def read(path):
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def code(text, quotes):
+    """The text without its comments, so a commented-out line counts as absent."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c in quotes:
+            j = i + 1
+            while j < n and text[j] != c:
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def own_picker(text):
+    """Whether a TaurisFiles.mount call is given a pick option (in its own
+    braces, or in the variable it is given)."""
+    for m in re.finditer(r"TaurisFiles\.mount\(", text):
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            i += 1
+        args = text[m.end():i - 1]
+        if re.search(r"\bpick\s*[:(,}]", args):
+            return True
+        given = re.search(r",\s*([A-Za-z_$][\w$]*)\s*$", args)
+        if given and re.search(rf"\b{re.escape(given.group(1))}\b[^;]*?\bpick\s*[:(]", text, re.S):
+            return True
+    return False
+
+
 problems = []
 notes = []
 
@@ -164,9 +206,9 @@ def main():
     # view lives in the page and only needs the plugin to deliver it.
     conf = json.loads((tauri / "tauri.conf.json").read_text(encoding="utf-8"))
     app = conf.get("app", {})
-    rust = "\n".join(read(p) for p in (tauri / "src").rglob("*.rs"))
+    rust = "\n".join(code(read(p), '"') for p in (tauri / "src").rglob("*.rs"))
     files = page_files(tauri, conf)
-    text = "\n".join(read(p) for p in files)
+    text = "\n".join(code(read(p), "\"'`") for p in files)
     uses_tabs = "TaurisTabs" in text or bool(re.search(r"\.tabs\(\)", rust))
     uses_tree = "TaurisTree" in text
     uses_terminal = "TaurisTerminal" in text
@@ -251,12 +293,15 @@ def main():
         features = spec.get("features", []) if isinstance(spec, dict) else []
         if "files" in features:
             ok('the "files" feature is on (the system\'s picker and save dialog)')
-            if "tauri_plugin_dialog::init(" in rust:
+            if not any("tauri-plugin-dialog" in d for d in sections):
+                bad("the files feature needs the dialog plugin, and Cargo.toml does not depend on it",
+                    'add tauri-plugin-dialog = "2" under [dependencies], and .plugin(tauri_plugin_dialog::init()) to tauri::Builder')
+            elif "tauri_plugin_dialog::init(" in rust:
                 ok("the dialog plugin is registered")
             else:
                 bad("the files feature needs the dialog plugin, and the app does not register it",
-                    'add tauri-plugin-dialog = "2" to Cargo.toml and .plugin(tauri_plugin_dialog::init()) to tauri::Builder')
-        elif re.search(r"pick\s*:", text):
+                    ".plugin(tauri_plugin_dialog::init()) on tauri::Builder")
+        elif own_picker(text):
             ok("the files component has its own picker (pick)")
         else:
             bad('Add files… opens the system\'s picker, which needs tauris-ui\'s "files" feature',

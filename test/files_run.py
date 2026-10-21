@@ -505,6 +505,79 @@ with sync_playwright() as p:
     check("Windows high contrast: the row with the focus has a ring drawn with borders", border == "solid", border)
     page.close()
 
+    # ---------- a fifth review ----------
+    page = fresh(browser)
+    page.evaluate("""window.picks = 0; demo.files.update({ pick: async () => { picks++; await new Promise(r => setTimeout(r, 150)); return []; } });
+      demo.files.add(); demo.files.add(); 0""")
+    page.wait_for_timeout(250)
+    check("add() twice while the picker is open: one picker", page.evaluate("picks") == 1, page.evaluate("picks"))
+    page.evaluate("""window.got = []; demo.files.update({ confirmDelete: false, onDelete: async f => { got.push(f.url ?? 'v1');
+      if (got.length === 1) demo.files.setFiles(demo.files.files().filter(x => x.id !== f.id).map(x => ({ ...x, url: 'v2' }))); } }); 0""")
+    page.evaluate("demo.files.select([demo.files.files()[0].id, demo.files.files()[1].id])")
+    page.focus(".tf-list")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(200)
+    check("deleting several: each file is the app's newest object when its turn comes", page.evaluate("got") == ["v1", "v2"], page.evaluate("got"))
+    page.evaluate("demo.files.select(null)")
+    page.focus(".tf-list")
+    page.keyboard.press("c")
+    first = selected(page)
+    page.keyboard.press("c")
+    second = selected(page)
+    check("the same letter again steps to the next file starting with it",
+          first != second and first[0] == "C" and second[0] == "C", (first, second))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("demo.files.update({ onRename: () => new Promise(r => setTimeout(r, 200)) }); 0")
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("F2")
+    page.keyboard.press("ControlOrMeta+a")
+    page.keyboard.type("Zed.pdf")
+    page.keyboard.press("Enter")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(350)
+    check("Escape while the app is renaming: its answer is waited for, and the new name shows", "Zed.pdf" in names(page), names(page))
+    page.evaluate("window.heard = []; demo.files.update({ onSelect: f => heard.push(f && f.name) }); 0")
+    page.click(".tf-file:nth-child(2) .tf-c-name")
+    page.evaluate("const id = demo.files.selected().id; demo.files.setFiles(demo.files.files().map(x => x.id === id ? { ...x, name: 'Renamed.pdf' } : x))")
+    check("onSelect hears a new name for the same selected file", page.evaluate("heard.at(-1)") == "Renamed.pdf", page.evaluate("heard"))
+    page.fill(".tf-q", "zzz")
+    page.evaluate("demo.files.update({ search: false })")
+    check("a search the person cannot see hides no file", len(names(page)) == len(page.evaluate("demo.files.files()")), names(page))
+    page.evaluate("demo.files.update({ search: true })")
+    page.evaluate("demo.files.select(null)")
+    page.focus(".tf-list")
+    page.keyboard.press("Shift+F10")
+    check("Shift+F10 with no file chosen: the first file's menu, and that file selected",
+          page.locator(".tmn-menu").count() == 1 and selected(page) == names(page)[0], selected(page))
+    page.keyboard.press("Escape")
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("Delete")
+    check("while the delete question is open, the files under it cannot be reached", page.evaluate("document.querySelector('.tf-list').inert") is True)
+    page.keyboard.press("Escape")
+    check("and can again once it is answered", page.evaluate("!document.querySelector('.tf-list').inert && document.activeElement.classList.contains('tf-list')"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""() => { const host = document.createElement('div'); host.id = 'second';
+      host.style.cssText = 'position:fixed;right:0;bottom:0;width:300px;height:200px;z-index:5';
+      document.body.append(host); window.second = [];
+      window.secondFiles = TaurisFiles.mount(host, { onAdd: async p => { second.push(...p); return []; } }); return 0; }""")
+    count = len(page.evaluate("demo.files.files()"))
+    r = rect(page, "#second")
+    page.evaluate("p => __emit('tauri://drag-drop', { paths: ['/x/Over.pdf'], position: p })", {"x": (r["x"] + 20) * 2, "y": (r["y"] + 20) * 2})
+    page.wait_for_timeout(500)
+    check("two components that take the window's drops: a drop over the second is the second's only",
+          page.evaluate("second") == ["/x/Over.pdf"] and len(page.evaluate("demo.files.files()")) == count, page.evaluate("second"))
+    page.evaluate("__emit('tauri://drag-drop', { paths: ['/x/Else.pdf'], position: { x: 10, y: 10 } })")
+    page.wait_for_timeout(500)
+    check("a drop over neither is the first mounted one's", "Else.pdf" in names(page) and page.evaluate("second") == ["/x/Over.pdf"])
+    page.evaluate("window.picks = 0; demo.files.update({ pick: async () => { picks++; return []; } }); demo.files.destroy(); demo.files.add(); 0")
+    page.wait_for_timeout(50)
+    check("after destroy(), add() opens no picker", page.evaluate("picks") == 0)
+    page.close()
+
     # ---------- the row's buttons, double-click, the row menu ----------
     page = fresh(browser)
     page.dblclick(".tf-file:nth-child(2) .tf-c-name")
@@ -695,8 +768,10 @@ with sync_playwright() as p:
     check("the same list again is not drawn again (a flash keeps going)", same)
     helpers = page.evaluate("""[TaurisFiles.kindOf({ name: 'a.KEY' }), TaurisFiles.kindOf({ name: 'scan', type: 'application/pdf' }),
       TaurisFiles.kindOf({ name: 'x.sketch' }), TaurisFiles.kindOf({ name: 'README' }), TaurisFiles.kindOf({ name: 'a.csv' }),
-      TaurisFiles.formatSize(0), TaurisFiles.formatSize(1), TaurisFiles.formatSize(1047552), TaurisFiles.formatSize(1610612736)]""")
-    check("kindOf and formatSize", helpers == ["PPT", "PDF", "SKE", "FILE", "XLS", "0 KB", "1 KB", "1,023 KB", "1.5 GB"], helpers)
+      TaurisFiles.formatSize(0), TaurisFiles.formatSize(1), TaurisFiles.formatSize(1047552), TaurisFiles.formatSize(1610612736),
+      TaurisFiles.formatSize(1048575), TaurisFiles.formatSize(1073741823)]""")
+    check("kindOf and formatSize (never \"1,024 KB\")", helpers == ["PPT", "PDF", "SKE", "FILE", "XLS", "0 KB", "1 KB", "1,023 KB", "1.5 GB",
+                                                           "1 MB", "1 GB"], helpers)
     try:
         page.evaluate("TaurisFiles.mount(document.getElementById('files'))")
         check("a second mount on one element is refused", False)

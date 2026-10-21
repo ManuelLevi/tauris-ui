@@ -196,6 +196,7 @@ use windows::after_event;
 // Quitting: the app's hook still hears the last changes (half a second at most;
 // it cannot open windows now), then the layout is saved.
 pub(crate) fn exiting<R: Runtime>(app: &AppHandle<R>) {
+    windows::begin_exit(app);
     windows::drain(app, std::time::Duration::from_millis(500));
     persist::save(app, true);
 }

@@ -53,7 +53,7 @@
 
     /* colours */
     --tf-fg: var(--tauris-fg, #1e1f22);
-    --tf-dim: var(--tauris-dim, #666a77);
+    --tf-dim: var(--tauris-dim, #5f6370);
     --tf-faint: var(--tauris-faint, #a3a6ad);
     --tf-bg: var(--tauris-bg, #ffffff);                /* the list and the fields */
     --tf-chrome: var(--tauris-chrome, #e9e9eb);            /* the column headers */
@@ -65,15 +65,15 @@
     --tf-hover: var(--tauris-hover, #e6e8ec);
     --tf-row-hover: var(--tauris-hover, #f1f5fb);
     --tf-accent: var(--tauris-accent, #2675bf);
-    --tf-accent-2: #1d63a5;
+    --tf-accent-2: color-mix(in srgb, var(--tf-accent) 82%, #000);  /* the primary button's edge and hover */
     --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #2675bf));        /* the accent as text and lines, readable on --tf-bg */
-    --tf-on-accent: #ffffff;
-    --tf-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));
+    --tf-on-accent: var(--tauris-on-accent, #ffffff);   /* text on the accent: keep it readable */
+    --tf-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));   /* the soft halo around a focus line (--tf-accent-ink) */
     --tf-sel-bg: var(--tauris-sel-bg, #2675bf);
     --tf-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tf-sel-line: rgb(255 255 255 / 0.55);
     --tf-sel-hover: rgb(255 255 255 / 0.18);
-    --tf-flash: #dbe6f4;             /* a row just added */
+    --tf-flash: color-mix(in srgb, var(--tf-accent) 18%, var(--tf-bg));   /* a row just added */
     --tf-danger: #d1453b;
     --tf-veil: rgb(0 0 0 / 0.08);
     --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
@@ -106,11 +106,10 @@
       --tf-hover: var(--tauris-hover, #4c5052);
       --tf-row-hover: var(--tauris-hover, #3b4148);
       --tf-accent: var(--tauris-accent, #3570b0);
-      --tf-accent-2: #2c5f98;
       --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
       --tf-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
       --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
-      --tf-flash: #4b6eaf;
+      --tf-flash: color-mix(in srgb, var(--tf-accent) 55%, var(--tf-bg));
       --tf-danger: #e5625a;
       --tf-veil: rgb(0 0 0 / 0.3);
       --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
@@ -138,11 +137,10 @@
     --tf-hover: var(--tauris-hover, #4c5052);
     --tf-row-hover: var(--tauris-hover, #3b4148);
     --tf-accent: var(--tauris-accent, #3570b0);
-    --tf-accent-2: #2c5f98;
     --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
     --tf-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
     --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
-    --tf-flash: #4b6eaf;
+    --tf-flash: color-mix(in srgb, var(--tf-accent) 55%, var(--tf-bg));
     --tf-danger: #e5625a;
     --tf-veil: rgb(0 0 0 / 0.3);
     --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
@@ -241,7 +239,8 @@
     cursor: text;
   }
 
-  .tf-search:focus-within { border-color: var(--tf-accent); box-shadow: 0 0 0 2px var(--tf-focus); }
+  /* A focus ring is a solid line (readable against the page) and a soft halo. */
+  .tf-search:focus-within { border-color: var(--tf-accent-ink); box-shadow: 0 0 0 2px var(--tf-focus); }
   .tf-search svg { width: 13px; height: 13px; stroke-width: 1.4; }
 
   /* ---------- buttons ---------- */
@@ -268,7 +267,7 @@
 
   .tf-btn:hover { background: var(--tf-hover); }
   .tf-btn:focus { outline: none; }
-  .tf-btn:focus-visible { box-shadow: 0 0 0 2px var(--tf-focus); }
+  .tf-btn:focus-visible { box-shadow: 0 0 0 1px var(--tf-accent-ink), 0 0 0 3px var(--tf-focus); }
   .tf-btn:active { transform: translateY(0.5px); }
   .tf-btn[aria-disabled="true"] { opacity: 0.5; transform: none; }
   .tf-btn[aria-disabled="true"]:hover { background: var(--tf-bg); }
@@ -323,7 +322,7 @@
     border: 1px solid var(--tf-border);
   }
 
-  .tf-panel:has(> .tf-list:focus-visible) { box-shadow: 0 0 0 2px var(--tf-focus); }
+  .tf-panel:has(> .tf-list:focus-visible) { box-shadow: 0 0 0 1px var(--tf-accent-ink), 0 0 0 3px var(--tf-focus); }
 
   .tf-list {
     height: 100%;
@@ -389,7 +388,7 @@
 
   .tf-sort:hover { color: var(--tf-fg); }
   .tf-sort:focus { outline: none; }
-  .tf-sort:focus-visible { border-radius: 2px; box-shadow: 0 0 0 2px var(--tf-focus); }
+  .tf-sort:focus-visible { border-radius: 2px; box-shadow: 0 0 0 1px var(--tf-accent-ink), 0 0 0 3px var(--tf-focus); }
   .tf-arrow { font-size: 8px; color: var(--tf-accent-ink); }
 
   .tf-c-kind { width: calc(var(--tf-kind-w) + var(--tf-cell-pad) + 7px); padding-right: 0; }
@@ -647,7 +646,10 @@
     .tf-list:focus .tf-file.tf-focused .tf-cell:last-child { border-right: 2px solid Highlight; }
     .tf-file[aria-selected="true"] .tf-cell { forced-color-adjust: none; color: HighlightText; background: Highlight; }
     .tf-drop { outline-color: Highlight; }
-    .tf-panel:has(> .tf-list:focus-visible) { outline: 2px solid Highlight; }
+    .tf-panel:has(> .tf-list:focus-visible),
+    .tf-btn:focus-visible,
+    .tf-sort:focus-visible,
+    .tf-search:focus-within { outline: 2px solid Highlight; outline-offset: 1px; }
   }
 }
 
@@ -690,7 +692,7 @@ input:where(.tf-rename) {
   font: var(--tf-table-size) var(--tf-font);
   color: var(--tf-fg);
   background: var(--tf-bg);
-  border: 1px solid var(--tf-accent);
+  border: 1px solid var(--tf-accent-ink);
   border-radius: 3px;
   outline: 0;
   box-shadow: 0 0 0 2px var(--tf-focus);
@@ -699,4 +701,8 @@ input:where(.tf-rename) {
   user-select: text;
 }
 
-input:where(.tf-rename):focus { border-color: var(--tf-accent); outline: 0; box-shadow: 0 0 0 2px var(--tf-focus); }
+input:where(.tf-rename):focus { border-color: var(--tf-accent-ink); outline: 0; box-shadow: 0 0 0 2px var(--tf-focus); }
+
+@media (forced-colors: active) {
+  input:where(.tf-rename):focus { outline: 2px solid Highlight; }
+}

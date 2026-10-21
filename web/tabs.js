@@ -228,12 +228,22 @@
     // Closes a tab after asking onBeforeClose; true when it closed. A second
     // request for the same tab while the first is being answered is ignored.
     const closing = new Set();
+    // The app's answer: false keeps the tab. One that fails keeps it too, and says why.
+    async function mayClose(tab, reason) {
+      if (!opt.onBeforeClose) return true;
+      try {
+        return (await opt.onBeforeClose(tab, { reason })) !== false;
+      } catch (e) {
+        console.error("TaurisTabs: onBeforeClose failed, so the tab stays open:", e);
+        return false;
+      }
+    }
     async function close(id, reason = "tab") {
       const tab = tabs.find(t => t.id === id);
       if (!tab || closing.has(id)) return false;
       closing.add(id);
       try {
-        if (opt.onBeforeClose && (await opt.onBeforeClose(tab, { reason })) === false) return false;
+        if (!(await mayClose(tab, reason))) return false;
         emit("close", tab);
         await call("close_tab", { tab: id });
         return true;
@@ -250,12 +260,16 @@
 
     let menu = null;
     let menuReturn = null;
+    let menuReturnTab = null;
     function closeMenu() {
       if (!menu) return;
       menu.remove();
       menu = null;
-      menuReturn?.focus?.({ preventScroll: true });
+      // The strip may have been drawn again meanwhile: the tab's new element.
+      const back = menuReturn?.isConnected ? menuReturn : menuReturnTab != null ? tabEl(menuReturnTab) ?? tabEl(active) : null;
+      back?.focus?.({ preventScroll: true });
       menuReturn = null;
+      menuReturnTab = null;
     }
 
     function defaultItems(tab) {
@@ -296,6 +310,7 @@
       menu.style.left = `${Math.max(0, Math.min(x, window.innerWidth - width - 4))}px`;
       menu.style.top = `${Math.max(0, Math.min(y, window.innerHeight - height - 4))}px`;
       menuReturn = returnFocus ?? null;
+      menuReturnTab = returnFocus && tab ? tab.id : null;
       menuItems()[0]?.focus({ preventScroll: true });
       menu.addEventListener("keydown", onMenuKey);
     }
@@ -339,6 +354,8 @@
         const ghost = el("div", "tt-tab tt-ghost", { "aria-hidden": "true" }, el("span", "tt-title", {}, hover.title || "Tab"));
         items.splice(Math.min(hover.index, items.length), 0, ghost);
       }
+      // One tab is always reachable with Tab, even with none active.
+      if (!items.some(n => n.tabIndex === 0)) items.find(n => !n.classList.contains("tt-ghost"))?.setAttribute("tabindex", "0");
       tabsEl.replaceChildren(...items);
       const current = tabEl(active);
       if (hadFocus) current?.focus({ preventScroll: true });
@@ -363,7 +380,7 @@
       const body = opt.renderTab ? opt.renderTab(tab, { active: isActive }) : defaultBody(tab);
       const node = el("div", `tt-tab${isActive ? " tt-active" : ""}${opt.tabClass ? " " + (opt.tabClass(tab) || "") : ""}`,
         { role: "tab", "aria-selected": String(isActive), tabindex: isActive ? "0" : "-1", title: tab.title,
-          "aria-controls": opt.panelId }, body);
+          "aria-label": tab.title, "aria-controls": opt.panelId }, body);
       node.dataset.id = tab.id;
       node.querySelectorAll("button, a, input, select, textarea").forEach(c => c.setAttribute("tabindex", "-1"));
       node.addEventListener("pointerdown", e => startDrag(e, tab.id));
@@ -406,6 +423,8 @@
       if (e.target.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false])")) return;
       const node = e.target.closest?.(".tt-tab");
       if (!node || node.classList.contains("tt-ghost")) return;
+      // Enter, Space and Delete on a button inside a tab are that button's.
+      if (e.target !== node && (e.key === "Enter" || e.key === " " || e.key === "Delete")) return;
       const at = tabs.findIndex(t => t.id === Number(node.dataset.id));
       const go = i => {
         e.preventDefault();
@@ -625,7 +644,7 @@
       askingWindow = true;
       try {
         for (const tab of [...tabs]) {
-          if (opt.onBeforeClose && (await opt.onBeforeClose(tab, { reason: "window" })) === false) return;
+          if (!(await mayClose(tab, "window"))) return;
         }
         quiet(call("close_window"));
       } finally {

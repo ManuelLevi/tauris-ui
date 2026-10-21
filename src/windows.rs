@@ -4,7 +4,7 @@ use crate::config::Config;
 use crate::model::{Fields, Frame, Model, NewTab, Tab};
 use serde::Serialize;
 use std::cell::Cell;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -20,14 +20,39 @@ pub(crate) const UNANSWERED: std::time::Duration = std::time::Duration::from_sec
 /// Work for the app's handle, run after an event handler has returned.
 pub(crate) type Job<R> = Box<dyn FnOnce(&AppHandle<R>) + Send>;
 
+// A worker thread and its queue: jobs run one after the other, in order.
+pub(crate) struct Queue<R: Runtime> {
+    tx: Mutex<Option<Sender<Job<R>>>>,
+    // Jobs sent and not finished yet.
+    pending: AtomicUsize,
+}
+
+impl<R: Runtime> Queue<R> {
+    fn new() -> Self {
+        Queue { tx: Mutex::new(None), pending: AtomicUsize::new(0) }
+    }
+}
+
+// Which worker: window jobs (⌘N, ⌘T, the Dock click) and the app's on_change
+// hook have one each, so a slow hook never holds up a new window.
+#[derive(Clone, Copy)]
+pub(crate) enum Kind {
+    Windows,
+    Hook,
+}
+
 pub(crate) struct Inner<R: Runtime> {
     model: Mutex<Model>,
     save: Mutex<()>,
-    after: Mutex<Option<Sender<Job<R>>>>,
-    // Jobs sent to the worker and not finished yet.
-    pending: std::sync::atomic::AtomicUsize,
+    windows_q: Queue<R>,
+    hook_q: Queue<R>,
     // Held while the app's on_change hook runs: one call at a time.
     hook: Mutex<()>,
+    // Held while a change decides whether its hook call runs now or queues,
+    // so calls reach the hook in the order they were made.
+    hook_gate: Mutex<()>,
+    // The app is quitting: no new windows.
+    exiting: AtomicBool,
     pub config: Config<R>,
     pub started: AtomicBool,
 }
@@ -37,9 +62,11 @@ impl<R: Runtime> Inner<R> {
         Inner {
             model: Mutex::new(Model::new(&config.window_prefix)),
             save: Mutex::new(()),
-            after: Mutex::new(None),
-            pending: std::sync::atomic::AtomicUsize::new(0),
+            windows_q: Queue::new(),
+            hook_q: Queue::new(),
             hook: Mutex::new(()),
+            hook_gate: Mutex::new(()),
+            exiting: AtomicBool::new(false),
             config,
             started: AtomicBool::new(false),
         }
@@ -51,10 +78,11 @@ impl<R: Runtime> Inner<R> {
         self.save.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    // The worker that runs, one after the other, what the plugin's event
-    // handler must not do itself (see after_event in lib.rs).
-    pub fn after_events(&self) -> MutexGuard<'_, Option<Sender<Job<R>>>> {
-        self.after.lock().unwrap_or_else(PoisonError::into_inner)
+    fn queue(&self, kind: Kind) -> &Queue<R> {
+        match kind {
+            Kind::Windows => &self.windows_q,
+            Kind::Hook => &self.hook_q,
+        }
     }
 
     // A panic elsewhere must not lock every later caller out of the tabs.
@@ -118,33 +146,51 @@ thread_local! {
 // the window the first one opened). A job that panics is caught, so the
 // worker keeps going; a worker that is gone is replaced.
 pub(crate) fn after_event<R: Runtime>(app: &AppHandle<R>, job: impl FnOnce(&AppHandle<R>) + Send + 'static) {
-    use std::sync::atomic::Ordering;
-    let state = inner(app);
-    let mut worker = state.after_events();
-    let mut job: Job<R> = Box::new(job);
-    state.pending.fetch_add(1, Ordering::SeqCst);
+    // Quitting: a window opened now would only hold up the quit.
+    if inner(app).exiting.load(Ordering::SeqCst) {
+        return;
+    }
+    send(app, Kind::Windows, Box::new(job));
+}
+
+// Gives a job to a worker, starting it (or a new one) when needed.
+pub(crate) fn send<R: Runtime>(app: &AppHandle<R>, kind: Kind, mut job: Job<R>) {
+    let queue = inner(app).queue(kind);
+    let mut tx = queue.tx.lock().unwrap_or_else(PoisonError::into_inner);
+    queue.pending.fetch_add(1, Ordering::SeqCst);
     for _ in 0..2 {
-        if worker.is_none() {
-            let (tx, rx) = std::sync::mpsc::channel::<Job<R>>();
-            let app = app.clone();
-            std::thread::spawn(move || {
+        if tx.is_none() {
+            let (sender, rx) = std::sync::mpsc::channel::<Job<R>>();
+            let worker_app = app.clone();
+            let started = std::thread::Builder::new().name("tauris-ui".into()).spawn(move || {
                 for job in rx {
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&app)));
-                    inner(&app).pending.fetch_sub(1, Ordering::SeqCst);
+                    // Counted as done even if the job panics.
+                    struct Done<'a>(&'a AtomicUsize);
+                    impl Drop for Done<'_> {
+                        fn drop(&mut self) {
+                            self.0.fetch_sub(1, Ordering::SeqCst);
+                        }
+                    }
+                    let _done = Done(&inner(&worker_app).queue(kind).pending);
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&worker_app)));
                 }
             });
-            *worker = Some(tx);
+            if started.is_err() {
+                break;
+            }
+            *tx = Some(sender);
         }
-        match worker.as_ref().map(|tx| tx.send(job)) {
+        match tx.as_ref().map(|t| t.send(job)) {
             Some(Ok(())) => return,
             None => break,
             Some(Err(std::sync::mpsc::SendError(back))) => {
                 job = back;
-                *worker = None;
+                *tx = None;
             }
         }
     }
-    state.pending.fetch_sub(1, Ordering::SeqCst);
+    // No worker could take it: it is dropped, and not counted as waiting.
+    queue.pending.fetch_sub(1, Ordering::SeqCst);
 }
 
 // Marks this thread as running inside Tauri's plugin lock, until dropped.
@@ -165,11 +211,29 @@ impl Drop for InPlugin {
 
 // Waits, at most `limit`, for the worker to finish what it was given: the app
 // is quitting, and its hook should still hear the last changes.
+// Only the hook's calls are waited for: a window job could not finish while
+// the app quits (it needs the lock the quitting thread holds).
 pub(crate) fn drain<R: Runtime>(app: &AppHandle<R>, limit: std::time::Duration) {
     let until = std::time::Instant::now() + limit;
-    while inner(app).pending.load(std::sync::atomic::Ordering::SeqCst) > 0 && std::time::Instant::now() < until {
+    while inner(app).hook_q.pending.load(Ordering::SeqCst) > 0 && std::time::Instant::now() < until {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
+}
+
+// Tests: waits until both workers have nothing left to do.
+#[cfg(test)]
+pub(crate) fn settle<R: Runtime>(app: &AppHandle<R>, limit: std::time::Duration) {
+    let until = std::time::Instant::now() + limit;
+    let state = inner(app);
+    let busy = || state.windows_q.pending.load(Ordering::SeqCst) > 0 || state.hook_q.pending.load(Ordering::SeqCst) > 0;
+    while busy() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+// The app is quitting: window jobs are dropped from now on.
+pub(crate) fn begin_exit<R: Runtime>(app: &AppHandle<R>) {
+    inner(app).exiting.store(true, Ordering::SeqCst);
 }
 
 // Tells the app (its on_change hook) that window `label` changed. A change
@@ -185,8 +249,9 @@ pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if state.config.on_change.is_none() || IN_HOOK.with(|h| h.get()) {
         return;
     }
-    let queued = state.pending.load(std::sync::atomic::Ordering::SeqCst) > 0;
-    if !IN_PLUGIN.with(|p| p.get()) && !queued {
+    // The gate is held only to decide, never while the hook runs.
+    let gate = state.hook_gate.lock().unwrap_or_else(PoisonError::into_inner);
+    if !IN_PLUGIN.with(|p| p.get()) && state.hook_q.pending.load(Ordering::SeqCst) == 0 {
         // try_lock: a thread here never waits for the hook (the main thread
         // waiting could stop a hook that is opening a window).
         let free = match state.hook.try_lock() {
@@ -196,15 +261,21 @@ pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
             Err(std::sync::TryLockError::WouldBlock) => None,
         };
         if let Some(_one) = free {
+            drop(gate);
             run_hook(app, label);
             return;
         }
     }
     let label = label.to_string();
-    after_event(app, move |app| {
-        let _one = inner(app).hook.lock().unwrap_or_else(PoisonError::into_inner);
-        run_hook(app, &label);
-    });
+    send(
+        app,
+        Kind::Hook,
+        Box::new(move |app| {
+            let _one = inner(app).hook.lock().unwrap_or_else(PoisonError::into_inner);
+            run_hook(app, &label);
+        }),
+    );
+    drop(gate);
 }
 
 fn run_hook<R: Runtime>(app: &AppHandle<R>, label: &str) {
@@ -257,6 +328,10 @@ pub(crate) fn open_window<R: Runtime>(
     frame: Option<Frame>,
     focused: bool,
 ) -> tauri::Result<WebviewWindow<R>> {
+    debug_assert!(
+        !IN_PLUGIN.with(|p| p.get()),
+        "tauris-ui: window {label} opened inside Tauri's plugin lock; it would freeze the app (use after_event)"
+    );
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_window(app, label, frame, focused))).unwrap_or_else(
         |_| {
             Err(tauri::Error::Io(std::io::Error::other(format!(
@@ -378,7 +453,20 @@ pub(crate) fn remove_tab<R: Runtime>(app: &AppHandle<R>, label: &str, tab: u64) 
         empty
     };
     if empty {
+        // The window leaves the layout now, not when it is gone: a tab opened
+        // meanwhile (⌘T, a Dock click) goes to a new window, not into this one.
+        let (last, emptied) = {
+            let mut m = inner(app).model();
+            m.close_win(label);
+            let last = m.wins.is_empty();
+            (last, last && std::mem::take(&mut m.emptied))
+        };
         changed(app, label);
+        if emptied {
+            crate::persist::forget(app);
+        } else if last {
+            crate::persist::save(app, true);
+        }
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.destroy();
         }
@@ -560,15 +648,16 @@ pub(crate) fn move_to_new_window<R: Runtime>(app: &AppHandle<R>, tab: u64) -> ta
             return Ok(Some(source)); // already alone in its window
         }
         let at = win.tabs.iter().position(|t| *t == tab).unwrap_or(usize::MAX);
+        let active = win.active;
         m.detach(&source, tab);
         let label = m.create_win(vec![tab]);
-        (source, label, at)
+        (source, label, (at, active))
     };
     if let Err(e) = open_window(app, &label, None, true) {
-        // No new window: the tab goes back where it was.
+        // No new window: the tab goes back where it was, and the active tab stays active.
         let mut m = state.model();
         m.wins.retain(|w| w.label != label);
-        m.attach(&source, tab, at);
+        m.put_back(&source, tab, at.0, at.1);
         drop(m);
         notify(app, &source);
         return Err(e);
@@ -662,6 +751,13 @@ pub(crate) fn open_or_focus<R: Runtime>(
     let existing = window_tabs(app, &label).tabs.iter().find(|t| is_same(t)).map(|t| t.id);
     let id = {
         let mut m = inner(app).model();
+        // The window closed meanwhile: the tab gets a window of its own.
+        if m.win(&label).is_none() {
+            drop(m);
+            let (label, ids) = create_window(app, vec![tab], None, true)?;
+            bring_up(app, &label);
+            return Ok(ids[0]);
+        }
         let id = match existing {
             Some(id) if m.win(&label).is_some_and(|w| w.tabs.contains(&id)) => id,
             _ => {
@@ -702,9 +798,10 @@ pub(crate) fn open_many<R: Runtime>(
         let mut rest = tabs.into_iter();
         let mut ids = vec![];
         if replace_active {
-            let active = m.win(&label).and_then(|w| w.active);
-            if let (Some(id), Some(new)) = (active, rest.next()) {
-                if let Some(tab) = m.tabs.get_mut(&id) {
+            let active = m.win(&label).and_then(|w| w.active).filter(|id| m.tabs.contains_key(id));
+            // The first new tab replaces the active one only if there is one.
+            if let Some(id) = active {
+                if let (Some(new), Some(tab)) = (rest.next(), m.tabs.get_mut(&id)) {
                     tab.title = new.title;
                     tab.fields = crate::model::clean(new.fields);
                     ids.push(id);

@@ -8,6 +8,21 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.13 — 2026-10-21
+
+Fixes from ten reviewers, one per area:
+- Window jobs (⌘N, ⌘T, the Dock click) and `on_change` calls have a worker each, so a slow hook never holds up a new window. Quitting waits for the hook at most half a second and opens no new window. Debug builds stop at once when a window opens inside Tauri's plugin lock.
+- Closing the last tab takes its window out of the layout at once: a tab opened meanwhile gets a new window, and nothing is lost. `open_many` replacing the active tab where there is none loses no tab. A failed move puts the tab back where it was, still active; if its window has gone, it is not kept.
+- A layout that could not be saved (a full disk) is saved at the next try. Remembered windows that all fail to open are kept aside as `<name>.unopened`, not overwritten.
+- `safe_name` drops invisible characters (a right-to-left mark can make "fdp.exe" read as "exe.pdf"), trims dots and spaces at both ends together, and keeps names under 255 bytes. `size_text` never says "1,024 KB" (nor the page). `inspect` says "100 bytes" for limits under 1 KB, and "is not a file that can be added" for devices. `mime_for(".pdf")` is a hidden file, not a PDF.
+- The checker ignores commented-out code, looks for `tauri-plugin-dialog` in Cargo.toml, and finds a `pick` option only in what is given to `TaurisFiles.mount`.
+- Files: one picker at a time; each file deleted is the app's newest object; Escape while the app renames waits for it; files added while renaming stay; a hidden search hides nothing; `onSelect` hears a new name; Shift+F10 with no file chosen opens the first one's menu; the same letter again steps through the files starting with it; the files under the delete question cannot be reached; with two components, a drop goes to the one under the pointer; nothing runs after `destroy()`.
+- Tree: `expanded: true` opens a node only the first time it comes, so `setData` keeps a closed folder closed; an edit in progress is saved before `setData` (unless its node is gone); a column with its own `compare` puts empty values last; editors are named by row and column; Alt+← and Alt+→ on a header resize its column; secondary text on the selection is readable.
+- Menus: `items()` that throws leaves the bar working; a menu with no items does not open; the same letter again steps through the items; the page scrolling closes an open menu; `setMenus` and `setItems` show new items in an open menu at once; nothing opens after `destroy()`, which also removes the name it added.
+- Tabs: Enter, Space and Delete on a button inside a tab are that button's; a tab's name for screen readers is its title; with no active tab the first is reachable with Tab; `onBeforeClose` that throws keeps the tab and says why in the console; Escape in the tab menu finds the tab after a redraw. Terminal: a Space whose release was lost presses nothing later.
+- The look: focus rings are a solid line (`--tauris-accent-ink`) with a soft halo, readable on any background, and drawn in Windows high contrast too; secondary text and pressed toolbar buttons have more contrast. New shared colour `--tauris-on-accent` (text on the accent). The primary button and a new row's flash follow the accent.
+- CI runs clippy on the example app and the freeze check. The test counts are gone from the README.
+
 ## 0.4.12 — 2026-10-21
 
 Fixes from a fourth review:

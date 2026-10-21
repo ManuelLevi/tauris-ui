@@ -23,6 +23,7 @@ declare global {
     values?: Partial<V>;
     editor?: TaurisTreeEditor;
     readOnly?: boolean;
+    /** Open when the node first comes (in mount or setData); after that the person opens and closes it. */
     expanded?: boolean;
   }
 

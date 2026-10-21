@@ -80,10 +80,12 @@ declare global {
     header?: boolean;
     /** The search field (shown once there are files). Default true. */
     search?: boolean;
-    /** Where a drop adds files: anywhere on the window (default), over the component only, or nowhere. */
+    /** Where a drop adds files: anywhere on the window (default; a drop over another component is that one's),
+     * over the component only, or nowhere. */
     dropArea?: "window" | "element" | "none";
     /** Ask before onDelete: true (the component asks; default), false (the app asks), or the question for
-     * one file. Several files at once are asked about with labels.confirmDeleteMany; onDelete runs once per file. */
+     * one file (null, false or "": that file goes without a question). Several files at once are asked about with
+     * labels.confirmDeleteMany; onDelete runs once per file. */
     confirmDelete?: boolean | ((file: F) => string | null | false);
     /** ⌘-click (Ctrl-click) and Shift-click select several files; ⌘A selects them all. Default false. */
     multiple?: boolean;

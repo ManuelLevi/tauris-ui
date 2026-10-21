@@ -182,9 +182,12 @@
     if (!Number.isFinite(n) || n < 0) return "—";
     if (n === 0) return "0 KB";
     const MB = 1024 * 1024;
-    if (n < MB) return Math.max(1, Math.round(n / 1024)).toLocaleString("en-US") + " KB";
-    if (n < 1024 * MB) return (n / MB).toLocaleString("en-US", { maximumFractionDigits: 1 }) + " MB";
-    return (n / (1024 * MB)).toLocaleString("en-US", { maximumFractionDigits: 1 }) + " GB";
+    const kb = Math.max(1, Math.round(n / 1024));
+    if (kb < 1024) return kb.toLocaleString("en-US") + " KB";
+    // Up a unit where the rounded number would read 1,024.
+    const mb = Math.round((n / MB) * 10) / 10;
+    if (mb < 1024) return mb.toLocaleString("en-US") + " MB";
+    return (Math.round((n / (1024 * MB)) * 10) / 10).toLocaleString("en-US") + " GB";
   }
 
   // A date from a Date, a number (ms) or a string: "2026-10-21", ISO, or
@@ -281,6 +284,9 @@
     return node;
   }
 
+  // Every mounted component, in the order mounted: a drop goes to one of them only.
+  const everyFiles = new Set();
+
   function mount(root, options = {}) {
     if (!(root instanceof HTMLElement)) throw new Error("TaurisFiles.mount needs the element to draw the files in");
     if (root.__taurisFiles) throw new Error("TaurisFiles.mount: this element already has files; call destroy() first");
@@ -306,6 +312,7 @@
     let freshTimer = 0;
     let queue = Promise.resolve();
     let busyText = null;
+    let picking = false; // the system's picker is open
     let dropping = false;
     let dragFiles = false;
     let renaming = null; // { file, input, busy }
@@ -509,6 +516,11 @@
       searchInput.setAttribute("aria-label", String(words.search));
       searchBox.hidden = !opt.search || list.length === 0;
       head.hidden = !opt.header;
+      // A search the person cannot see hides no file.
+      if ((searchBox.hidden || head.hidden) && query) {
+        query = "";
+        searchInput.value = "";
+      }
       status.hidden = typeof opt.onMessage === "function";
       // A part that is not shown leaves no gap: the list takes its room.
       root.classList.toggle("tf-no-head", head.hidden);
@@ -618,7 +630,8 @@
       if (signal.aborted || typeof opt.onSelect !== "function") return;
       const file = primary();
       const files = selection();
-      const now = `${file ? keyOf(file.id) : ""}|${files.map(f => keyOf(f.id)).join("\u0000")}`;
+      // A change of name or size counts, not only of which files.
+      const now = `${signature(file ? [file] : [])}|${signature(files)}`;
       if (now === reported) return;
       reported = now;
       opt.onSelect(file, files);
@@ -685,15 +698,18 @@
 
     async function addPaths(paths) {
       const items = (Array.isArray(paths) ? paths : []).map(String).filter(Boolean);
-      if (!items.length || typeof opt.onAdd !== "function") return [];
+      if (!items.length || typeof opt.onAdd !== "function" || signal.aborted) return [];
       try {
         const out = await run(say(L().adding, items.length), () => opt.onAdd(items.slice()));
         const added = (Array.isArray(out) ? out : []).filter(f => f && f.id != null);
         if (!added.length || signal.aborted) return added;
-        // The app may send its new list before or after this; until it does, the new files show.
-        const have = new Set(list.map(f => keyOf(f.id)));
+        // The app may send its new list before or after this; until it does, the
+        // new files show (in the list given while renaming, if there is one).
+        const next = held ?? list;
+        const have = new Set(next.map(f => keyOf(f.id)));
         const missing = added.filter(f => !have.has(keyOf(f.id)));
-        if (missing.length) list = list.concat(missing);
+        if (missing.length && held) held = held.concat(missing);
+        else if (missing.length) list = list.concat(missing);
         fresh = new Set(added.map(f => keyOf(f.id)));
         clearTimeout(freshTimer);
         freshTimer = setTimeout(() => {
@@ -717,20 +733,23 @@
     }
 
     async function add() {
-      if (typeof opt.onAdd !== "function" || busyText) return [];
+      if (typeof opt.onAdd !== "function" || busyText || picking || signal.aborted) return [];
       let paths;
+      picking = true;
       try {
         const titleText = say(L().pickTitle, place());
         paths = typeof opt.pick === "function" ? await opt.pick(titleText) : await pick({ title: titleText });
       } catch (e) {
         message(textOf(e), "error");
         return [];
+      } finally {
+        picking = false;
       }
       return signal.aborted ? [] : addPaths(paths);
     }
 
     async function open(file) {
-      if (!file || typeof opt.onOpen !== "function") return;
+      if (!file || typeof opt.onOpen !== "function" || signal.aborted) return;
       message(say(L().opening, file), "info");
       try {
         await opt.onOpen(file);
@@ -746,7 +765,7 @@
 
     async function openMany(files) {
       if (files.length < 2) return open(files[0]);
-      if (typeof opt.onOpen !== "function") return;
+      if (typeof opt.onOpen !== "function" || signal.aborted) return;
       message(say(L().openingMany, files), "info");
       for (const k of files.map(f => keyOf(f.id))) {
         const f = fileById(k);
@@ -763,7 +782,7 @@
     }
 
     async function saveAs(file) {
-      if (!file || typeof opt.onSaveAs !== "function") return;
+      if (!file || typeof opt.onSaveAs !== "function" || signal.aborted) return;
       try {
         if ((await opt.onSaveAs(file)) !== false) message(say(L().saved, file), "ok");
       } catch (e) {
@@ -772,7 +791,7 @@
     }
 
     async function remove(file) {
-      if (!file || typeof opt.onDelete !== "function") return;
+      if (!file || typeof opt.onDelete !== "function" || signal.aborted) return;
       const key = keyOf(file.id);
       if (deleting.has(key)) return;
       const question = opt.confirmDelete === false ? null
@@ -818,7 +837,7 @@
     async function removeMany(files) {
       files = files.filter(f => !deleting.has(keyOf(f.id)));
       if (files.length < 2) return remove(files[0]);
-      if (typeof opt.onDelete !== "function") return;
+      if (typeof opt.onDelete !== "function" || signal.aborted) return;
       // Several files are asked about with labels.confirmDeleteMany, never with the
       // app's confirmDelete function: one written for a single file would name one
       // while several go.
@@ -833,9 +852,10 @@
       const last = Math.max(...before.map((f, i) => (keys.has(keyOf(f.id)) ? i : -1)));
       const gone = new Set();
       let failed = false;
-      for (const f of files) {
-        const k = keyOf(f.id);
-        if (deleting.has(k)) continue;
+      for (const k of files.map(f => keyOf(f.id))) {
+        // The app's current object, read again before each: its list may change meanwhile.
+        const f = fileById(k);
+        if (!f || deleting.has(k)) continue;
         deleting.add(k);
         try {
           await opt.onDelete(f);
@@ -867,6 +887,8 @@
     // button deletes; Escape, Cancel or a click beside it keeps the file.
     function ask(question) {
       if (asking) asking.finish(false);
+      // The list under the question; the header stays usable, and going there is a no.
+      const behind = [grid, empty, noMatch];
       return new Promise(resolve => {
         const back = document.activeElement;
         askText.textContent = question;
@@ -877,6 +899,7 @@
           asking = null;
           done.abort();
           veil.hidden = true;
+          for (const part of behind) part.inert = false;
           if (refocus && !signal.aborted) {
             if (back instanceof HTMLElement && back.isConnected && root.contains(back)) back.focus({ preventScroll: true });
             else focusList();
@@ -906,13 +929,15 @@
         }, { signal: done.signal });
         // The safe answer has the focus: Tab reaches the red one.
         askNo.focus({ preventScroll: true });
+        // The files under the question cannot be reached (by a screen reader either).
+        for (const part of behind) part.inert = true;
       });
     }
 
     // ---------- renaming in place ----------
 
     function rename(file) {
-      if (!file || typeof opt.onRename !== "function" || renaming) return;
+      if (!file || typeof opt.onRename !== "function" || renaming || signal.aborted) return;
       if (asking) asking.finish(false);
       const key = keyOf(file.id);
       if (!rows.has(key)) {
@@ -957,10 +982,13 @@
           input.focus();
           return;
         }
+        // The app's current object; a file it has removed meanwhile is not renamed.
+        const target = (held ?? list).find(f => keyOf(f.id) === keyOf(file.id));
+        if (!target) return end();
         state.busy = true;
         input.readOnly = true;
         try {
-          await opt.onRename(fileById(keyOf(file.id)) ?? file, next);
+          await opt.onRename(target, next);
           if (signal.aborted) return;
         } catch (e) {
           state.busy = false;
@@ -984,7 +1012,8 @@
           commit();
         } else if (e.key === "Escape") {
           e.preventDefault();
-          end();
+          // Once the app is renaming, the answer is waited for.
+          if (!state.busy) end();
         }
       });
       // Clicking away saves, as in a file manager; switching to another app does not.
@@ -1138,19 +1167,29 @@
       } else if (e.key === "Delete" || (e.key === "Backspace" && (e.metaKey || e.ctrlKey))) {
         e.preventDefault();
         if (selection().length) removeMany(selection());
-      } else if (file && (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey))) {
-        // On a file that only has the focus, the menu selects it first, as a right click does.
-        if (!sel.has(selId)) select(selId, false);
-        const r = rows.get(keyOf(file.id))?.querySelector(".tf-c-name")?.getBoundingClientRect();
-        if (r && rowMenu(file, { x: r.left + 12, y: r.bottom }, true)) e.preventDefault();
+      } else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+        // On a file that only has the focus, the menu selects it first, as a right
+        // click does; with no focus yet, the first file shown takes it.
+        const target = file ?? primary() ?? shown[0] ?? null;
+        if (!target) return;
+        const k = keyOf(target.id);
+        if (!sel.has(k)) select(k, false);
+        else if (selId !== k) setSelection(sel, k, false);
+        const r = rows.get(k)?.querySelector(".tf-c-name")?.getBoundingClientRect();
+        if (r && rowMenu(fileById(k) ?? target, { x: r.left + 12, y: r.bottom }, true)) e.preventDefault();
       } else if (e.key.length === 1 && e.key !== " " && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        // Typing jumps to the next file whose name starts with what was typed.
+        // Typing jumps to the next file whose name starts with what was typed, and
+        // selects it alone, as in a file manager. One letter again and again steps
+        // through the files that start with it.
         const now = Date.now();
         typed = now - typedAt < 700 ? typed + e.key.toLowerCase() : e.key.toLowerCase();
         typedAt = now;
-        const from = typed.length > 1 ? Math.max(i, 0) : i + 1;
+        const same = [...typed].every(c => c === typed[0]);
+        const want = same ? typed[0] : typed;
+        const from = typed.length > 1 && !same ? Math.max(i, 0) : i + 1;
         const order = shown.slice(from).concat(shown.slice(0, from));
-        const hit = order.find(f => String(f.name ?? "").toLowerCase().startsWith(typed));
+        const hit = order.find(f => String(f.name ?? "").toLowerCase().startsWith(typed))
+          ?? (same ? order.find(f => String(f.name ?? "").toLowerCase().startsWith(want)) : undefined);
         if (hit) {
           e.preventDefault();
           select(hit.id);
@@ -1189,15 +1228,33 @@
       return root.isConnected && root.getClientRects().length > 0;
     }
 
-    function overMe(position) {
-      if (opt.dropArea !== "element") return true;
-      if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return true;
+    function inside(position) {
       // Tauri reports physical pixels.
       const scale = window.devicePixelRatio || 1;
       const x = position.x / scale;
       const y = position.y / scale;
       const r = root.getBoundingClientRect();
       return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    }
+
+    // Whether this component is what the person sees at that point (the top one, when two overlap).
+    function under(position) {
+      const scale = window.devicePixelRatio || 1;
+      const hit = document.elementFromPoint(position.x / scale, position.y / scale);
+      return hit ? root.contains(hit) : inside(position);
+    }
+
+    const takes = () => opt.dropArea !== "none" && typeof opt.onAdd === "function" && isShown();
+    const me = { takes, under, window: () => opt.dropArea === "window" && takes() };
+
+    // Whether a drop here is this component's. Over a component, it is that
+    // one's; elsewhere, the first shown one with dropArea "window" takes it.
+    function overMe(position) {
+      const known = position && Number.isFinite(position.x) && Number.isFinite(position.y);
+      if (opt.dropArea === "element") return known ? inside(position) : true;
+      const owner = known ? [...everyFiles].find(o => o.takes() && o.under(position)) : null;
+      if (owner) return owner === me;
+      return [...everyFiles].find(o => o.window()) === me;
     }
 
     function setDropping(on) {
@@ -1259,6 +1316,7 @@
     // ---------- start ----------
 
     list = Array.isArray(opt.files) ? opt.files.slice() : [];
+    everyFiles.add(me);
     draw();
     listen();
 
@@ -1339,6 +1397,7 @@
       /** Removes the component and its listeners; mount can then be called again. */
       destroy() {
         life.abort();
+        everyFiles.delete(me);
         rowMenuHandle?.close();
         unlisten?.();
         if (asking) asking.finish(false);

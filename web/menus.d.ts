@@ -49,7 +49,7 @@ declare global {
   }
 
   interface TaurisMenuBar {
-    /** Replaces the menus. An open menu stays open if its title is still there. */
+    /** Replaces the menus. An open menu stays open, showing its new items, if its title is still there. */
     setMenus(menus: TaurisMenuBarMenu[]): void;
     /** Opens menu number `index` with its first item chosen. */
     open(index?: number): void;
@@ -61,6 +61,7 @@ declare global {
   }
 
   interface TaurisMenuButton {
+    /** Replaces the items; an open menu shows the new ones. */
     setItems(items: TaurisMenuItems): void;
     /** Opens the menu with its first item chosen. */
     open(): void;

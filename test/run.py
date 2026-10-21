@@ -607,6 +607,34 @@ with sync_playwright() as p:
     check("high-contrast mode keeps the boxes and the selection drawn", adjust == ["none", "none"], adjust)
     page.close()
 
+    # --- a fifth review ---
+    page = fresh(browser, """{ renderTab: tab => { const t = document.createElement('span'); t.className = 'tt-title'; t.textContent = tab.title;
+      const b = document.createElement('button'); b.className = 'mine'; b.textContent = 'pin';
+      b.addEventListener('click', () => { window.pinned = (window.pinned || 0) + 1; }); return [t, b]; },
+      onBeforeClose: () => { throw new Error('boom'); } }""")
+    check("a tab's name for screen readers is its title (not its close button too)", page.get_attribute(".tt-tab", "aria-label") == "Tab 1")
+    page.evaluate("document.querySelector('.tt-tab .mine').focus()")
+    page.keyboard.press("Enter")
+    check("Enter on a button inside a tab presses that button", page.evaluate("window.pinned") == 1, page.evaluate("window.pinned"))
+    page.locator(".tt-tab").nth(1).click()
+    page.locator(".tt-tab").nth(1).focus()
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(100)
+    check("onBeforeClose that throws keeps the tab, and says why in the console",
+          len(titles(page)) == 3 and any("onBeforeClose failed" in m for m in page.errors), page.errors)
+    page.keyboard.press("Shift+F10")
+    second = page.evaluate("document.querySelectorAll('.tt-tab')[1].dataset.id")
+    page.evaluate("id => { tabs.update(Number(id), { title: 'Renamed' }); }", second)
+    page.wait_for_function("[...document.querySelectorAll('.tt-title')].some(t => t.textContent === 'Renamed')")
+    page.keyboard.press("Escape")
+    check("the strip drawn again while its menu was open: Escape still puts the focus on the tab",
+          page.evaluate("document.activeElement.dataset?.id") == second, page.evaluate("document.activeElement.outerHTML.slice(0, 80)"))
+    page.close()
+    page = fresh(browser, before="window.__noActive = true")
+    reachable = page.evaluate("[...document.querySelectorAll('.tt-tab')].map(t => t.getAttribute('tabindex'))")
+    check("no tab active: the first tab is still reachable with Tab", reachable == ["0", "-1", "-1"], reachable)
+    page.close()
+
     # --- the terminal as the plugin delivers it: no stylesheet until it is used ---
     term_js = (WEB / "terminal.js").read_text().replace('"__TAURIS_TERMINAL_CSS__"', json.dumps((WEB / "terminal.css").read_text()))
     page = browser.new_page(viewport={"width": 600, "height": 300})

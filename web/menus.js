@@ -153,7 +153,9 @@
   // (nothing chosen yet), "keyboard" (first item) or "last" (last item).
   // An item with `items` opens a sub-menu: to the right, on Right, Enter or
   // Space, or when the mouse rests on it; Left or Escape goes back.
-  function show(items, at, how, o = {}) {
+  // `list` is made by the caller (listOf) before anything changes, so items()
+  // that throws leaves everything as it was.
+  function show(list, at, how, o = {}) {
     closeCurrent(false);
     addStyles();
     const returnTo = o.returnTo ?? document.activeElement;
@@ -181,6 +183,23 @@
         if (current === handle) current = null;
         o.onClose?.({ chosen: handle.chosen, hop: handle.hop });
         if (refocus) restore(o.refocusTo?.() ?? returnTo);
+      },
+      // New items while it is open: drawn again in place, the focus kept on
+      // the item with the same label. Returns the new menu's id.
+      replace(next) {
+        if (handle.closed) return null;
+        const active = document.activeElement;
+        const inside = levels.some(lv => lv.menu.contains(active));
+        const was = active?.closest?.(".tmn-item")?.querySelector(".tmn-label")?.textContent ?? null;
+        for (const lv of levels) {
+          clearTimeout(lv.timer);
+          lv.menu.remove();
+        }
+        levels.length = 0;
+        handle.el = null;
+        const lv = level(next, o.label, at, "mouse");
+        if (inside) go(lv, enabledIn(lv.menu).find(n => n.querySelector(".tmn-label").textContent === was) ?? null);
+        return lv.menu.id;
       },
     };
     current = handle;
@@ -287,15 +306,18 @@
           e.preventDefault();
           o.onSide(e.key === "ArrowLeft" ? -1 : 1);
         } else if (e.key.length === 1 && !e.altKey && !e.ctrlKey && !e.metaKey) {
-          // Typing jumps to the next item that starts with what was typed.
+          // Typing jumps to the next item that starts with what was typed; one
+          // letter again and again steps through the items that start with it.
           e.preventDefault();
           const now = Date.now();
           typed = now - typedAt < 700 ? typed + e.key.toLowerCase() : e.key.toLowerCase();
           typedAt = now;
           const text = node => node.querySelector(".tmn-label").textContent.trim().toLowerCase();
-          const from = typed.length > 1 ? Math.max(i, 0) : i + 1;
+          const same = [...typed].every(c => c === typed[0]);
+          const from = typed.length > 1 && !same ? Math.max(i, 0) : i + 1;
           const order = list.slice(from).concat(list.slice(0, from));
-          const hit = order.find(node => text(node).startsWith(typed));
+          const hit = order.find(node => text(node).startsWith(typed))
+            ?? (same ? order.find(node => text(node).startsWith(typed[0])) : undefined);
           if (hit) {
             clearTimeout(lv.timer);
             lv.opening = null;
@@ -366,7 +388,7 @@
       return lv;
     }
 
-    level(listOf(items), o.label, at, how);
+    level(list, o.label, at, how);
 
     // A press outside closes it; a press on its own opener is left to the opener.
     document.addEventListener("pointerdown", e => {
@@ -377,6 +399,10 @@
     // Focus goes back where it was, so the app answers keys when the person returns.
     window.addEventListener("blur", () => handle.close(true), { signal });
     window.addEventListener("resize", () => handle.close(true), { signal });
+    // The page scrolling under it would leave it hanging away from its title.
+    document.addEventListener("scroll", e => {
+      if (!levels.some(lv => lv.menu.contains(e.target))) handle.close(true);
+    }, { capture: true, signal });
     return handle;
   }
 
@@ -385,7 +411,9 @@
   function open(items, at = {}, options = {}) {
     const x = Number.isFinite(at.x) ? at.x : 0;
     const y = Number.isFinite(at.y) ? at.y : 0;
-    const handle = show(items, { x, y }, options.keyboard ? "keyboard" : "mouse", {
+    const list = listOf(items);
+    if (!list.length) return { close() {} }; // nothing to show
+    const handle = show(list, { x, y }, options.keyboard ? "keyboard" : "mouse", {
       label: options.label,
       returnTo: options.returnTo,
       onClose: info => options.onClose?.({ label: String(options.label ?? ""), chosen: info.chosen }),
@@ -405,6 +433,7 @@
     const life = new AbortController();
     const signal = life.signal;
     let handle = null;
+    let destroyed = false;
     const caret = options.caret !== false;
     const added = [];
     const mark = (cls) => {
@@ -426,11 +455,13 @@
     const disabled = () => element.getAttribute("aria-disabled") === "true" || element.disabled === true;
 
     function openIt(how, returnTo, again = false) {
-      if (disabled()) return;
+      if (disabled() || destroyed) return;
+      const list = listOf(items);
+      if (!list.length) return;
       const r = element.getBoundingClientRect();
       const gap = Number(options.gap ?? 3);
       const name = label ?? element.textContent.trim();
-      handle = show(items, { x: r.left, y: r.bottom + gap, above: r.top - gap }, how, {
+      handle = show(list, { x: r.left, y: r.bottom + gap, above: r.top - gap }, how, {
         label: name,
         owner: element,
         returnTo,
@@ -472,14 +503,23 @@
     }, { signal });
 
     return {
-      /** Replaces the items (or the function that makes them). */
-      setItems(next) { items = next ?? []; },
+      /** Replaces the items (or the function that makes them); an open menu shows the new ones. */
+      setItems(next) {
+        if (destroyed) return;
+        items = next ?? [];
+        if (!handle) return;
+        const list = listOf(items);
+        if (!list.length) return handle.close(true);
+        element.setAttribute("aria-controls", handle.replace(list));
+      },
       /** Opens the menu with its first item chosen. */
       open() { if (!handle) openIt("keyboard", element); },
       /** Closes the menu if it is open. */
       close() { handle?.close(false); },
       /** Removes the menu and its listeners; button can then be called again. */
       destroy() {
+        if (destroyed) return;
+        destroyed = true;
         handle?.close(false);
         life.abort();
         for (const cls of added) element.classList.remove(cls);
@@ -503,7 +543,9 @@
     const addedClass = !nav.classList.contains("tmn-bar");
     nav.classList.add("tmn-bar");
     nav.setAttribute("role", "menubar");
-    if (!nav.hasAttribute("aria-label")) nav.setAttribute("aria-label", options.label ?? "Menu");
+    const addedLabel = !nav.hasAttribute("aria-label");
+    if (addedLabel) nav.setAttribute("aria-label", options.label ?? "Menu");
+    let destroyed = false;
     const life = new AbortController();
     const signal = life.signal;
     let menus = Array.isArray(options.menus) ? options.menus : [];
@@ -551,7 +593,14 @@
     }
 
     function openMenu(i, how, returnTo) {
-      if (!usable(i)) return;
+      if (!usable(i) || destroyed) return;
+      const list = listOf(menus[i].items);
+      // A menu with nothing in it does not open; its title keeps the focus.
+      if (!list.length) {
+        handle?.close(false);
+        if (how !== "mouse") focusTitle(i);
+        return;
+      }
       const keepReturn = handle?.returnTo;
       // From one menu of the bar to the next: the bar stays open, so no onClose or onOpen.
       const hopping = handle != null;
@@ -563,7 +612,7 @@
       const r = t.getBoundingClientRect();
       const back = returnTo ?? keepReturn ?? document.activeElement;
       openAt = i;
-      handle = show(menus[i].items, { x: r.left, y: r.bottom }, how, {
+      handle = show(list, { x: r.left, y: r.bottom }, how, {
         label: menus[i].label,
         owner: nav,
         returnTo: back,
@@ -660,26 +709,35 @@
     render();
 
     return {
-      /** Replaces the menus. An open menu stays open if its title is still there. */
+      /** Replaces the menus. An open menu stays open, with its new items, if its title is still there. */
       setMenus(next) {
+        if (destroyed) return;
         menus = Array.isArray(next) ? next : [];
         const was = openAt;
         render();
-        if (was >= 0 && !usable(was)) handle?.close(false);
+        if (was < 0 || !handle) return;
+        const list = usable(was) ? listOf(menus[was].items) : [];
+        if (!list.length) handle.close(true);
+        else titles[was].setAttribute("aria-controls", handle.replace(list));
       },
       /** Opens menu number `index` with its first item chosen, and moves focus into it. */
       open(index = 0) { openMenu(index, "keyboard", document.activeElement); },
       /** Closes the open menu, if any. */
       close() { handle?.close(false); },
       /** Moves keyboard focus to the first title. */
-      focus() { focusTitle(usable(roving) ? roving : step(-1, 1)); },
+      focus() {
+        if (!destroyed) focusTitle(usable(roving) ? roving : step(-1, 1));
+      },
       /** Removes the titles and listeners; bar can then be called again. */
       destroy() {
+        if (destroyed) return;
+        destroyed = true;
         handle?.close(false);
         life.abort();
         nav.replaceChildren();
         if (addedClass) nav.classList.remove("tmn-bar");
         nav.removeAttribute("role");
+        if (addedLabel) nav.removeAttribute("aria-label");
         delete nav.__taurisMenuBar;
       },
     };

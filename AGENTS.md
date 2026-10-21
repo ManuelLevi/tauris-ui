@@ -51,7 +51,7 @@ Do all of these, every time:
    - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`
    - window behaviour in `src/runtime_tests.rs` (real windows on Tauri's test runtime)
    - pure logic next to it (`#[cfg(test)]`)
-6. **Never open a window inside the plugin's `on_event`** (`src/lib.rs`), nor run app code there: Tauri holds its plugin lock and opening a window takes it, so the app freezes. Send the work through `after_event(app, |app| ...)`. The same holds for plain (not async) page commands, which must start with `let _locked = windows::InPlugin::enter();` (a test checks): inside that lock the app's `on_change` hook runs on the worker. The test `the_event_handler_opens_no_window_itself` checks the source; `test/freeze_check` checks a real app (see below).
+6. **Never open a window inside the plugin's `on_event`** (`src/lib.rs`), nor run app code there: Tauri holds its plugin lock and opening a window takes it, so the app freezes. Send the work through `after_event(app, |app| ...)`. The same holds for plain (not async) page commands, which must start with `let _locked = windows::InPlugin::enter();` (a test checks): inside that lock the app's `on_change` hook runs on the worker. The test `the_event_handler_opens_no_window_itself` checks the source, debug builds stop at once when a window opens inside the lock, and `test/freeze_check` checks a real app (see below).
 7. **A new page command needs four matching edits:**
    - the function in `src/commands.rs`
    - `generate_handler!` in `src/lib.rs`
@@ -98,7 +98,7 @@ Do all of these, every time:
 | `web/terminal.js`, `web/terminal.css`, `web/terminal.d.ts` | The terminal look: helpers, classes (`--tm-*` variables), types |
 | `web/files.js`, `web/files.css`, `web/files.d.ts` | The files component: script, look (`--tf-*` variables), types |
 | `web/menus.js`, `web/menus.css`, `web/menus.d.ts` | The in-window menus (not the native menu, which is `src/menu.rs`): script, look (`--tmn-*`), types |
-| `test/` | Headless tests: tabs (`run.py`, with a stand-in for Rust), tree (`tree_run.py`, `tree_demo.html`), terminal (`terminal_run.py`, `terminal_demo.html`), files and menus (`files_run.py`, `menus_run.py`, both on `files_demo.html`) |
+| `test/` | Headless tests: tabs (`run.py`, with a stand-in for Rust), tree (`tree_run.py`, `tree_demo.html`), terminal (`terminal_run.py`, `terminal_demo.html`), files and menus (`files_run.py`, `menus_run.py`, both on `files_demo.html`); `freeze_check/`, a real macOS app (see below) |
 | `examples/basic/` | The smallest complete app |
 | `scripts/doctor.py` | Checks an app's setup and version requirement |
 

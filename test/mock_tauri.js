@@ -6,7 +6,7 @@
   const make = title => ({ id: ++nextId, title, view: null, query: "" });
   const count = window.__tabCount || 3;
   let tabs = Array.from({ length: count }, (_, i) => make(`Tab ${i + 1}`));
-  let active = tabs[0].id;
+  let active = window.__noActive ? null : tabs[0].id; // __noActive: a window with no active tab
   const listeners = {};
   window.__calls = [];
   const emit = (event, payload) => (listeners[event] || []).forEach(fn => fn({ payload }));

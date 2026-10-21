@@ -25,7 +25,8 @@ use tauri::{Runtime, WebviewWindow};
 
 /// The MIME type for a file name, from its extension (`application/octet-stream` when unknown).
 pub fn mime_for(name: &str) -> &'static str {
-    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    // ".pdf" alone is a hidden file named "pdf", with no extension.
+    let ext = Path::new(name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     match ext.as_str() {
         "pdf" => "application/pdf",
         "png" => "image/png",
@@ -78,11 +79,14 @@ pub fn mime_for(name: &str) -> &'static str {
 /// A file name that is safe to create on disk, on every system: no folders,
 /// no characters Windows refuses, none of Windows' device names (CON, PRN,
 /// AUX, NUL, CONIN$, CONOUT$, COM0–9 and LPT0–9 with ¹²³ too, which get a
-/// "_" in front), no control characters, no leading dot, no trailing dot or
-/// space, at most 200 characters (the extension is kept). Empty becomes "file".
+/// "_" in front), no control characters, no invisible characters (such as a
+/// right-to-left mark that makes "fdp.exe" read as "exe.pdf"), no leading dot
+/// or space, no trailing dot or space, at most 200 characters and 255 bytes
+/// (the extension is kept). Empty becomes "file".
 pub fn safe_name(name: &str) -> String {
     let swapped: String =
         name.chars()
+            .filter(|c| !invisible(*c))
             .map(|c| {
                 if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
                     '-'
@@ -91,7 +95,8 @@ pub fn safe_name(name: &str) -> String {
                 }
             })
             .collect();
-    let trimmed = swapped.trim().trim_start_matches('.').trim_end_matches(['.', ' ']).to_string();
+    let edge = |c: char| c == '.' || c.is_whitespace();
+    let trimmed = swapped.trim_start_matches(edge).trim_end_matches(edge).to_string();
     if trimmed.is_empty() {
         return "file".into();
     }
@@ -107,20 +112,37 @@ pub fn safe_name(name: &str) -> String {
         || numbered("COM")
         || numbered("LPT");
     let trimmed = if device { format!("_{trimmed}") } else { trimmed };
-    if trimmed.chars().count() <= 200 {
+    // Most disks allow 255 bytes; 200 characters keeps full paths short.
+    const CHARS: usize = 200;
+    const BYTES: usize = 255;
+    if trimmed.chars().count() <= CHARS && trimmed.len() <= BYTES {
         return trimmed;
     }
     match trimmed.rsplit_once('.') {
         Some((stem, ext)) if !ext.is_empty() && ext.chars().count() <= 10 => {
-            let keep = 200 - ext.chars().count() - 1;
-            let cut: String = stem.chars().take(keep).collect();
-            format!("{}.{ext}", cut.trim_end_matches(['.', ' ']))
+            let cut = head(stem, CHARS - ext.chars().count() - 1, BYTES - ext.len() - 1);
+            format!("{}.{ext}", cut.trim_end_matches(edge))
         }
-        _ => {
-            let cut: String = trimmed.chars().take(200).collect();
-            cut.trim_end_matches(['.', ' ']).to_string()
-        }
+        _ => head(&trimmed, CHARS, BYTES).trim_end_matches(edge).to_string(),
     }
+}
+
+// Characters that show nothing but change how a name reads.
+fn invisible(c: char) -> bool {
+    matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}'
+        | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
+}
+
+// The start of `s`: at most `chars` characters and `bytes` bytes, never half a character.
+fn head(s: &str, chars: usize, bytes: usize) -> &str {
+    let mut end = 0;
+    for (n, c) in s.chars().enumerate() {
+        if n == chars || end + c.len_utf8() > bytes {
+            break;
+        }
+        end += c.len_utf8();
+    }
+    &s[..end]
 }
 
 /// A size as the files component shows it: "0 KB", "240 KB", "2.4 MB", "1.2 GB".
@@ -129,14 +151,25 @@ pub fn size_text(bytes: u64) -> String {
     const MB: f64 = 1024.0 * 1024.0;
     const GB: f64 = 1024.0 * MB;
     let n = bytes as f64;
+    let kb = ((n / KB).round() as u64).max(1);
     if bytes == 0 {
         "0 KB".into()
-    } else if n < MB {
-        format!("{} KB", grouped(((n / KB).round() as u64).max(1)))
-    } else if n < GB {
+    } else if kb < 1024 {
+        format!("{} KB", grouped(kb))
+    } else if (n / MB * 10.0).round() < 10240.0 {
+        // Up a unit where the rounded number would read 1,024.
         format!("{} MB", one_decimal(n / MB))
     } else {
         format!("{} GB", one_decimal(n / GB))
+    }
+}
+
+// A limit as a sentence says it: "100 bytes" under 1 KB, else as size_text.
+fn limit_text(bytes: u64) -> String {
+    match bytes {
+        1 => "1 byte".into(),
+        b if b < 1024 => format!("{b} bytes"),
+        b => size_text(b),
     }
 }
 
@@ -179,12 +212,20 @@ pub struct FileInfo {
 /// it when the app's onAdd fails with it.
 pub fn inspect(path: impl AsRef<Path>, max_bytes: Option<u64>) -> Result<FileInfo, String> {
     let path = path.as_ref();
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+    let name = match path.file_name() {
+        Some(n) => n.to_string_lossy().into_owned(),
+        None if path.as_os_str().is_empty() => "The file".into(),
+        None => path.display().to_string(),
+    };
     if path.is_dir() {
         return Err(format!("{name} is a folder. Add files, not folders."));
     }
-    if !path.is_file() {
+    if !path.exists() {
         return Err(format!("{name} could not be found."));
+    }
+    if !path.is_file() {
+        // A device or a pipe, such as /dev/null.
+        return Err(format!("{name} is not a file that can be added."));
     }
     let size = match std::fs::metadata(path) {
         Ok(meta) => meta.len(),
@@ -192,7 +233,7 @@ pub fn inspect(path: impl AsRef<Path>, max_bytes: Option<u64>) -> Result<FileInf
     };
     if let Some(max) = max_bytes {
         if size > max {
-            return Err(format!("{name} is larger than {}.", size_text(max)));
+            return Err(format!("{name} is larger than {}.", limit_text(max)));
         }
     }
     let mime = mime_for(&name);
@@ -359,6 +400,7 @@ mod tests {
         assert_eq!(mime_for("photo.HEIC"), "image/heic");
         assert_eq!(mime_for("no-extension"), "application/octet-stream");
         assert_eq!(mime_for(".hidden"), "application/octet-stream");
+        assert_eq!(mime_for(".pdf"), "application/octet-stream");
     }
 
     #[test]
@@ -385,6 +427,13 @@ mod tests {
         let cut = safe_name(&long);
         assert_eq!(cut.chars().count(), 200);
         assert!(cut.ends_with(".pdf"));
+        // Four bytes a character: the byte limit cuts first.
+        let wide = safe_name(&format!("{}.txt", "𝄞".repeat(100)));
+        assert!(wide.len() <= 255 && wide.ends_with(".txt") && !wide.contains('\u{FFFD}'), "{wide}");
+        assert_eq!(safe_name("invoice\u{202E}fdp.exe"), "invoicefdp.exe");
+        assert_eq!(safe_name("zero\u{200B}width.txt"), "zerowidth.txt");
+        assert_eq!(safe_name(". a"), "a");
+        assert_eq!(safe_name(" . report.pdf . "), "report.pdf");
     }
 
     #[test]
@@ -393,6 +442,8 @@ mod tests {
         assert_eq!(size_text(1), "1 KB");
         assert_eq!(size_text(389_120), "380 KB");
         assert_eq!(size_text(1_047_552), "1,023 KB");
+        assert_eq!(size_text(1_048_575), "1 MB");
+        assert_eq!(size_text(1024 * 1024 * 1024 - 1), "1 GB");
         assert_eq!(size_text(2_516_582), "2.4 MB");
         assert_eq!(size_text(50 * 1024 * 1024), "50 MB");
         assert_eq!(size_text(1536 * 1024 * 1024), "1.5 GB");
@@ -413,6 +464,10 @@ mod tests {
         assert_eq!(inspect(&folder, None).unwrap_err(), "Contracts is a folder. Add files, not folders.");
         assert_eq!(inspect(dir.join("nope.pdf"), None).unwrap_err(), "nope.pdf could not be found.");
         assert_eq!(inspect(&file, Some(2048)).unwrap_err(), "Term sheet.docx is larger than 2 KB.");
+        assert_eq!(inspect(&file, Some(100)).unwrap_err(), "Term sheet.docx is larger than 100 bytes.");
+        assert_eq!(inspect("", None).unwrap_err(), "The file could not be found.");
+        #[cfg(unix)]
+        assert_eq!(inspect("/dev/null", None).unwrap_err(), "null is not a file that can be added.");
         assert!(inspect(&file, Some(3000)).is_ok());
 
         std::fs::remove_dir_all(&dir).ok();

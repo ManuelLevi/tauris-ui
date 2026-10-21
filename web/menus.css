@@ -23,7 +23,8 @@
     --tmn-font-size: 13px;
     --tmn-fg: var(--tauris-fg, #1e1f22);
     --tmn-disabled: var(--tauris-faint, #a3a6ad);
-    --tmn-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));
+    --tmn-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));    /* the soft halo around a focus line */
+    --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #2675bf));
     /* the bar */
     --tmn-bar-h: 24px;
     --tmn-bar-bg: var(--tauris-chrome, #f2f2f3);
@@ -62,9 +63,10 @@
       --tmn-fg: var(--tauris-fg, #dfe1e5);
       --tmn-disabled: var(--tauris-faint, #6f737a);
       --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
+      --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
       --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
       --tmn-bar-line: var(--tauris-line, #515356);
-      --tmn-title-open-bg: var(--tauris-hover, #4b6eaf);
+      --tmn-title-open-bg: var(--tauris-hover, #3d5a8f);
       --tmn-menu-bg: var(--tauris-bg, #2f3234);
       --tmn-menu-border: var(--tauris-line, #6b6e73);
       --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
@@ -73,7 +75,7 @@
       --tmn-sep: var(--tauris-line, #515356);
       --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
       --tmn-tool-border: var(--tauris-line, #5e6165);
-      --tmn-tool-on-bg: var(--tauris-hover, #4b6eaf);
+      --tmn-tool-on-bg: var(--tauris-hover, #3d5a8f);
     }
   }
 
@@ -82,9 +84,10 @@
     --tmn-fg: var(--tauris-fg, #dfe1e5);
     --tmn-disabled: var(--tauris-faint, #6f737a);
     --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
+    --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
     --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
     --tmn-bar-line: var(--tauris-line, #515356);
-    --tmn-title-open-bg: var(--tauris-hover, #4b6eaf);
+    --tmn-title-open-bg: var(--tauris-hover, #3d5a8f);
     --tmn-menu-bg: var(--tauris-bg, #2f3234);
     --tmn-menu-border: var(--tauris-line, #6b6e73);
     --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
@@ -93,7 +96,7 @@
     --tmn-sep: var(--tauris-line, #515356);
     --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
     --tmn-tool-border: var(--tauris-line, #5e6165);
-    --tmn-tool-on-bg: var(--tauris-hover, #4b6eaf);
+    --tmn-tool-on-bg: var(--tauris-hover, #3d5a8f);
   }
 
   /* ---------- the bar ---------- */
@@ -124,7 +127,7 @@
   .tmn-title:hover,
   .tmn-title[aria-expanded="true"] { background: var(--tmn-title-open-bg); }
   .tmn-title:focus { outline: none; }
-  .tmn-title:focus-visible { outline: 2px solid var(--tmn-focus); outline-offset: -2px; }
+  .tmn-title:focus-visible { outline: 2px solid var(--tmn-focus-line); outline-offset: -2px; }
   .tmn-title[aria-disabled="true"] { color: var(--tmn-disabled); background: none; }
 
   /* ---------- a menu ---------- */
@@ -282,7 +285,7 @@
 
   .tmn-tool:hover { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
   .tmn-tool:focus { outline: none; }
-  .tmn-tool:focus-visible { box-shadow: 0 0 0 2px var(--tmn-focus); }
+  .tmn-tool:focus-visible { box-shadow: 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus); }
   .tmn-tool:active { transform: translateY(0.5px); }
 
   .tmn-tool[aria-expanded="true"],
@@ -317,7 +320,12 @@
   @media (forced-colors: active) {
     .tmn-menu { border-color: CanvasText; }
     .tmn-item:focus { forced-color-adjust: none; color: HighlightText; background: Highlight; }
-    .tmn-title[aria-expanded="true"] { outline: 1px solid Highlight; }
+    .tmn-title[aria-expanded="true"],
+    .tmn-title:hover { outline: 1px solid Highlight; outline-offset: -1px; }
+    /* An item whose sub-menu is open stays marked while the focus is in the sub-menu. */
+    .tmn-item[aria-expanded="true"]:not(:focus) { outline: 1px solid Highlight; outline-offset: -1px; }
+    .tmn-title:focus-visible,
+    .tmn-tool:focus-visible { outline: 2px solid Highlight; }
   }
 }
 
@@ -340,7 +348,11 @@ button:where(.tmn-tool) {
 
 button:where(.tmn-tool):hover { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
 button:where(.tmn-tool):active { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
-button:where(.tmn-tool):focus-visible { box-shadow: 0 0 0 2px var(--tmn-focus); }
+button:where(.tmn-tool):focus-visible { box-shadow: 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus); }
 button:where(.tmn-tool)[aria-expanded="true"],
 button:where(.tmn-tool)[aria-pressed="true"] { background: var(--tmn-tool-on-bg); border-color: var(--tmn-tool-border); }
 button:where(.tmn-tool):disabled { color: var(--tmn-disabled); background: transparent; border-color: transparent; }
+
+@media (forced-colors: active) {
+  button:where(.tmn-tool):focus-visible { outline: 2px solid Highlight; }
+}

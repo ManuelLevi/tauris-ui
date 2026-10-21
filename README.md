@@ -23,21 +23,24 @@ Set a few `--tauris-*` colours once, and the tabs, the tree, the files table and
   --tauris-bg: #ffffff;                   /* lists, fields, menus, the active tab */
   --tauris-chrome: #e9e9eb;               /* bars and column headers */
   --tauris-fg: #1e1f22;
-  --tauris-dim: #666a77;                  /* secondary text */
+  --tauris-dim: #5f6370;                  /* secondary text */
   --tauris-line: #c4c6cc;                 /* borders and separators */
   --tauris-hover: #e6e8ec;
   --tauris-accent: #2675bf;
-  --tauris-accent-ink: #2675bf;           /* the accent as text; keep it readable on --tauris-bg */
+  --tauris-accent-ink: #2675bf;           /* the accent as text and focus lines; keep it readable on --tauris-bg */
+  --tauris-on-accent: #ffffff;            /* text on the accent (the files' Add button) */
   --tauris-sel-bg: #2675bf;               /* the selected row, the chosen menu item */
   --tauris-sel-fg: #ffffff;
   --tauris-sel-inactive: #e2e3e8;         /* the tree's selection while it does not have the focus */
   --tauris-faint: #a3a6ad;                /* faint and disabled text */
-  --tauris-focus: rgb(38 117 191 / 0.32); /* focus rings */
+  --tauris-focus: rgb(38 117 191 / 0.32); /* the soft halo around a focus line */
 }
 @media (prefers-color-scheme: dark) {     /* an app that follows the system: the dark ones */
   :root { --tauris-bg: #2f3234; --tauris-chrome: #34373a; --tauris-fg: #dfe1e5; /* ... */ }
 }
 ```
+
+An app that is always light (or always dark) also sets `data-tauris-theme` on `<html>` (below). Without it, a dark system still gives the components dark scrollbars and the dark colours of everything you did not set.
 
 Set them on `:root` (on another element they do not reach the components). Which component follows which:
 
@@ -46,12 +49,13 @@ Set them on `:root` (on another element they do not reach the components). Which
 | `--tauris-font` | ✓ | ✓ | ✓ | ✓ |
 | `--tauris-bg`, `--tauris-fg`, `--tauris-line`, `--tauris-hover` | ✓ | ✓ | ✓ | ✓ |
 | `--tauris-chrome`, `--tauris-dim` | ✓ | ✓ | ✓ | ✓ (chrome) |
-| `--tauris-accent` | ✓ | ✓ (also its focus lines) | ✓ | |
+| `--tauris-accent` | ✓ | ✓ (also its focus lines) | ✓ | ✓ (focus lines, without `--tauris-accent-ink`) |
 | `--tauris-sel-bg`, `--tauris-sel-fg` | | ✓ | ✓ | ✓ |
 | `--tauris-sel-inactive` | | ✓ | | |
 | `--tauris-faint` | | | ✓ | ✓ |
 | `--tauris-focus` | | | ✓ | ✓ |
-| `--tauris-mono`, `--tauris-accent-ink` | | | ✓ | |
+| `--tauris-accent-ink` | | | ✓ | ✓ (focus lines) |
+| `--tauris-mono`, `--tauris-on-accent` | | | ✓ | |
 
 **Light and dark.** Every component follows the system's light or dark mode. An app with its own switch, or one that is always light or always dark, sets `data-tauris-theme="light"` or `"dark"` on `<html>`, and every component (all its colours, its scrollbars and checkboxes, not only the ones above) follows the app instead:
 
@@ -68,7 +72,7 @@ Set the `--tauris-*` colours for each mode the same way: `:root[data-tauris-them
 - Drop it on another window's strip to move it there (macOS).
 - Right click: New tab, Close tab, Close other tabs, Close tabs to the right, Move to new window.
 - ⌘T, ⌘N, ⌘W and ⇧⌘W, through a ready-made menu.
-- Keyboard: arrows, Home, End, Delete, Shift+F10 for the menu, ^Tab to step. Keys typed into a field inside a tab stay in the field.
+- Keyboard: arrows, Home, End, Delete, Shift+F10 for the menu, ^Tab to step. Keys typed into a field inside a tab stay in the field; Enter, Space and Delete on a button inside a tab are that button's.
 - Too many tabs to fit: the row scrolls, also while you drag a tab.
 - On macOS the tabs sit in the title bar, level with the window buttons; elsewhere, just below the system's title bar.
 - Windows, tabs and the data on them are remembered between runs, quits included.
@@ -366,7 +370,7 @@ Every variable is listed at the top of `web/tabs.css`. They cover:
 
 Any `.tt-*` class can be overridden too.
 
-The library's rules sit in a cascade layer named `tauris-ui`, so plain CSS always wins over them. If your CSS uses layers (Tailwind 4, shadcn), set the `--tt-*` variables and any `.tt-*` overrides **outside every `@layer` block**, as above. Inside any layer, the library's defaults win. Don't declare or reorder the `tauris-ui` layer yourself: Tailwind's reset would then strip the tabs' spacing.
+The library's rules sit in a cascade layer named `tauris-ui`, so plain CSS always wins over them. That includes a bare `div { ... }` or `span { ... }` rule, which reaches the parts of every component: keep such rules on your own classes. (Fields and buttons are protected from bare `input` and `button` rules.) If your CSS uses layers (Tailwind 4, shadcn), set the `--tt-*` variables and any `.tt-*` overrides **outside every `@layer` block**, as above. Inside a layer, which rule wins depends on the order the layers were first named, so do not count on it. Don't declare or reorder the `tauris-ui` layer yourself: Tailwind's reset would then strip the tabs' spacing.
 
 ## Tree view
 
@@ -403,11 +407,12 @@ const tree = TaurisTree.mount(document.getElementById("settings"), {
 tree.on("change", ({ node, column, value }) => console.log(node.id, column, value)); // save it in your app
 ```
 
-**Sorting.** With `sortable: true` (or a first `sort`), a click on a column's header sorts by it, and a second click turns it round (▲ / ▼). Enter and Space do the same on a focused header.
+**Sorting.** With `sortable: true` (or a first `sort`), a click on a column's header sorts by it, and a second click turns it round (▲ / ▼). Enter and Space do the same on a focused header, and Alt+← / Alt+→ there make the column narrower or wider (as dragging its edge does).
 - Rows sort among their siblings: groups stay groups, and children sort inside each group.
 - Numbers sort as numbers. Text sorts as people read it ("Brian 49" before "Brian 169"). Empty values go last both ways.
 - A column with `sortable: false` never sorts. `sortValue: node => ...` sorts by something other than the text shown (an ISO date behind "21 Oct 2026"), and `compare: (a, b) => ...` replaces the comparison.
 - Selection and focus stay on their node. `setData` keeps the order. An edit does not move its row until the next sort or `setData`.
+- `setData` keeps what the person did: a folder they closed stays closed (`expanded: true` opens a node only the first time it comes), and a value they are editing is saved first (a "change" event), unless its node is gone.
 
 ```js
 const tree = TaurisTree.mount(el, {
@@ -588,8 +593,8 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 | `sort` | `{ key: "name", up: true }` | The first order. A new column starts A to Z for names, biggest and newest first for sizes and dates |
 | `header`, `search` | `true` | The header row, and its search field (shown once there are files) |
 | `multiple` | `false` | ⌘-click (Ctrl-click) and Shift-click select several files. Turn it on when the app's own actions (a File › Delete) use `selection()` |
-| `dropArea` | `"window"` | Where a drop adds files: `"window"`, `"element"` (over the component only: use it when two are shown at once) or `"none"` |
-| `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function `(file) => question`: its own question for one file. Several files at once are asked about with `labels.confirmDeleteMany` (`files => "Delete 3 files?"`) |
+| `dropArea` | `"window"` | Where a drop adds files: `"window"` (anywhere; with two components shown, a drop over one is that one's, and elsewhere the first mounted takes it), `"element"` (over the component only) or `"none"` |
+| `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function `(file) => question`: its own question for one file (`null`, `false` or `""`: that file goes without a question). Several files at once are asked about with `labels.confirmDeleteMany` (`files => "Delete 3 files?"`) |
 | `formatDate` | short | `(date, file) => text` for the Added column |
 | `pick` | the system's | `(title) => Promise<paths>` behind Add files… |
 | `labels` | English | Any word or sentence it shows (`web/files.d.ts` lists them), e.g. `{ add: "Ajouter…", dropHint: "Up to 50 MB per file" }` |
@@ -643,7 +648,7 @@ row.addEventListener("contextmenu", e => {
 });
 ```
 
-In React, make the bar once (`useEffect(() => { const b = TaurisMenu.bar(nav.current!, { menus }); return () => b.destroy(); }, [])`) and give items as functions that read the app's current state, or call `bar.setMenus(menus)` when it changes.
+In React, make the bar once (`useEffect(() => { const b = TaurisMenu.bar(nav.current!, { menus }); return () => b.destroy(); }, [])`) and give items as functions that read the app's current state, or call `bar.setMenus(menus)` when it changes (an open menu shows the new items at once). A menu with no items does not open. A menu closes when the page scrolls under it.
 
 **An item** is `{ label, shortcut?, disabled?, checked?, color?, danger?, action?, items? }`, or `"-"` for a line (`items` makes a sub-menu: `{ label: "Open Recent", items: () => recent.map(...) }`); `null` and `false` are skipped. The action runs after the menu has closed and the focus is back where it was, so Edit › Copy acts on the field the person was in. Shortcuts are shown, not bound: the app binds its own keys.
 
@@ -723,13 +728,14 @@ Types are in `web/terminal.d.ts`: copy it into a TypeScript app.
 
 ```
 cargo fmt --check && cargo clippy --all-targets && cargo test   # the model, the windows on Tauri's test runtime, saving, the command lists
-python test/run.py [shots-dir]             # the tabs page side: 105 checks in headless Chrome, nothing on screen
-python test/tree_run.py [shots-dir]        # the tree view: 144 checks, including the pixels of its lines and boxes
-python test/terminal_run.py [shots-dir]    # the terminal: 95 checks, including its gaps and bars by pixel
-python test/files_run.py [shots-dir]       # the files component: 154 checks, with drops and the picker stood in for
-python test/menus_run.py [shots-dir]       # the menus: 95 checks, mouse and keyboard
+python test/run.py [shots-dir]             # the tabs page side, in headless Chrome, nothing on screen
+python test/tree_run.py [shots-dir]        # the tree view, including the pixels of its lines and boxes
+python test/terminal_run.py [shots-dir]    # the terminal, including its gaps and bars by pixel
+python test/files_run.py [shots-dir]       # the files component, with drops and the picker stood in for
+python test/menus_run.py [shots-dir]       # the menus, mouse and keyboard
 cargo clippy --all-targets --features files && cargo test --features files   # the Rust side of the files component
 cd examples/basic/src-tauri && cargo build
+cd test/freeze_check && cargo run          # macOS: a real app; the Dock click and New Window must open their windows
 ```
 
 ## Limits

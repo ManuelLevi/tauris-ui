@@ -232,13 +232,23 @@
       root.style.setProperty("--tv-total", `${widths.reduce((a, b) => a + b, 0)}px`);
     }
 
+    let dataCalls = 0;
     function setData(list) {
-      finishEdit(false, false);
+      // An edit in progress is saved when its node is still there (a "change"
+      // event the app may answer with setData itself: then that list stands).
+      const call = ++dataCalls;
+      if (editing) {
+        const key = editing.key;
+        const there = items => (Array.isArray(items) ? items : []).some(n => keyOf(n.id) === key || (hasKids(n) && there(n.children)));
+        finishEdit(there(list), false);
+        if (call !== dataCalls) return;
+      }
       const hadFocus = body.contains(document.activeElement);
       const hadKey = selectedKey;
       const hadPicked = picked.size;
       const hadAt = selectedKey !== null ? index.get(selectedKey) : undefined;
       data = Array.isArray(list) ? list : [];
+      const before = nodes;
       nodes = new Map();
       parents = new Map();
       const clashes = [];
@@ -248,7 +258,8 @@
           if (n.id === undefined || n.id === null || nodes.has(k)) clashes.push(String(n.id));
           nodes.set(k, n);
           parents.set(k, parent);
-          if (n.expanded === true) expanded.add(k);
+          // expanded: true opens a node the first time it comes; after that the person decides.
+          if (n.expanded === true && !before.has(k)) expanded.add(k);
           if (hasKids(n)) walk(n.children, k);
         }
       };
@@ -348,7 +359,10 @@
       const dir = sortBy.up ? 1 : -1;
       let out;
       if (c.compare) {
-        out = items.map((n, i) => ({ n, i })).sort((a, b) => dir * c.compare(a.n, b.n) || a.i - b.i).map(x => x.n);
+        // Empty values go last both ways here too.
+        const keyed = items.map((n, i) => ({ n, i, empty: sortValueOf(n, c, sortBy.ci) === null }));
+        keyed.sort((a, b) => (a.empty !== b.empty ? (a.empty ? 1 : -1) : dir * c.compare(a.n, b.n) || a.i - b.i));
+        out = keyed.map(x => x.n);
       } else {
         const keyed = items.map((n, i) => ({ n, i, v: sortValueOf(n, c, sortBy.ci) }));
         keyed.sort((a, b) => {
@@ -655,13 +669,13 @@
       let input;
       if (spec.type === "select") {
         const list = choices(spec);
-        input = el("select", "tv-editor", { "aria-label": c.label }, list.map((o, j) => el("option", null, { value: String(j) }, o.label)));
+        input = el("select", "tv-editor", { "aria-label": `${labelOf(n)}, ${c.label}` }, list.map((o, j) => el("option", null, { value: String(j) }, o.label)));
         input.selectedIndex = list.findIndex(o => o.value === v);
         input.addEventListener("change", () => finishEdit(true), { signal });
       } else {
         const number = spec.type === "number";
         input = el("input", "tv-editor", {
-          type: number ? "number" : "text", spellcheck: "false", autocomplete: "off", "aria-label": c.label,
+          type: number ? "number" : "text", spellcheck: "false", autocomplete: "off", "aria-label": `${labelOf(n)}, ${c.label}`,
           min: number ? spec.min : null, max: number ? spec.max : null, step: number ? (spec.step ?? "any") : null,
         });
         input.value = v == null ? "" : String(v);
@@ -1070,6 +1084,13 @@
           if (!e.target.closest(".tv-grip")) press();
         }, { signal });
         cell.addEventListener("keydown", e => {
+          // Alt+← and Alt+→ make the column narrower or wider.
+          if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && i < cols.length - 1) {
+            e.preventDefault();
+            widths[i] = Math.max(cols[i].minWidth, widths[i] + (e.key === "ArrowLeft" ? -10 : 10));
+            applyWidths();
+            return;
+          }
           if (e.altKey || e.ctrlKey || e.metaKey) return;
           if (e.key === "Enter") {
             e.preventDefault();
@@ -1085,6 +1106,7 @@
           spaceDown = false;
           if (was) press();
         }, { signal });
+        cell.addEventListener("blur", () => { spaceDown = false; }, { signal });
       }
       if (i < cols.length - 1) {
         const grip = el("span", "tv-grip", { "aria-hidden": "true" });

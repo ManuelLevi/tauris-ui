@@ -24,6 +24,8 @@ REFERENCE = Path(sys.argv[2]) if len(sys.argv) > 2 else None
 if SHOTS:
     SHOTS.mkdir(parents=True, exist_ok=True)
 SIZE = {"width": 1100, "height": 560}
+# Waits until the page has drawn twice: the cursor moves on the next frame.
+TWO_FRAMES = "new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => done(0))))"
 SCALE = 2
 failures = []
 
@@ -386,6 +388,12 @@ with sync_playwright() as p:
     page.evaluate("document.getElementById('go').dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }))")
     check("a Space that went down elsewhere does not press a key", clicks(page) == [])
     page.focus("#go")
+    page.evaluate("document.getElementById('go').dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))")
+    page.focus("#user")
+    page.focus("#go")
+    page.evaluate("document.getElementById('go').dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }))")
+    check("a Space whose release was lost (the focus left) presses nothing later", clicks(page) == [])
+    page.focus("#go")
     page.fill("#pass", "harbour-lights")
     page.focus("#go")
     page.keyboard.press("Enter")
@@ -418,11 +426,11 @@ with sync_playwright() as p:
     check("the line has a name for screen readers", page.get_attribute(".tm-cmd-input", "aria-label") == "Command")
     x0 = rect(page, ".tm-cmd .tm-cursor")["x"] - rect(page, ".tm-cmd-input")["x"]
     page.keyboard.type("status")
-    page.wait_for_timeout(50)
+    page.evaluate(TWO_FRAMES)
     x6 = rect(page, ".tm-cmd .tm-cursor")["x"] - rect(page, ".tm-cmd-input")["x"]
     page.keyboard.press("ArrowLeft")
     page.keyboard.press("ArrowLeft")
-    page.wait_for_timeout(50)
+    page.evaluate(TWO_FRAMES)
     x4 = rect(page, ".tm-cmd .tm-cursor")["x"] - rect(page, ".tm-cmd-input")["x"]
     ch = x6 / 6
     check("the block cursor sits on the caret, one character per step",

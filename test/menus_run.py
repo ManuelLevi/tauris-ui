@@ -429,6 +429,42 @@ with sync_playwright() as p:
           and page.locator(empty + " .tmn-sub").count() == 0)
     page.close()
 
+    # ---------- a fifth review ----------
+    page = fresh(browser)
+    page.evaluate("""() => { window.ready = false; demo.bar.setMenus([
+      { label: 'File', items: () => { if (!ready) throw new Error('not yet'); return [{ label: 'Apple' }, { label: 'Avocado' }, { label: 'Banana' }]; } },
+      { label: 'Edit', items: [] }]); try { demo.bar.open(0); } catch {} return 0; }""")
+    page.evaluate("ready = true; 0")
+    page.click(title("File"))
+    opened = page.locator(".tmn-menu").count() == 1
+    page.click(title("File"))
+    check("items() that failed once: the title still opens and closes its menu", opened and page.locator(".tmn-menu").count() == 0)
+    page.click(title("Edit"))
+    check("a menu with no items does not open", page.locator(".tmn-menu").count() == 0 and page.get_attribute(title("Edit"), "aria-expanded") == "false")
+    page.locator(title("File")).focus()
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("a")
+    one = focused(page)
+    page.keyboard.press("a")
+    two = focused(page)
+    check("the same letter again steps through the items starting with it", one == "Avocado" and two == "Apple", (one, two))
+    page.evaluate("""demo.bar.setMenus([{ label: 'File', items: [{ label: 'Apple' }, { label: 'Cherry' }] }, { label: 'Edit', items: [] }]); 0""")
+    check("setMenus while a menu is open: it shows the new items, the focus on the same item",
+          items(page) == ["Apple", "Cherry"] and focused(page) == "Apple", (items(page), focused(page)))
+    check("and its title points at the new menu",
+          page.get_attribute(title("File"), "aria-controls") == page.evaluate("document.querySelector('.tmn-menu').id"))
+    page.evaluate("document.body.style.minHeight = '3000px'; window.scrollBy(0, 40)")
+    page.wait_for_timeout(50)
+    check("the page scrolling under an open menu closes it", page.locator(".tmn-menu").count() == 0)
+    page.evaluate("""() => { const nav = document.createElement('nav'); nav.id = 'other'; document.body.prepend(nav);
+      window.other = TaurisMenu.bar(nav, { menus: [{ label: 'Go', items: [{ label: 'Home' }] }] }); other.destroy(); other.open(0); return 0; }""")
+    check("after destroy() a bar opens nothing and keeps no name it added",
+          page.locator(".tmn-menu").count() == 0 and page.evaluate("document.getElementById('other').hasAttribute('aria-label')") is False)
+    page.evaluate("""() => { const b = document.createElement('div'); b.id = 'btn'; b.textContent = 'Docs'; document.body.prepend(b);
+      window.btn = TaurisMenu.button(b, { items: [{ label: 'One' }] }); btn.open(); btn.setItems([{ label: 'Two' }, { label: 'Three' }]); return 0; }""")
+    check("setItems while a button's menu is open shows the new items", items(page) == ["Two", "Three"], items(page))
+    page.close()
+
     # ---------- onOpen and onClose (for a sound) ----------
     page = fresh(browser)
     page.evaluate("""() => { demo.bar.destroy(); window.ev = [];

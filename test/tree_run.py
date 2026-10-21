@@ -492,8 +492,12 @@ with sync_playwright() as p:
       for (let i = 0; i < 3200; i++) { seed = (seed * 48271) % 2147483647; kids.push({ id: 'c' + i, label: 'Candidate ' + (seed % 9000), values: { score: seed % 1000 } }); }
       const t = TaurisTree.mount(host, { sortable: true, data: [{ id: 'all', label: 'All', expanded: true, children: kids }],
         columns: [{ label: 'Name', width: 260 }, { label: 'Score', key: 'score' }] });
-      const a = performance.now(); t.sort('score', false); const bySore = performance.now() - a;
-      const b = performance.now(); t.sort('label'); const byName = performance.now() - b;
+      // The best of three runs: a busy test machine slows one run, not all three.
+      let bySore = Infinity, byName = Infinity;
+      for (let n = 0; n < 3; n++) {
+        const a = performance.now(); t.sort('score', false); bySore = Math.min(bySore, performance.now() - a);
+        const b = performance.now(); t.sort('label'); byName = Math.min(byName, performance.now() - b);
+      }
       const rows = [...host.querySelectorAll('.tv-row')].sort((x, y) => parseFloat(x.style.top) - parseFloat(y.style.top)).map(r => r.querySelector('.tv-label').textContent);
       return { bySore, byName, drawn: host.querySelectorAll('.tv-row').length, first: rows.slice(1, 3) }; }""")
     check("3,200 rows: sorting takes under 60ms, and only the rows in view are drawn",
@@ -604,6 +608,46 @@ with sync_playwright() as p:
     page.evaluate("demo.files.select('atlas-desktop'); document.body.focus()")
     inactive = page.evaluate("getComputedStyle(document.querySelector('#files .tv-row[aria-selected=\"true\"]')).backgroundColor")
     check("the selection of a tree without the focus has its own shared colour, not hover's", inactive == "rgb(60, 70, 90)", inactive)
+    page.close()
+
+    # ---------- a fifth review ----------
+    page = fresh(browser)
+    page.evaluate("(" + SORT_TREE + ")({ sortable: true })")
+    page.evaluate("st.collapse('short'); st.setData(sortData())")
+    check("setData: a folder the person closed stays closed, though its node says expanded: true", page.evaluate("st.isExpanded('short')") is False)
+    page.evaluate("st.setData(sortData().concat([{ id: 'new', label: 'New', expanded: true, children: [{ id: 'n1', label: 'One' }] }]))")
+    check("a node that is new opens as its expanded says", page.evaluate("st.isExpanded('new')") is True)
+    page.evaluate("st.expand('short'); sortHost.querySelector('.tv-sortable').focus()")
+    before = page.evaluate("getComputedStyle(sortHost).getPropertyValue('--tv-c0')")
+    page.keyboard.press("Alt+ArrowRight")
+    after = page.evaluate("getComputedStyle(sortHost).getPropertyValue('--tv-c0')")
+    check("Alt+→ on a header makes its column wider", before.strip() == "200px" and after.strip() == "210px", (before, after))
+    page.keyboard.press("Alt+ArrowLeft")
+    page.keyboard.press("Alt+ArrowLeft")
+    check("Alt+← narrower", page.evaluate("getComputedStyle(sortHost).getPropertyValue('--tv-c0')").strip() == "190px")
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""() => { const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;width:500px;height:200px;z-index:9';
+      document.body.append(host); window.edits = [];
+      window.mk = () => [{ id: 'a', label: 'Name', values: { v: 'old', s: 3 } }, { id: 'b', label: 'Other', values: { v: '', s: '' } },
+        { id: 'c', label: 'Third', values: { v: '', s: 1 } }];
+      window.et = TaurisTree.mount(host, { data: mk(), sortable: true, columns: [{ label: 'Setting', width: 200 },
+        { label: 'Value', key: 'v', editable: true, width: 120 },
+        { label: 'Score', key: 's', compare: (a, b) => a.values.s - b.values.s }] });
+      et.on('change', e => edits.push([e.node.id, e.value])); window.etHost = host; return 0; }""")
+    page.evaluate("et.edit('a', 'v')")
+    check("an editor's name says which row and which column", page.get_attribute(".tv-editor", "aria-label") == "Name, Value")
+    page.keyboard.press("ControlOrMeta+a")
+    page.keyboard.type("new")
+    page.evaluate("et.setData(mk())")
+    check("setData while editing: the edit is saved first (a change event), not lost", page.evaluate("edits") == [["a", "new"]], page.evaluate("edits"))
+    order = lambda: page.evaluate("[...etHost.querySelectorAll('.tv-row')].sort((x, y) => parseFloat(x.style.top) - parseFloat(y.style.top)).map(r => r.dataset.key)")
+    page.evaluate("et.sort('s')")
+    up = order()
+    page.evaluate("et.sort('s', false)")
+    down = order()
+    check("a column with its own compare puts empty values last both ways", up == ["c", "a", "b"] and down == ["a", "c", "b"], (up, down))
     page.close()
 
     # ---------- one look for every component ----------

@@ -88,7 +88,7 @@
       --tt-menu-border: var(--tauris-line, #dcdce1);
       --tt-menu-hover-bg: var(--tauris-hover, #ececf1);
       --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
-      --tt-menu-muted: var(--tauris-dim, #7a7a83);
+      --tt-menu-muted: var(--tauris-dim, #686871);
     }
   }
 
@@ -109,7 +109,7 @@
     --tt-menu-border: var(--tauris-line, #dcdce1);
     --tt-menu-hover-bg: var(--tauris-hover, #ececf1);
     --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
-    --tt-menu-muted: var(--tauris-dim, #7a7a83);
+    --tt-menu-muted: var(--tauris-dim, #686871);
   }
 
   .tt-strip {

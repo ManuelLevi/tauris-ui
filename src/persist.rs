@@ -88,8 +88,12 @@ pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
             }
             label
         };
-        // A window remembered on a screen no longer attached opens centred.
+        // A window remembered on a screen no longer attached opens centred,
+        // and is remembered there.
         let frame = w.frame.filter(|f| on_screen(app, f));
+        if let Some(win) = inner(app).model().win(&label) {
+            win.frame = frame;
+        }
         match open_window(app, &label, frame, i + 1 == count) {
             Ok(_) => {
                 opened += 1;
@@ -97,6 +101,11 @@ pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
             }
             Err(_) => inner(app).model().remove_win(&label),
         }
+    }
+    // Remembered windows that could not open are kept aside, not overwritten
+    // by the new window's layout.
+    if count > 0 && opened == 0 {
+        let _ = fs::rename(&file, file.with_extension("unopened"));
     }
     opened > 0
 }
@@ -175,8 +184,9 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
         }
         options.open(&tmp).and_then(|mut f| f.write_all(text.as_bytes()))
     };
-    if written.is_ok() {
-        let _ = fs::rename(&tmp, &file);
+    // Not written: the changes stay unsaved, so the next round tries again.
+    if written.is_err() || fs::rename(&tmp, &file).is_err() {
+        state.model().changed();
     }
 }
 

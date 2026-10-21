@@ -227,6 +227,18 @@ impl Model {
         }
     }
 
+    // Undoes a detach: the tab back at its place, the window's active tab as it
+    // was. A window that is gone takes the tab with it.
+    pub fn put_back(&mut self, label: &str, tab: u64, index: usize, active: Option<u64>) {
+        let Some(win) = self.win(label) else {
+            self.tabs.remove(&tab);
+            return;
+        };
+        let index = index.min(win.tabs.len());
+        win.tabs.insert(index, tab);
+        win.active = active.filter(|a| win.tabs.contains(a)).or(Some(tab));
+    }
+
     pub fn attach(&mut self, label: &str, tab: u64, index: usize) {
         let Some(win) = self.win(label) else { return };
         let index = index.min(win.tabs.len());

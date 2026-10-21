@@ -141,7 +141,12 @@
     // Keys are not <button>s: Enter presses them at once, Space on release, as a button does.
     // Space presses only the key it went down on (a Space that chose a menu item is not a press).
     let spaceOn = null;
+    // A Space whose release was never heard (the focus moved, the window went
+    // to the back) presses nothing later.
+    root.addEventListener("focusout", () => { spaceOn = null; }, { signal });
+    window.addEventListener("blur", () => { spaceOn = null; }, { signal });
     root.addEventListener("keydown", e => {
+      if (e.key !== " ") spaceOn = null;
       const key = keyAt(e.target);
       if (!key || key !== e.target || key.getAttribute("role") !== "button" || e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.key === "Enter") {
