@@ -8,6 +8,10 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.37 — 2026-10-22
+
+- The checker says when sidebar items still have `children`: since 0.4.35 they don't show, and the page only said so in its console.
+
 ## 0.4.36 — 2026-10-22
 
 - Tree: a `contextmenu` event for a right click on a row and for the menu key (⇧F10), with where to open the app's menu.

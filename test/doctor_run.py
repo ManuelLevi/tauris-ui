@@ -371,6 +371,12 @@ check("and with one: ok", "a capability covers the dialog windows" in out and co
 out, code = app(page=WINDOWED.replace("if (TaurisDialog.inWindow) {} else ", ""))
 check("a page that never checks TaurisDialog.inWindow: said (it would draw the whole app in the dialog's window)", "nothing checks TaurisDialog.inWindow" in out and code == 1, out[-400:])
 
+# Sidebar items with children: they no longer show (0.4.35), and the checker says so.
+out, code = app(page="<script>TaurisFiles.mount(el, { pick: f }); TaurisSidebar.mount(side, { items: [{ id: 'a', label: 'A', children: [{ id: 'b', label: 'B' }] }] })</script>")
+check("sidebar items with children: said (the sidebar no longer nests)", "the sidebar no longer nests items" in out and code == 1, out[-400:])
+out, code = app(page="<script>TaurisFiles.mount(el, { pick: f }); TaurisSidebar.mount(side, { items: [{ id: 'a', label: 'A' }], content: tree })</script>")
+check("one level, a tree as content: nothing said", "no longer nests" not in out, out[-400:])
+
 # A capability for some systems only.
 HERE_OS = {"darwin": "macOS", "win32": "windows"}.get(sys.platform, "linux")
 ELSEWHERE = "windows" if HERE_OS != "windows" else "linux"

@@ -725,6 +725,12 @@ def main():
             'TaurisMenu.bar(nav, { menus }), TaurisSidebar.mount(element, { items }) or TaurisTerminal.mount(element)')
     else:
         bad("found no page files (looked in frontendDist, src/ and index.html)", "check build.frontendDist in tauri.conf.json")
+    # The sidebar's items are one level since 0.4.35: nested `children` are left out (the page only warns in its console).
+    for m in re.finditer(r"TaurisSidebar\s*\??\.\s*mount\s*\(|\.\s*setItems\s*\(", text):
+        if re.search(r"\bchildren\s*:", balanced(text, m.end() - 1, "(", ")")) and "TaurisSidebar" in text:
+            bad("the sidebar's items have children: the sidebar no longer nests items, so that tree does not show",
+                "put the tree in a TaurisTree and give its element as the sidebar's content (see examples/all)")
+            break
 
     # 2. the plugin, which delivers every component
     # tauris_ui::init(...), or init(...) after `use tauris_ui::init` (or `{init, ...}`).
