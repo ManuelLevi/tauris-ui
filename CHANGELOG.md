@@ -8,6 +8,18 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.5.0 — 2026-10-22
+
+A new series: the sidebar's nested groups went in 0.4.35, a change apps must make. That release should have moved the series, so it moves now, and an app on "0.4" stops building until it is upgraded.
+
+**Upgrade:**
+- Set `version = "0.5"` on the tauris-ui dependency.
+- Sidebar items no longer nest: move a tree from items' `children` into a `TaurisTree` and pass it as `content` (as examples/all does). Drop `openOnSelect`. `scripts/doctor.py` finds both.
+- Dialogs in their own window (`window: true`) need `"tauris-dialog-*"` in the capability's `windows`, and the page to check `TaurisDialog.inWindow`. Only for apps that use it; the checker says so.
+
+Also:
+- Table: a row's buttons, checkbox and group buttons run the actions as they are now. A kept cell could run the ones from an earlier draw (an old count in a question). The README says to delegate listeners an app's `render` adds, for the same reason.
+
 ## 0.4.41 — 2026-10-22
 
 - Sidebar: `railItems`, what the collapsed strip shows (a tree's projects). Each shows its icon or its letter (`letter`, default its label's first). A click opens the sidebar and calls `onRailSelect`, for the app to show it in its tree. The full example shows its projects so.

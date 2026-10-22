@@ -30,12 +30,12 @@ this file is in.
 
 ## Is the app on the latest version?
 
-- Apps depend on the library by `path` (or `git`) plus a `version` requirement (`version = "0.4"`). With `path`, each build compiles the library as it is on disk now; with `git`, `cargo update -p tauris-ui` takes the latest.
-- A fix or a new option keeps the version in the same series (0.4.x). The app gets it at its next build, and nothing is needed.
-- A change that needs app changes moves the version to a new series (0.5.0). The app's build then fails with ``failed to select a version for the requirement `tauris-ui = "^0.4"` ``. That failure is the signal. To fix it:
+- Apps depend on the library by `path` (or `git`) plus a `version` requirement (`version = "0.5"`). With `path`, each build compiles the library as it is on disk now; with `git`, `cargo update -p tauris-ui` takes the latest.
+- A fix or a new option keeps the version in the same series (0.5.x). The app gets it at its next build, and nothing is needed.
+- A change that needs app changes moves the version to a new series (0.6.0). The app's build then fails with ``failed to select a version for the requirement `tauris-ui = "^0.5"` ``. That failure is the signal. To fix it:
   1. Read `CHANGELOG.md` from the app's version to the new one.
   2. Do every **Upgrade** step.
-  3. Set `version = "0.5"`.
+  3. Set `version = "0.6"`.
   4. Rebuild.
 - `scripts/doctor.py` reports the same mismatch before a build. It also flags a dependency path that leads nowhere.
 - A page can read `TaurisTabs.version`, and Rust can read `tauris_ui::VERSION`.
@@ -46,7 +46,7 @@ Do all of these, every time:
 
 1. **Keep it general.** Nothing for one app goes in here: no app names, colours, views or fields. If one app needs something, add an option whose default changes nothing for the others. `docs/scope.md` says what belongs here and what stays in an app, as agreed with the apps.
 2. **Bump the version in `Cargo.toml`** (working for the maintainer; apps on this machine rely on it. A pull request from elsewhere adds to **Unreleased** instead, and the maintainer bumps at release):
-   - patch (0.4.x) for fixes and for new options that change nothing by default
+   - patch (0.5.x) for fixes and for new options that change nothing by default
    - next series (0.x+1.0) when any app must change something
 3. **Add a `CHANGELOG.md` entry** under the new version and date (or under **Unreleased** for a pull request; the maintainer releases). If apps must change, add **Upgrade** lines with the exact steps.
 4. **Update the docs** to match: `README.md`, the component's `web/*.d.ts`, `examples/basic`.

@@ -12,5 +12,5 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauris-ui = { path = "../../..", version = "0.4", features = ["files"] }
+tauris-ui = { path = "../../..", version = "0.5", features = ["files"] }
 tauri-plugin-dialog = "2"

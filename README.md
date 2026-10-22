@@ -135,18 +135,18 @@ Or add it to an existing Tauri 2 app:
 
 ```toml
 [dependencies]
-tauris-ui = { git = "https://github.com/ManuelLevi/tauris-ui", version = "0.4" }
-# tauris-ui = { path = "../tauris-ui", version = "0.4" }    # a copy on this computer
-# tauris-ui = "0.4"                                         # once it is on crates.io
+tauris-ui = { git = "https://github.com/ManuelLevi/tauris-ui", version = "0.5" }
+# tauris-ui = { path = "../tauris-ui", version = "0.5" }    # a copy on this computer
+# tauris-ui = "0.5"                                         # once it is on crates.io
 ```
 
-Keep the `version`. With a `path` dependency every build uses the library as it is now; with `git`, run `cargo update -p tauris-ui` to take the latest. When the library changes in a way that needs changes in your app, its version moves to 0.5, and the build (or the update) stops with:
+Keep the `version`. With a `path` dependency every build uses the library as it is now; with `git`, run `cargo update -p tauris-ui` to take the latest. When the library changes in a way that needs changes in your app, its version moves to the next series (0.6), and the build (or the update) stops with:
 
 ```
-failed to select a version for the requirement `tauris-ui = "^0.4"`
+failed to select a version for the requirement `tauris-ui = "^0.5"`
 ```
 
-Read `CHANGELOG.md`, do its **Upgrade** steps, then set `version = "0.5"`.
+Read `CHANGELOG.md`, do its **Upgrade** steps, then set `version = "0.6"`.
 
 The library is for desktop apps. If the app also builds for iOS or Android, keep it off those builds:
 - Put the dependency under `[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]`.
@@ -537,7 +537,7 @@ Open `test/files_demo.html` in a browser to try it with the menus below.
 **Setup.** The page side comes with the plugin. Dropping files and the picker reach Tauri through `window.__TAURI__`, so `app.withGlobalTauri` must be true, and the window needs `core:default` (dropped files arrive as events) and `tauris-ui:default` (the picker) in a capability (the tab windows have both already). For the system's picker and save dialog, turn on the `files` feature and register the dialog plugin:
 
 ```toml
-tauris-ui = { path = "../tauris-ui", version = "0.4", features = ["files"] }
+tauris-ui = { path = "../tauris-ui", version = "0.5", features = ["files"] }
 tauri-plugin-dialog = "2"
 ```
 
@@ -894,6 +894,7 @@ table.flash(added.id);                            // a row just added: selected,
   - `selectableGroups` lets groups be selected without opening and closing;
   - `last(row)` keeps rows last either way;
   - a column's `maxLength` limits an edit.
+- **Redraws keep cells:** after `setRows` or `update`, a cell that looks the same keeps its element. A listener your `render(row, cell)` adds can then belong to an older draw. Listen on the table's element instead (delegate), and read the row from `tr.dataset.id`.
 - **Drag to reorder:** `TaurisReorder.attach(table.scroller, { rows: ".ttb-row", ... })`; turn it off while sorted (`onSort: s => reorder.update({ enabled: !s })`).
 - **Methods:** `setRows`, `rows()`, `shown()`, `update(changes)`, `select(id)`, `selected()`, `sort`, `flash(id)`, `focus()`, `scroller`, `destroy()`. For a few thousand rows; the files table draws only the rows in view, for more.
 

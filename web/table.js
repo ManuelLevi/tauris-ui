@@ -393,7 +393,7 @@
       td.dataset.col = String(ci);
       if (c.actions) {
         td.classList.add("ttb-acts");
-        for (const a of c.actions) td.append(actionButton(row, a));
+        c.actions.forEach((a, ai) => td.append(actionButton(row, a, ci, ai)));
         return td;
       }
       if (c.check) {
@@ -410,7 +410,8 @@
         box.addEventListener("click", e => {
           e.preventDefault();
           e.stopPropagation();
-          toggleCheck(row, c, "mouse");
+          // The column as it is now (a kept cell's listener was bound at an earlier draw).
+          toggleCheck(row, columns()[ci] ?? c, "mouse");
         }, { signal });
         td.append(box);
         return td;
@@ -459,7 +460,13 @@
       return td;
     }
 
-    function actionButton(row, a) {
+    // The action as it is now: a kept cell's button was made at an earlier draw.
+    const actionNow = (ci, ai, a) => {
+      const acts = columns()[ci]?.actions;
+      if (!Array.isArray(acts)) return a;
+      return acts.find(x => x && (x.id ?? x.title) === (a.id ?? a.title)) ?? acts[ai] ?? a;
+    };
+    function actionButton(row, a, ci, ai) {
       const key = `${keyOf(row.id)}|${a.id ?? a.title}`;
       const pressed = typeof a.pressed === "function" ? Boolean(call(a.pressed, row)) : null;
       const label = String(a.title ?? "");
@@ -481,9 +488,11 @@
       btn.addEventListener("click", async e => {
         e.stopPropagation();
         const r = byId.get(keyOf(row.id)) ?? row;
-        if (off) return message(why, "error");
-        if (typeof a.copy === "function") {
-          const text = String(call(a.copy, r) ?? "");
+        const act = actionNow(ci, ai, a);
+        const offNow = typeof act.disabled === "function" ? call(act.disabled, r) : act.disabled;
+        if (offNow) return message(typeof offNow === "string" ? offNow : "", "error");
+        if (typeof act.copy === "function") {
+          const text = String(call(act.copy, r) ?? "");
           const wrote = navigator.clipboard?.writeText ? await navigator.clipboard.writeText(text).then(() => true, () => false) : false;
           if (!wrote) return message(say(L().copyFailed), "error");
           clearTimeout(copiedAt.get(key));
@@ -494,7 +503,7 @@
           message(say(L().copied), "ok");
           draw();
         }
-        call(a.onClick, r, { how: e.detail === 0 ? "keyboard" : "mouse" });
+        call(act.onClick, r, { how: e.detail === 0 ? "keyboard" : "mouse" });
         return undefined;
       }, { signal });
       btn.addEventListener("dblclick", e => e.stopPropagation(), { signal });
@@ -537,17 +546,20 @@
       td.append(chip, name, detail);
       if (Array.isArray(opt.groupActions) && opt.groupActions.length) {
         const acts = el("span", "ttb-group-acts");
-        for (const a of opt.groupActions) {
+        opt.groupActions.forEach((a, ai) => {
           const btn = el("button", `ttb-ib${a.danger ? " ttb-danger" : ""}`, { type: "button", tabindex: "-1", title: String(a.title ?? ""), "aria-label": `${a.title ?? ""}: ${g.label ?? ""}` });
           if (a.id != null) btn.dataset.act = String(a.id);
           icon(btn, a.icon ?? String(a.title ?? "").slice(0, 1));
           btn.addEventListener("click", e => {
             e.stopPropagation();
-            call(a.onClick, groupById(key) ?? g, { how: e.detail === 0 ? "keyboard" : "mouse" });
+            // The group's actions as they are now (a kept row's button was made at an earlier draw).
+            const now = (Array.isArray(opt.groupActions) ? opt.groupActions : []);
+            const act = now.find(x => x && (x.id ?? x.title) === (a.id ?? a.title)) ?? now[ai] ?? a;
+            call(act.onClick, groupById(key) ?? g, { how: e.detail === 0 ? "keyboard" : "mouse" });
           }, { signal });
           btn.addEventListener("dblclick", e => e.stopPropagation(), { signal });
           acts.append(btn);
-        }
+        });
         td.append(acts);
       }
       tr.append(td);
