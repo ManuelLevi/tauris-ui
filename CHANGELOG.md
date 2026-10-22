@@ -8,6 +8,13 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.5.1 — 2026-10-22
+
+- Table:
+  - a redraw compares each cell with the old one as it was drawn, before a narrow column shortened it, so a shortened cell that didn't change keeps its element and the press on it;
+  - if a redraw takes away the element with the keys (or the one pressed), the keys stay on the table;
+  - `selectGroup(id)` selects a group from code, and `onSelect` says which group was selected.
+
 ## 0.5.0 — 2026-10-22
 
 A new series: the sidebar's nested groups went in 0.4.35, a change apps must make. That release should have moved the series, so it moves now, and an app on "0.4" stops building until it is upgraded.

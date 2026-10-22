@@ -140,8 +140,8 @@ declare global {
     labels?: Partial<TaurisTableLabels>;
     /** false: the page brings its own stylesheet. */
     styles?: boolean;
-    /** rows: every selected row (several with `multiple`). */
-    onSelect?: (row: R | null, info: { how: "mouse" | "keyboard"; rows: R[] }) => void;
+    /** rows: every selected row (several with `multiple`); group: the selected group (its row then null). */
+    onSelect?: (row: R | null, info: { how: "mouse" | "keyboard"; rows: R[]; group: TaurisTableGroup | null }) => void;
     /** Enter or a double click; `cmd`: ⌘↩, or a ⌘-click without `multiple` (Ctrl elsewhere): the app's other way to open (a new tab). */
     onOpen?: (row: R, info: { how: "mouse" | "keyboard"; cmd: boolean }) => void;
     /** A right click or the menu key (⇧F10); null on the empty space. */
@@ -178,6 +178,8 @@ declare global {
     selection(): R[];
     /** The selected group (collapsible groups), or null. */
     selectedGroup(): TaurisTableGroup | null;
+    /** Selects a group (selectableGroups or collapsible) and brings it into view; onSelect is not called. */
+    selectGroup(groupId: string | number): void;
     /** Opens, closes, asks of a group (onGroupToggle is not called). */
     expand(groupId: string | number): void;
     collapse(groupId: string | number): void;

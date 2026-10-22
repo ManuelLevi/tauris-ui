@@ -457,6 +457,7 @@
         td.dataset.full = td.textContent;
         td.dataset.short = String(call(c.short, row) ?? "");
       }
+      drawn.set(td, td.outerHTML);
       return td;
     }
 
@@ -569,6 +570,7 @@
     function draw() {
       const top = scroller.scrollTop;
       const hadEdit = editing?.input && document.activeElement === editing.input;
+      const hadKeys = scroller.contains(document.activeElement);
       const { list, parts } = arrange();
       byId = new Map(rows.map(r => [keyOf(r.id), r]));
       if (sel != null && !byId.has(sel)) sel = null;
@@ -629,6 +631,8 @@
       else scroller.removeAttribute("aria-activedescendant");
       scroller.scrollTop = top;
       fitShort();
+      // The redraw took the element with the keys away: they stay on the table.
+      if (hadKeys && !hadEdit && !scroller.contains(document.activeElement)) scroller.focus({ preventScroll: true });
       if (hadEdit && editing?.input) {
         editing.input.focus({ preventScroll: true });
         const n = editing.input.value.length;
@@ -679,6 +683,10 @@
       final.forEach((tr, i) => { if (body.children[i] !== tr) body.insertBefore(tr, body.children[i] ?? null); });
       while (body.children.length > final.length) body.lastElementChild.remove();
     }
+    // Each cell as drawn, before fitShort shortened it: a redraw compares these, so a shortened
+    // cell that did not change keeps its element (and the press on it).
+    const drawn = new WeakMap();
+    const asDrawn = cell => drawn.get(cell) ?? cell.outerHTML;
     function morph(old, tr) {
       for (const a of [...old.attributes]) if (!tr.hasAttribute(a.name)) old.removeAttribute(a.name);
       for (const a of [...tr.attributes]) if (old.getAttribute(a.name) !== a.value) old.setAttribute(a.name, a.value);
@@ -689,7 +697,7 @@
         if (!now) was.remove();
         else if (!was) old.append(now);
         // A cell edited in place is always the new one (its field is the one being typed in).
-        else if (now.classList.contains("ttb-editing") || was.classList.contains("ttb-editing") || was.outerHTML !== now.outerHTML) old.replaceChild(now, was);
+        else if (now.classList.contains("ttb-editing") || was.classList.contains("ttb-editing") || asDrawn(was) !== asDrawn(now)) old.replaceChild(now, was);
       }
     }
 
@@ -709,7 +717,7 @@
       else scroller.removeAttribute("aria-activedescendant");
     }
     function tellSelect(how) {
-      call(opt.onSelect, current(), { how, rows: pickedRows() });
+      call(opt.onSelect, current(), { how, rows: pickedRows(), group: selGroup != null ? groupById(selGroup) : null });
     }
     // One row selected (and the focus there).
     function select(key, how = "api", scroll = true) {
@@ -900,6 +908,9 @@
       // A click on the row's own buttons keeps the keys on the table.
       if (e.target instanceof Element && e.target.closest(".ttb-ib, .ttb-check")) e.preventDefault();
       if (document.activeElement !== scroller && !(editing?.input && document.activeElement === editing.input)) scroller.focus({ preventScroll: true });
+      // The app redrew during this press and the pressed element went: the browser would put
+      // the focus on nothing; it stays on the table.
+      if (e.target instanceof Node && !e.target.isConnected) e.preventDefault();
     }, { signal });
 
     scroller.addEventListener("click", e => {
@@ -1147,6 +1158,13 @@
       /** The selected group (collapsible groups), or null. */
       selectedGroup() {
         return selGroup != null ? groupById(selGroup) : null;
+      },
+      /** Selects a group (selectableGroups or collapsible) and brings it into view; onSelect is not called. */
+      selectGroup(groupKey) {
+        const k = keyOf(groupKey);
+        if (!groupsSelectable() || !groupById(k)) return;
+        if (!document.getElementById(groupId(k))) draw();
+        selectGroup(k, "api");
       },
       /** Opens or closes a group; onGroupToggle is not called. */
       expand(groupKey) {
