@@ -51,6 +51,9 @@ pub(crate) struct Inner<R: Runtime> {
     // Held while a change decides whether its hook call runs now or queues,
     // so calls reach the hook in the order they were made.
     hook_gate: Mutex<()>,
+    // Windows with a hook call waiting on the worker, not started yet: another
+    // change to one of them adds no call (the hook reads the tabs as they are).
+    hook_waiting: Mutex<std::collections::HashSet<String>>,
     // The app is quitting: no new windows.
     exiting: AtomicBool,
     // Remembered windows are being opened (see persist::restore_saved).
@@ -68,6 +71,7 @@ impl<R: Runtime> Inner<R> {
             hook_q: Queue::new(),
             hook: Mutex::new(()),
             hook_gate: Mutex::new(()),
+            hook_waiting: Mutex::new(std::collections::HashSet::new()),
             exiting: AtomicBool::new(false),
             restoring: AtomicBool::new(false),
             config,
@@ -159,8 +163,9 @@ pub(crate) fn after_event<R: Runtime>(app: &AppHandle<R>, job: impl FnOnce(&AppH
     send(app, Kind::Windows, Box::new(job));
 }
 
-// Gives a job to a worker, starting it (or a new one) when needed.
-pub(crate) fn send<R: Runtime>(app: &AppHandle<R>, kind: Kind, mut job: Job<R>) {
+// Gives a job to a worker, starting it (or a new one) when needed; false
+// when no worker could take it.
+pub(crate) fn send<R: Runtime>(app: &AppHandle<R>, kind: Kind, mut job: Job<R>) -> bool {
     let queue = inner(app).queue(kind);
     let mut tx = queue.tx.lock().unwrap_or_else(PoisonError::into_inner);
     queue.pending.fetch_add(1, Ordering::SeqCst);
@@ -191,7 +196,7 @@ pub(crate) fn send<R: Runtime>(app: &AppHandle<R>, kind: Kind, mut job: Job<R>) 
             *tx = Some(sender);
         }
         match tx.as_ref().map(|t| t.send(job)) {
-            Some(Ok(())) => return,
+            Some(Ok(())) => return true,
             None => break,
             Some(Err(std::sync::mpsc::SendError(back))) => {
                 job = back;
@@ -201,6 +206,7 @@ pub(crate) fn send<R: Runtime>(app: &AppHandle<R>, kind: Kind, mut job: Job<R>) 
     }
     // No worker could take it: it is dropped, and not counted as waiting.
     queue.pending.fetch_sub(1, Ordering::SeqCst);
+    false
 }
 
 // Marks this thread as running inside Tauri's plugin lock, until dropped.
@@ -256,7 +262,8 @@ pub(crate) fn begin_exit<R: Runtime>(app: &AppHandle<R>) {
 // job (⌘N, the Dock click), so a slow hook never holds up the next one. Calls
 // never overlap and keep their order: while earlier ones wait on the worker,
 // or the hook is running on another thread, this one waits on the worker too.
-// Changes the hook itself makes do not call it again.
+// A window that already has a call waiting gets no second one. Changes the
+// hook itself makes do not call it again.
 pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let state = inner(app);
     if state.config.on_change.is_none() || IN_HOOK.with(|h| h.get()) {
@@ -280,15 +287,24 @@ pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
             return;
         }
     }
-    let label = label.to_string();
-    send(
+    // A call for this window is already waiting: it will see this change too.
+    let waiting = |s: &'static Inner<R>| s.hook_waiting.lock().unwrap_or_else(PoisonError::into_inner);
+    if !waiting(state).insert(label.to_string()) {
+        return;
+    }
+    let queued = label.to_string();
+    let sent = send(
         app,
         Kind::Hook,
         Box::new(move |app| {
+            waiting(inner(app)).remove(&queued);
             let _one = inner(app).hook.lock().unwrap_or_else(PoisonError::into_inner);
-            run_hook(app, &label);
+            run_hook(app, &queued);
         }),
     );
+    if !sent {
+        waiting(state).remove(label);
+    }
     drop(gate);
 }
 

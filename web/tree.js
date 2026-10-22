@@ -231,7 +231,11 @@
     function applyWidths() {
       if (!cols) return;
       widths.forEach((w, i) => root.style.setProperty(`--tv-c${i}`, `${w}px`));
-      head?.querySelectorAll('[role="separator"]').forEach(s => s.setAttribute("aria-valuenow", String(widths[[...head.children].indexOf(s)])));
+      head?.querySelectorAll('[role="separator"]').forEach(s => {
+        const w = widths[[...head.children].indexOf(s)];
+        s.setAttribute("aria-valuenow", String(w));
+        s.setAttribute("aria-valuetext", `${w} pixels`);
+      });
       root.style.setProperty("--tv-total", `${widths.reduce((a, b) => a + b, 0)}px`);
     }
 
@@ -712,6 +716,11 @@
       cell.append(input);
       editing = { key: k, ci, input, spec, node: n, col: c };
       input.focus({ preventScroll: true });
+      // A column off to the side comes into view (rows scroll up and down by reveal).
+      const box = scroller.getBoundingClientRect();
+      const at = cell.getBoundingClientRect();
+      if (at.right > box.right) scroller.scrollLeft += Math.min(at.right - box.right, at.left - box.left);
+      if (at.left < box.left) scroller.scrollLeft -= box.left - at.left;
       if (input.tagName === "INPUT") input.select();
       if (input.tagName === "SELECT" && typeof input.showPicker === "function") {
         try { input.showPicker(); } catch { /* no user gesture: the list opens on the next click */ }
@@ -755,7 +764,9 @@
       ed.input.remove();
       if (result.ok) commit(ed.node, ed.col, result.value);
       else render();
-      if (refocus && hadFocus) focusRow();
+      // The editor had the focus: it goes back to the row (whatever closed the
+      // editor: Enter, setData, a sort, a folder closing), never to the page.
+      if (hadFocus) focusRow();
     }
 
     function openPicker(cell, n, c, v) {
@@ -882,8 +893,10 @@
       const now = performance.now();
       typed = now - typedAt > 700 ? ch : typed + ch;
       typedAt = now;
-      const needle = typed.toLowerCase();
-      const from = typed.length === 1 ? at + 1 : at;
+      // One letter again and again steps through the rows that start with it.
+      const same = [...typed].every(c => c === typed[0]);
+      const needle = (same ? typed[0] : typed).toLowerCase();
+      const from = typed.length === 1 || same ? at + 1 : at;
       for (let j = 0; j < rows.length; j++) {
         const i = (from + j) % rows.length;
         if (labelOf(rows[i].node).toLowerCase().startsWith(needle)) return go(i);
@@ -1116,7 +1129,9 @@
           cell.setAttribute("aria-orientation", "vertical");
           cell.setAttribute("aria-label", `${c.label}, width`);
           cell.setAttribute("aria-valuemin", String(c.minWidth));
+          cell.setAttribute("aria-valuemax", "4000");
           cell.setAttribute("aria-valuenow", String(widths[i]));
+          cell.setAttribute("aria-valuetext", `${widths[i]} pixels`);
           cell.tabIndex = 0;
         }
         cell.addEventListener("keydown", e => {
@@ -1257,6 +1272,11 @@
       /** Opens the editor of a cell: (id, columnKey?) — the first editable column by default. */
       edit(id, column) {
         const k = keyOf(id);
+        if (!nodes.has(k)) return false;
+        // A row inside closed folders: they open, as select() opens them.
+        const closed = [];
+        for (let p = parents.get(k); p !== null && p !== undefined; p = parents.get(p)) if (!expanded.has(p)) closed.push(p);
+        setOpen(closed, true);
         const i = index.get(k);
         if (i === undefined) return false;
         const ci = column === undefined ? firstEditable(rows[i]) : (cols ?? []).findIndex(c => c.key === column);

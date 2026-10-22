@@ -240,20 +240,24 @@ fn name_of(path: &Path) -> String {
 pub fn inspect(path: impl AsRef<Path>, max_bytes: Option<u64>) -> Result<FileInfo, String> {
     let path = path.as_ref();
     let name = name_of(path);
-    if path.is_dir() {
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(format!("{name} could not be found.")),
+        // There, but behind a folder the person may not look in.
+        Err(_) => return Err(format!("{name} could not be read.")),
+    };
+    if meta.is_dir() {
         return Err(format!("{name} is a folder. Add files, not folders."));
     }
-    if !path.exists() {
-        return Err(format!("{name} could not be found."));
-    }
-    if !path.is_file() {
+    if !meta.is_file() {
         // A device or a pipe, such as /dev/null.
         return Err(format!("{name} is not a file that can be added."));
     }
-    let size = match std::fs::metadata(path) {
-        Ok(meta) => meta.len(),
-        Err(_) => return Err(format!("{name} could not be read.")),
-    };
+    // Seen, but not readable (no permission): adding it would fail later.
+    if std::fs::File::open(path).is_err() {
+        return Err(format!("{name} could not be read."));
+    }
+    let size = meta.len();
     if let Some(max) = max_bytes {
         if size > max {
             return Err(format!("{name} is larger than {}.", limit_text(max)));
@@ -292,6 +296,9 @@ pub async fn save_dialog<R: Runtime>(app: &AppHandle<R>, title: &str, name: &str
 ///
 /// The page cannot call this: a page that could open any path could start
 /// any program. The app opens the files it knows, from its own command.
+/// A file that is a program, or would run one ("Q3 plan.command", an `.exe`,
+/// a shortcut), is not opened, nor is a folder: shared files come from
+/// other people.
 #[cfg(feature = "files")]
 pub fn open_path(path: impl AsRef<Path>) -> Result<(), String> {
     let path = path.as_ref();
@@ -299,7 +306,71 @@ pub fn open_path(path: impl AsRef<Path>) -> Result<(), String> {
     if !path.exists() {
         return Err(format!("{name} could not be found."));
     }
+    if path.is_dir() {
+        return Err(format!("{name} is a folder, not a file."));
+    }
+    if runs_something(path) {
+        return Err(format!("{name} could be a program, so it is not opened."));
+    }
     open::that_detached(path).map_err(|e| format!("Couldn't open {name}: {e}"))
+}
+
+// Files the system would run (or open a program or web page from) rather than show.
+#[cfg(any(feature = "files", test))]
+fn runs_something(path: &Path) -> bool {
+    const PROGRAMS: &[&str] = &[
+        "app",
+        "command",
+        "tool",
+        "terminal",
+        "workflow",
+        "action",
+        "scpt",
+        "applescript",
+        "pkg",
+        "mpkg",
+        "dmg",
+        "webloc",
+        "inetloc",
+        "sh",
+        "bash",
+        "zsh",
+        "csh",
+        "ksh",
+        "fish",
+        "py",
+        "pl",
+        "rb",
+        "exe",
+        "com",
+        "bat",
+        "cmd",
+        "scr",
+        "msi",
+        "msp",
+        "cpl",
+        "ps1",
+        "psm1",
+        "vbs",
+        "vbe",
+        "js",
+        "jse",
+        "wsf",
+        "wsh",
+        "hta",
+        "lnk",
+        "url",
+        "reg",
+        "inf",
+        "jar",
+        "desktop",
+        "run",
+        "appimage",
+        "deb",
+        "rpm",
+    ];
+    let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    PROGRAMS.contains(&ext.as_str())
 }
 
 #[cfg(feature = "files")]
@@ -499,6 +570,21 @@ mod tests {
         assert_eq!(inspect("", None).unwrap_err(), "The file could not be found.");
         #[cfg(unix)]
         assert_eq!(inspect("/dev/null", None).unwrap_err(), "null is not a file that can be added.");
+        // A file that cannot be read is said so now, not when the app copies it.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let locked = dir.join("locked.txt");
+            std::fs::write(&locked, "x").unwrap();
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            // Root reads anything: only checked for everyone else.
+            if std::fs::File::open(&locked).is_err() {
+                assert_eq!(inspect(&locked, None).unwrap_err(), "locked.txt could not be read.");
+            }
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        assert!(runs_something(Path::new("Q3 plan.command")) && runs_something(Path::new("setup.EXE")));
+        assert!(!runs_something(Path::new("Board deck.pdf")) && !runs_something(Path::new("notes")));
         assert!(inspect(&file, Some(3000)).is_ok());
 
         std::fs::remove_dir_all(&dir).ok();

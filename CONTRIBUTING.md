@@ -26,13 +26,14 @@ them.
    ```
    cargo fmt --check && cargo clippy --all-targets && cargo test
    cargo clippy --all-targets --features files && cargo test --features files
-   python test/run.py            # needs Python 3.11+, playwright and Google Chrome
+   python test/run.py            # needs Python 3.11+, playwright, Pillow and Google Chrome
    python test/tree_run.py
    python test/terminal_run.py
    python test/files_run.py
    python test/menus_run.py
    (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build)
    python scripts/doctor.py examples/basic
+   python test/doctor_run.py                 # the checker itself, on small apps set up right and wrong
    (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
    ```
 6. If you touched dragging between windows, try it by hand on macOS. No

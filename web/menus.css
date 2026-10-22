@@ -141,6 +141,7 @@
     max-width: calc(100vw - 8px);
     padding: var(--tmn-menu-pad) 0;
     overflow-y: auto;
+    overscroll-behavior: contain; /* the wheel at its end does not scroll the page (which would close it) */
     color: var(--tmn-fg);
     background: var(--tmn-menu-bg);
     border: 1px solid var(--tmn-menu-border);
@@ -193,7 +194,8 @@
     transform: rotate(45deg);
   }
 
-  .tmn-item.tmn-danger:not(:focus) { color: var(--tmn-danger); }
+  .tmn-item.tmn-danger:not(:focus, [aria-expanded="true"], [aria-disabled="true"]) { color: var(--tmn-danger); }
+  .tmn-danger .tmn-shortcut { opacity: 1; }
   .tmn-item[aria-disabled="true"] { color: var(--tmn-disabled); }
 
   .tmn-label {
@@ -335,13 +337,17 @@
     .tmn-sep { height: 0; border-top: 1px solid CanvasText; }
     /* An item's colour stays its colour, with a line around it. */
     .tmn-chip { forced-color-adjust: none; outline: 1px solid CanvasText; }
+    /* A toolbar button pressed, or with its menu open, in the system's selection colours. */
+    .tmn-tool[aria-pressed="true"],
+    .tmn-tool[aria-expanded="true"] { forced-color-adjust: none; color: HighlightText; background: Highlight; }
   }
 }
 
 /* A toolbar button can be a real <button>: these rules sit outside the layer
    so an app's plain `button { ... }` rule (starter templates have one) does
    not restyle it. They weigh no more than `button:hover`, so any class rule
-   the app writes still wins. */
+   the app writes outside a layer still wins; a rule inside one of the app's
+   layers (Tailwind's utilities) does not: restyle these buttons with plain CSS. */
 button:where(.tmn-tool) {
   margin: 0;
   padding: 0 8px;
@@ -366,4 +372,6 @@ button:where(.tmn-tool)[aria-disabled="true"] { color: var(--tmn-disabled); back
 @media (forced-colors: active) {
   button:where(.tmn-tool):focus-visible { outline: 2px solid Highlight; }
   button:where(.tmn-tool)[aria-disabled="true"] { color: GrayText; }
+  button:where(.tmn-tool)[aria-pressed="true"],
+  button:where(.tmn-tool)[aria-expanded="true"] { forced-color-adjust: none; color: HighlightText; background: Highlight; }
 }

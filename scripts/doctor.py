@@ -23,30 +23,107 @@ def read(path):
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def code(text, quotes):
-    """The text without its comments, so a commented-out line counts as absent."""
+# What may come right before a regular expression in JavaScript (and not
+# before a division): a word like these, or one of these characters.
+REGEX_AFTER_WORD = {"return", "typeof", "case", "do", "else", "in", "of", "void", "delete", "new", "throw", "yield",
+                    "await", "instanceof"}
+REGEX_AFTER = set("(,=:[!&|?{};+-*%<>~^")
+
+
+def js_code(text):
+    """JavaScript without its comments, so commented-out code counts as absent.
+    Strings and regular expressions are kept whole: a quote or a `/*` inside
+    one starts nothing."""
     out, i, n = [], 0, len(text)
+    last, word = "", ""  # the last character that is not a space, and the word ending there
     while i < n:
         c = text[i]
-        if c in quotes:
+        if c in "\"'`":
             j = i + 1
             while j < n and text[j] != c:
                 j += 2 if text[j] == "\\" else 1
             out.append(text[i:j + 1])
-            i = j + 1
+            i, last, word = j + 1, c, ""
         elif text.startswith("//", i):
             while i < n and text[i] != "\n":
                 i += 1
         elif text.startswith("/*", i):
             end = text.find("*/", i + 2)
-            if end < 0:  # not a comment after all (a regular expression, say): kept
+            if end < 0:
                 out.append(text[i:])
                 break
             i = end + 2
+        elif c == "/" and (last == "" or last in REGEX_AFTER or word in REGEX_AFTER_WORD):
+            j, in_class = i + 1, False
+            while j < n and text[j] != "\n":
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == "[":
+                    in_class = True
+                elif text[j] == "]":
+                    in_class = False
+                elif text[j] == "/" and not in_class:
+                    break
+                j += 1
+            j += 1
+            while j < n and text[j].isalpha():  # flags
+                j += 1
+            out.append(text[i:j])
+            i, last, word = j, "/", ""
+        else:
+            out.append(c)
+            if not c.isspace():
+                if c.isalnum() or c in "_$":
+                    word = word + c if i > 0 and (text[i - 1].isalnum() or text[i - 1] in "_$") else c
+                else:
+                    word = ""
+                last = c
+            i += 1
+    return "".join(out)
+
+
+def rust_code(text):
+    """Rust without its comments (nested ones too); strings, raw strings and
+    character literals kept whole."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+        elif text.startswith("/*", i):
+            depth, i = 1, i + 2
+            while i < n and depth:
+                if text.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif text.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+        elif (raw := re.match(r'r(#*)"', text[i:])) and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            close = '"' + raw.group(1)
+            end = text.find(close, i + len(raw.group(0)))
+            end = n if end < 0 else end + len(close)
+            out.append(text[i:end])
+            i = end
+        elif c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif c == "'" and (char := re.match(r"'(?:\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]+\}|.)|[^\\'\n])'", text[i:])):
+            out.append(char.group(0))
+            i += len(char.group(0))
         else:
             out.append(c)
             i += 1
     return "".join(out)
+
+
+def css_code(text):
+    return re.sub(r"/\*.*?\*/", "", text, flags=re.S)
 
 
 def balanced(text, start, open_, close):
@@ -67,13 +144,16 @@ def keys(obj):
         depth += 1 if c in "([{" else -1 if c in ")]}" else 0
         level.append(c if depth == 0 or (depth == 1 and c in "([{") else " ")
     flat = "".join(level)
-    return set(re.findall(r"(?:^|[,{]|\basync)\s*([A-Za-z_$][\w$]*)\s*(?=[:(,]|$)", flat))
+    plain = re.findall(r"(?:^|[,{]|\basync)\s*([A-Za-z_$][\w$]*)\s*(?=[:(,]|$)", flat)
+    quoted = re.findall(r"(?:^|[,{])\s*[\"']([A-Za-z_$][\w$]*)[\"']\s*(?=:)", flat)
+    return set(plain + quoted)
 
 
 def own_picker(text):
     """Whether a TaurisFiles.mount call is given a pick option: in the object
     it is given, or in the object its variable is declared with."""
-    for m in re.finditer(r"TaurisFiles\.mount\(", text):
+    # TaurisFiles.mount(, TaurisFiles?.mount(, TaurisFiles.mount<MyFile>(
+    for m in re.finditer(r"TaurisFiles\s*\??\.\s*mount\s*(?:<[^<>()]*>)?\s*\(", text):
         args = balanced(text, m.end() - 1, "(", ")")
         brace = args.find("{")
         if brace >= 0:
@@ -107,11 +187,21 @@ def workspace_spec(tauri):
 
 
 def page_code(path):
-    """A page file without its comments (HTML ones too)."""
+    """A page file without its comments. In HTML (and Vue, Svelte) only the
+    scripts are read as code: a quote in the page's text starts no string."""
     text = read(path)
-    if path.suffix in {".html", ".vue", ".svelte"}:
-        text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
-    return code(text, "\"'`")
+    if path.suffix == ".css":
+        return css_code(text)
+    if path.suffix not in {".html", ".vue", ".svelte"}:
+        return js_code(text)
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    out, at = [], 0
+    for m in re.finditer(r"(<(script|style)\b[^>]*>)(.*?)(</\2\s*>)", text, flags=re.S | re.I):
+        out.append(text[at:m.start(3)])
+        out.append(js_code(m.group(3)) if m.group(2).lower() == "script" else css_code(m.group(3)))
+        at = m.end(3)
+    out.append(text[at:])
+    return "".join(out)
 
 
 problems = []
@@ -148,14 +238,32 @@ def series(version):
 
 
 def accepts(requirement, version):
-    """Cargo's default (caret) rule: 0.x.y stays within 0.x; x.y.z stays within x."""
-    want = requirement.lstrip("^= ")
-    w, v = parts(want)[:3], parts(version)[:3]
-    if w[0] != v[0]:
-        return False
-    if w[0] == 0 and w[1] != v[1]:
-        return False
-    return v >= w
+    """Whether Cargo's requirement takes this version: caret (the default),
+    =, ~, *, x.*, >=, >, <, <=, and several joined by commas."""
+    v = parts(version)[:3]
+    for one in requirement.split(","):
+        one = one.strip()
+        op = re.match(r"(\^|=|~|>=|<=|>|<)?\s*(.*)", one)
+        sign, want = op.group(1) or "^", op.group(2).strip()
+        if want in ("", "*"):
+            continue
+        given = [int(x) for x in re.findall(r"\d+", want.split("*")[0])[:3]]
+        w = given + [0] * (3 - len(given))
+        n = len(given)
+        if sign == "=" or "*" in want:
+            if v[:n] != w[:n]:
+                return False
+        elif sign == "~":
+            if v[:max(1, min(n, 2))] != w[:max(1, min(n, 2))] or v < w:
+                return False
+        elif sign == "^":
+            # The first number that is not 0 (or the last one given) stays.
+            keep = next((k + 1 for k in range(n) if w[k] != 0), n)
+            if v[:keep] != w[:keep] or v < w:
+                return False
+        elif not {">=": v >= w, ">": v > w, "<=": v <= w, "<": v < w}[sign]:
+            return False
+    return True
 
 
 def page_files(tauri, conf):
@@ -181,15 +289,22 @@ def capabilities(tauri, app):
     for path in sorted((tauri / "capabilities").glob("*")):
         try:
             if path.suffix == ".json":
-                caps.append((path, json.loads(read(path))))
+                data = json.loads(read(path))
             elif path.suffix == ".toml":
-                caps.append((path, tomllib.loads(read(path))))
+                data = tomllib.loads(read(path))
+            else:
+                continue
         except (json.JSONDecodeError, tomllib.TOMLDecodeError):
             bad(f"{path.name} cannot be read", "fix the file")
+            continue
+        # One capability, a list of them, or { "capabilities": [...] }.
+        if isinstance(data, dict) and isinstance(data.get("capabilities"), list) and "identifier" not in data:
+            data = data["capabilities"]
+        caps += [(path, c) for c in (data if isinstance(data, list) else [data]) if isinstance(c, dict)]
     listed = app.get("security", {}).get("capabilities", [])
-    # Identifiers listed in tauri.conf.json enable only those files.
+    # A list in tauri.conf.json enables only what it lists (by identifier, or inline).
     names = {c for c in listed if isinstance(c, str)}
-    if names:
+    if listed:
         caps = [(p, c) for p, c in caps if c.get("identifier") in names]
     for inline in listed:
         if isinstance(inline, dict):
@@ -266,7 +381,7 @@ def main():
     # view lives in the page and only needs the plugin to deliver it.
     conf = json.loads((tauri / "tauri.conf.json").read_text(encoding="utf-8"))
     app = conf.get("app", {})
-    rust = "\n".join(code(read(p), '"') for p in (tauri / "src").rglob("*.rs"))
+    rust = "\n".join(rust_code(read(p)) for p in (tauri / "src").rglob("*.rs"))
     files = page_files(tauri, conf)
     text = "\n".join(page_code(p) for p in files)
     uses_tabs = "TaurisTabs" in text or bool(re.search(r"\.tabs\(\)", rust))
@@ -286,7 +401,9 @@ def main():
         bad("found no page files (looked in frontendDist, src/ and index.html)", "check build.frontendDist in tauri.conf.json")
 
     # 2. the plugin, which delivers every component
-    if "tauris_ui::init(" in rust:
+    # tauris_ui::init(...), or init(...) after `use tauris_ui::init` (or `{init, ...}`).
+    imported = re.search(r"\buse\s+tauris_ui::(?:init\b|\{[^}]*\binit\b)", rust)
+    if "tauris_ui::init(" in rust or (imported and re.search(r"\.plugin\(\s*init\(", rust)):
         ok("the plugin is registered")
     else:
         bad("the plugin is not registered", ".plugin(tauris_ui::init(tauris_ui::Config::new())) on tauri::Builder")
@@ -321,11 +438,11 @@ def main():
                 'add "tauris-ui:default" to "permissions" in src-tauri/capabilities/default.json')
         else:
             covers = any(any(w == "*" or (w.endswith("*") and f"{prefix}1".startswith(w[:-1])) or w == f"{prefix}1"
-                             for w in c.get("windows", [])) for _, c in granting)
+                             for w in c.get("windows") or c.get("webviews") or []) for _, c in granting)
             if covers:
                 ok(f"a capability grants tauris-ui:default to the tab windows ({prefix}1, {prefix}2, ...)")
             else:
-                names = ", ".join(json.dumps(c.get("windows", [])) for _, c in granting)
+                names = ", ".join(json.dumps(c.get("windows") or c.get("webviews") or []) for _, c in granting)
                 bad(f"the capability with tauris-ui:default covers {names}, not the tab windows {prefix}1, {prefix}2, ...",
                     f'set "windows": ["{prefix}*"] (or ["*"]); otherwise the strip stays empty')
             if not any("allow-start-dragging" in json.dumps(c.get("permissions", [])) for _, c in granting):

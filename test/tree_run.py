@@ -689,6 +689,35 @@ with sync_playwright() as p:
     check("a column with its own compare puts empty values last both ways", up == ["c", "a", "b"] and down == ["a", "c", "b"], (up, down))
     page.close()
 
+    # ---------- a seventh review ----------
+    page = fresh(browser)
+    sep = page.evaluate("(() => { const h = document.querySelector('#settings .tv-hcell[role=separator]'); return [h.getAttribute('aria-valuemax'), h.getAttribute('aria-valuetext')]; })()")
+    check("a column's edge says its width in words, within a real range", sep[0] == "4000" and sep[1].endswith(" pixels"), sep)
+    page.evaluate("demo.settings.collapseAll()")
+    opened = page.evaluate("demo.settings.edit('appearance.fontSize')")
+    check("edit(id) on a row inside a closed folder opens the folder and the editor", opened is True and page.locator("#settings .tv-editor").count() == 1)
+    page.evaluate("demo.settings.setData(demo.settings.get('general') ? [demo.settings.get('general'), demo.settings.get('appearance')] : [])")
+    check("setData while editing: the focus goes back to the tree, not the page",
+          page.evaluate("document.activeElement.closest('#settings') !== null"), page.evaluate("document.activeElement.tagName"))
+    page.close()
+    page = fresh(browser)
+    page.evaluate("""() => { const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px;z-index:9';
+      document.body.append(host); window.ta = TaurisTree.mount(host, { data: ['Apple', 'Avocado', 'Apricot', 'Banana'].map(l => ({ id: l, label: l })) });
+      ta.select('Apple'); ta.focus(); return 0; }""")
+    seen = []
+    for _ in range(3):
+        page.keyboard.press("a")
+        seen.append(page.evaluate("ta.selected().id"))
+    check("the same letter again steps through the rows starting with it", seen == ["Avocado", "Apricot", "Apple"], seen)
+    page.close()
+
+    page = fresh(browser)
+    page.add_style_tag(content="#settings { --tv-fg: rgb(17, 17, 17); --tv-sel-inactive-bg: rgb(221, 221, 238); }")
+    page.evaluate("demo.settings.select('general.name'); document.body.focus()")
+    got = page.evaluate("getComputedStyle(document.querySelector('#settings .tv-row[aria-selected=\"true\"]')).color")
+    check("colours set on the tree itself reach what follows them (the selection without the focus)", got == "rgb(17, 17, 17)", got)
+    page.close()
+
     # ---------- one look for every component ----------
     page = fresh(browser)
     page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")

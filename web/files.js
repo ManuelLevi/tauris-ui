@@ -80,6 +80,7 @@
     emptyTitle: place => `No files in ${place} yet`,
     emptyText: "Drop files anywhere on this window, or add them.",
     noMatch: query => `No files match “${query}”.`,
+    clearSearch: "Clear search",       // the button under it ("" for none)
     drop: place => `Drop to add to ${place}`,
     dropHint: "",
     adding: n => (n === 1 ? "Adding 1 file…" : `Adding ${n} files…`),
@@ -354,7 +355,14 @@
     const emptyText = el("div", "tf-empty-text");
     const emptyAdd = pressable(el("span", "tf-btn tf-primary", { role: "button", tabindex: "0" }), () => add());
     const empty = el("div", "tf-empty", { hidden: "" }, emptyTitle, emptyText, emptyAdd);
-    const noMatch = el("div", "tf-nomatch", { role: "status", hidden: "" });
+    const noMatchText = el("span", "tf-nomatch-text", { role: "status" });
+    const clearSearch = pressable(el("span", "tf-btn tf-clear", { role: "button", tabindex: "0" }), () => {
+      query = "";
+      searchInput.value = "";
+      draw();
+      searchInput.focus({ preventScroll: true });
+    });
+    const noMatch = el("div", "tf-nomatch", { hidden: "" }, noMatchText, clearSearch);
     const dropText = el("span", "tf-drop-title");
     const dropHint = el("span", "tf-drop-hint");
     const drop = el("div", "tf-drop", { "aria-hidden": "true", hidden: "" }, icon("upload"), dropText, dropHint);
@@ -432,9 +440,12 @@
       // biggest and newest first. The same column again turns it around.
       sort = sort.key === col ? { key: col, up: !sort.up } : { key: col, up: col === "name" || col === "by" };
       draw();
+      paintSelection(true);
     }
 
     const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+    // Names equal but for case or accents ("resume", "résumé") keep one order, whatever order they came in.
+    const exact = new Intl.Collator(undefined, { sensitivity: "variant", numeric: true });
 
     function visible() {
       const q = query.trim().toLowerCase();
@@ -445,7 +456,8 @@
       const stemExt = n => { const i = n.lastIndexOf("."); return i > 0 ? [n.slice(0, i), n.slice(i + 1)] : [n, ""]; };
       const byName = (a, b) => {
         const [sa, ea] = stemExt(String(a.name ?? "")), [sb, eb] = stemExt(String(b.name ?? ""));
-        return collator.compare(sa, sb) || collator.compare(ea, eb);
+        return collator.compare(sa, sb) || collator.compare(ea, eb) || exact.compare(String(a.name ?? ""), String(b.name ?? ""))
+          || (keyOf(a.id) < keyOf(b.id) ? -1 : keyOf(a.id) > keyOf(b.id) ? 1 : 0);
       };
       const time = new Map(out.map(f => [f, dateOf(f.added)?.getTime() ?? -Infinity]));
       const size = f => (Number.isFinite(Number(f.size)) ? Number(f.size) : -1);
@@ -485,7 +497,9 @@
         row.append(cell);
       }
       if (acts.length) {
-        const box = el("span", "tf-acts");
+        // For the mouse: the keys reach each action (Enter, F2, Delete, Shift+F10),
+        // so a screen reader does not read the four buttons on every row.
+        const box = el("span", "tf-acts", { "aria-hidden": "true" });
         for (const act of acts) {
           const text = String(words[act]);
           const b = el("span", `tf-ib tf-ib-${act}`, { role: "button", tabindex: "-1", title: text, "aria-label": `${text}: ${file.name}`, "data-act": act });
@@ -502,11 +516,17 @@
     const signature = files => JSON.stringify(files.map(f => FIELDS.map(k => (f[k] instanceof Date ? f[k].getTime() : f[k] ?? null))));
     let drawn = null;
 
+    // "Documents · 3 files · 2.1 MB"
+    function drawCount() {
+      const total = list.reduce((n, f) => n + (Number.isFinite(Number(f.size)) ? Number(f.size) : 0), 0);
+      const subtitle = opt.subtitle ? `${opt.subtitle} · ` : "";
+      sub.textContent = subtitle + say(L().count, list.length) + (list.length ? ` · ${formatSize(total)}` : "");
+    }
+
     function draw() {
       if (renaming || signal.aborted) return;
       drawn = signature(list);
       const words = L();
-      const total = list.reduce((n, f) => n + (Number.isFinite(Number(f.size)) ? Number(f.size) : 0), 0);
       title.textContent = String(opt.title ?? "");
       if (opt.color) {
         chip.style.setProperty("--tf-chip", String(opt.color));
@@ -514,8 +534,7 @@
       } else {
         chip.hidden = true;
       }
-      const subtitle = opt.subtitle ? `${opt.subtitle} · ` : "";
-      sub.textContent = subtitle + say(words.count, list.length) + (list.length ? ` · ${formatSize(total)}` : "");
+      drawCount();
       addText.textContent = String(words.add);
       emptyAdd.textContent = String(words.add);
       const canAdd = typeof opt.onAdd === "function";
@@ -573,7 +592,9 @@
       grid.hidden = list.length === 0;
       empty.hidden = list.length !== 0;
       noMatch.hidden = !(list.length && !shown.length);
-      noMatch.textContent = noMatch.hidden ? "" : say(words.noMatch, query.trim());
+      noMatchText.textContent = noMatch.hidden ? "" : say(words.noMatch, query.trim());
+      clearSearch.textContent = String(words.clearSearch ?? "");
+      clearSearch.hidden = !clearSearch.textContent;
       // The only selected file is gone from the app's list: the file now in its
       // place takes the selection and the focus, as in a file manager (and the tree).
       if (hadSelection && !sel.size && oldAt >= 0 && shown.length && !list.some(f => keyOf(f.id) === selId)) {
@@ -635,7 +656,7 @@
 
     // onSelect hears what the person can act on (the file with the focus and the
     // selected files shown) each time that changes, whatever changed it.
-    let reported = "|";
+    let reported = `${signature([])}|${signature([])}`; // nothing selected: not reported at mount
     function report() {
       if (signal.aborted || typeof opt.onSelect !== "function") return;
       const file = primary();
@@ -735,7 +756,8 @@
           draw();
           // Every file just added is selected, the first one with the focus.
           anchor = keyOf(added[0].id);
-          setSelection(added.map(f => keyOf(f.id)).filter(k => rows.has(k)), anchor);
+          const shownKeys = added.map(f => keyOf(f.id)).filter(k => rows.has(k));
+          setSelection(several() ? shownKeys : shownKeys.slice(0, 1), anchor);
           message(say(L().addedFiles, added, place()), "ok");
         };
         // While a name is being edited the list is not drawn: the new files show when it ends.
@@ -834,7 +856,11 @@
       list = list.filter(f => keyOf(f.id) !== key);
       if (held) held = held.filter(f => keyOf(f.id) !== key);
       // While another file's name is being edited the list is not drawn again: the row goes now.
-      if (renaming) rows.get(key)?.remove();
+      if (renaming && keyOf(renaming.file.id) === key) renaming.end(); // the file being renamed is gone
+      else if (renaming) {
+        rows.get(key)?.remove();
+        drawCount();
+      }
       if (wasSelected && (selId === key || selId === null)) {
         const left = new Set(list.map(f => keyOf(f.id)));
         const rest = before.filter(f => keyOf(f.id) !== key && left.has(keyOf(f.id)));
@@ -890,7 +916,11 @@
       if (signal.aborted || !gone.size) return;
       list = list.filter(f => !gone.has(keyOf(f.id)));
       if (held) held = held.filter(f => !gone.has(keyOf(f.id)));
-      if (renaming) for (const k of gone) rows.get(k)?.remove();
+      if (renaming && gone.has(keyOf(renaming.file.id))) renaming.end();
+      else if (renaming) {
+        for (const k of gone) rows.get(k)?.remove();
+        drawCount();
+      }
       // The file after the last one deleted takes the selection, as in a file manager.
       const left = new Set(list.map(f => keyOf(f.id)));
       const next = before.slice(last + 1).find(f => left.has(keyOf(f.id)))
@@ -940,7 +970,11 @@
           finish(false, e.relatedTarget == null);
         }, { signal: done.signal });
         askCard.addEventListener("keydown", e => {
-          if (e.key === "Escape") {
+          if ((e.key === "Enter" || e.key === " ") && e.target === askCard) {
+            // The question's text was clicked: the keys go to the safe answer.
+            e.preventDefault();
+            askNo.focus({ preventScroll: true });
+          } else if (e.key === "Escape") {
             e.preventDefault();
             e.stopPropagation();
             finish(false);
@@ -993,9 +1027,11 @@
         // Back to the list, unless the person has gone to another field meanwhile.
         const stay = document.activeElement === input || document.activeElement === document.body || !document.activeElement;
         draw();
+        paintSelection(true); // the renamed file may sort elsewhere: it stays in view
         if (stay) focusList();
         for (const show of state.after) show();
       };
+      state.end = end;
       const commit = async () => {
         if (renaming !== state || state.busy || signal.aborted) return;
         const next = input.value.trim();
@@ -1030,6 +1066,8 @@
       };
       input.addEventListener("keydown", e => {
         e.stopPropagation();
+        // Enter and Escape confirm or cancel an input method's text then, not the name.
+        if (e.isComposing || e.keyCode === 229) return;
         if (e.key === "Enter") {
           e.preventDefault();
           commit();
@@ -1178,9 +1216,16 @@
         else select(k);
       };
       const all = cmdKey(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
+      // Any key but a letter (or Shift and the like) ends what was being typed.
+      if (e.key.length !== 1 && !["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) typed = "";
       // A space in the middle of typing a name is part of it ("Launch p").
       const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < 700;
-      if (e.key === " " && !spelling) e.preventDefault(); // the list never scrolls a page on Space
+      if (e.key === " ") e.preventDefault(); // the list never scrolls a page on Space
+      // Holding a key down opens, renames or deletes once, not again and again.
+      if (e.repeat && ["Enter", "F2", "Delete", "Backspace"].includes(e.key)) {
+        e.preventDefault();
+        return;
+      }
       if (all) {
         // Inside the list ⌘A is never the page's own Select All.
         e.preventDefault();
@@ -1210,7 +1255,9 @@
       } else if (e.key === "F2") {
         e.preventDefault();
         if (selection().length === 1) rename(selection()[0]);
-      } else if ((e.key === "Delete" && !e.ctrlKey) || (e.key === "Backspace" && cmdKey(e))) {
+      } else if ((e.key === "Delete" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)
+        || (e.key === "Backspace" && MAC && cmdKey(e) && !e.altKey && !e.shiftKey)) {
+        // Delete alone, or ⌘⌫ on a Mac (elsewhere Ctrl+Backspace deletes a word, not a file).
         e.preventDefault();
         if (selection().length) removeMany(selection());
       } else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
@@ -1232,7 +1279,9 @@
         typedAt = now;
         const same = [...typed].every(c => c === typed[0]);
         const want = same ? typed[0] : typed;
-        const from = typed.length > 1 && !same ? Math.max(i, 0) : i + 1;
+        // A whole name typed is looked for from the top ("report 1" is Report 1,
+        // not Report 10 after the selected Report 2); one letter steps on.
+        const from = typed.length > 1 && !same ? 0 : i + 1;
         const order = shown.slice(from).concat(shown.slice(0, from));
         const hit = order.find(f => String(f.name ?? "").toLowerCase().startsWith(typed))
           ?? (same ? order.find(f => String(f.name ?? "").toLowerCase().startsWith(want)) : undefined);
@@ -1248,7 +1297,7 @@
       draw();
     }, { signal });
     searchInput.addEventListener("keydown", e => {
-      if (e.isComposing) return; // the arrows and Escape belong to the input method then
+      if (e.isComposing || e.keyCode === 229) return; // the arrows and Escape belong to the input method then
       if (e.key === "ArrowDown" && shown.length) {
         e.preventDefault();
         if (!current()) select(shown[0].id);

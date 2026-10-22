@@ -67,14 +67,6 @@ pub(crate) fn restore<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 // An unreadable file is kept aside as `<name>.unreadable` so it is not lost
 // when the next layout is saved.
 pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
-    let Some(file) = layout_file(app).filter(|f| f.is_file()) else { return false };
-    let saved: Vec<SavedWin> = match fs::read_to_string(&file).map(|t| serde_json::from_str(&t)) {
-        Ok(Ok(saved)) => saved,
-        _ => {
-            let _ = fs::rename(&file, file.with_extension("unreadable"));
-            return false;
-        }
-    };
     // One restore at a time: two callers that both found no window (a Dock
     // click and the app's own open_or_focus) must not each open them all.
     // Never waited for: the other one may need this thread to open its windows.
@@ -94,6 +86,14 @@ pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
     if crate::windows::window_count(app) > 0 {
         return true;
     }
+    let Some(file) = layout_file(app).filter(|f| f.is_file()) else { return false };
+    let saved: Vec<SavedWin> = match fs::read_to_string(&file).map(|t| serde_json::from_str(&t)) {
+        Ok(Ok(saved)) => saved,
+        _ => {
+            let _ = fs::rename(&file, file.with_extension("unreadable"));
+            return false;
+        }
+    };
     let saved: Vec<SavedWin> = saved.into_iter().filter(|w| !w.tabs.is_empty()).collect();
     let count = saved.len();
     let mut opened = 0;

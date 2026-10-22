@@ -475,6 +475,19 @@ with sync_playwright() as p:
           (up, page.input_value(".tm-cmd-input")))
     page.close()
 
+    page = fresh(browser)
+    page.evaluate("demo.cmd.clear(); demo.cmd.focus()")
+    page.keyboard.insert_text("日本語")
+    page.evaluate(TWO_FRAMES)
+    wide = page.evaluate("""(() => { const i = document.querySelector('.tm-cmd-input'); const c = document.querySelector('.tm-cmd .tm-cursor');
+      const r = document.createRange(); const m = document.createElement('span'); m.style.font = getComputedStyle(i).font; m.style.letterSpacing = getComputedStyle(i).letterSpacing;
+      m.style.position = 'absolute'; m.style.whiteSpace = 'pre'; m.textContent = i.value; document.body.append(m); const w = m.getBoundingClientRect().width; m.remove();
+      return [c.getBoundingClientRect().left - i.getBoundingClientRect().left, w]; })()""")
+    check("the block cursor sits after wide characters (CJK), not in their middle", abs(wide[0] - wide[1]) < 2, wide)
+    page.evaluate("document.querySelector('.tm-cmd-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))")
+    check("Enter that confirms an input method's text sends nothing", page.input_value(".tm-cmd-input") == "日本語")
+    page.close()
+
     # ---------- mount and destroy ----------
     page = fresh(browser)
     try:

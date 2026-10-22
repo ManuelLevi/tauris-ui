@@ -54,7 +54,6 @@
     /* colours */
     --tf-fg: var(--tauris-fg, #1e1f22);
     --tf-dim: var(--tauris-dim, #5f6370);
-    --tf-faint: var(--tauris-faint, #a3a6ad);
     --tf-bg: var(--tauris-bg, #ffffff);                /* the list and the fields */
     --tf-chrome: var(--tauris-chrome, #e9e9eb);            /* the column headers */
     --tf-border: var(--tauris-line, #c4c6cc);
@@ -65,7 +64,7 @@
     --tf-hover: var(--tauris-hover, #e6e8ec);
     --tf-row-hover: var(--tauris-hover, #f1f5fb);
     --tf-accent: var(--tauris-accent, #2675bf);
-    --tf-accent-2: color-mix(in srgb, var(--tf-accent) 82%, #000);  /* the primary button's edge and hover */
+    /* --tf-accent-2: unset, the accent a little darker: the primary button's edge and hover */
     --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #2675bf));        /* the accent as text and lines, readable on --tf-bg */
     --tf-on-accent: var(--tauris-on-accent, #ffffff);   /* text on the accent: keep it readable */
     --tf-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));   /* the soft halo around a focus line (--tf-accent-ink) */
@@ -73,13 +72,14 @@
     --tf-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tf-sel-line: rgb(255 255 255 / 0.55);
     --tf-sel-hover: rgb(255 255 255 / 0.18);
-    --tf-flash: color-mix(in srgb, var(--tf-accent) 18%, var(--tf-bg));   /* a row just added */
+    --tf-flash-mix: 18%;
+    /* --tf-flash: unset, the accent over the list, --tf-flash-mix of it: a row just added */
     --tf-danger: #b83a31;            /* error text and the delete icon: readable on --tf-bg and --tf-chrome */
     --tf-danger-fill: #b83a31;       /* the Delete button */
     --tf-on-danger: #ffffff;
     --tf-veil: rgb(0 0 0 / 0.08);
     --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
-    --tf-drop-bg: color-mix(in srgb, var(--tf-accent) 7%, var(--tf-bg));
+    /* --tf-drop-bg: unset, a tint of the accent over the list: the drop zone */
 
     /* the type badges */
     --tf-kind-pdf: #b4232a;
@@ -94,10 +94,10 @@
      data-tauris-theme on <html>; then the mode the app chose. */
   @media (prefers-color-scheme: dark) {
     :root:not([data-tauris-theme="light"]) {
+      --tf-flash-mix: 55%;
       --tf-scheme: dark;
       --tf-fg: var(--tauris-fg, #dfe1e5);
       --tf-dim: var(--tauris-dim, #adb0b8);
-      --tf-faint: var(--tauris-faint, #6f737a);
       --tf-bg: var(--tauris-bg, #2f3234);
       --tf-chrome: var(--tauris-chrome, #34373a);
       --tf-border: var(--tauris-line, #5e6165);
@@ -111,7 +111,6 @@
       --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
       --tf-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
       --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
-      --tf-flash: color-mix(in srgb, var(--tf-accent) 55%, var(--tf-bg));
       --tf-danger: #f49a92;
       --tf-danger-fill: #c4453b;
       --tf-veil: rgb(0 0 0 / 0.3);
@@ -126,10 +125,10 @@
   }
 
   :root[data-tauris-theme="dark"] {
+    --tf-flash-mix: 55%;
     --tf-scheme: dark;
     --tf-fg: var(--tauris-fg, #dfe1e5);
     --tf-dim: var(--tauris-dim, #adb0b8);
-    --tf-faint: var(--tauris-faint, #6f737a);
     --tf-bg: var(--tauris-bg, #2f3234);
     --tf-chrome: var(--tauris-chrome, #34373a);
     --tf-border: var(--tauris-line, #5e6165);
@@ -143,7 +142,6 @@
     --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
     --tf-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
     --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
-    --tf-flash: color-mix(in srgb, var(--tf-accent) 55%, var(--tf-bg));
     --tf-danger: #f49a92;
     --tf-danger-fill: #c4453b;
     --tf-veil: rgb(0 0 0 / 0.3);
@@ -286,10 +284,10 @@
     font-weight: 600;
     color: var(--tf-on-accent);
     background: var(--tf-accent);
-    border-color: var(--tf-accent-2);
+    border-color: var(--tf-accent-2, color-mix(in srgb, var(--tf-accent) 82%, #000));
   }
 
-  .tf-btn.tf-primary:hover { background: var(--tf-accent-2); }
+  .tf-btn.tf-primary:hover { background: var(--tf-accent-2, color-mix(in srgb, var(--tf-accent) 82%, #000)); }
   .tf-btn.tf-danger { color: var(--tf-on-danger); background: var(--tf-danger-fill); border-color: var(--tf-danger-fill); }
   .tf-btn.tf-danger:hover { background: color-mix(in srgb, var(--tf-danger-fill) 85%, #000); }
   .tf-btn.tf-primary[aria-disabled="true"]:hover { background: var(--tf-accent); }
@@ -446,6 +444,8 @@
   }
 
   .tf-file.tf-fresh .tf-cell { animation: tf-flash 1.2s ease-out; }
+  /* A selected row flashes from a darker selection: its white text stays readable. */
+  .tf-file.tf-fresh[aria-selected="true"] .tf-cell { animation-name: tf-flash-selected; }
 
   /* The row with the keyboard focus, when that is not plain from the selection
      (several selected, or the focus on a row that is not): a thin ring. */
@@ -465,7 +465,11 @@
   .tf-file[aria-selected="true"] { --tf-ring: var(--tf-sel-fg); }
 
   @keyframes tf-flash {
-    from { background: var(--tf-flash); }
+    from { background: var(--tf-flash, color-mix(in srgb, var(--tf-accent) var(--tf-flash-mix), var(--tf-bg))); }
+  }
+
+  @keyframes tf-flash-selected {
+    from { background: color-mix(in srgb, var(--tf-sel-bg) 70%, #000); }
   }
 
   .tf-acts {
@@ -508,10 +512,16 @@
     right: 0;
     left: 0;
     padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
     text-align: center;
     color: var(--tf-dim);
     pointer-events: none;
   }
+
+  .tf-nomatch .tf-clear { pointer-events: auto; }
 
   /* ---------- dropping, adding, the delete question ---------- */
 
@@ -526,7 +536,7 @@
     justify-items: center;
     gap: 6px;
     color: var(--tf-accent-ink);
-    background: var(--tf-drop-bg);
+    background: var(--tf-drop-bg, color-mix(in srgb, var(--tf-accent) 4%, var(--tf-bg)));
     border-radius: 2px;
     outline: 2px solid var(--tf-accent-ink);
     outline-offset: -2px;

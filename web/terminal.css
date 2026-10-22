@@ -172,7 +172,7 @@
   .tm-cmd-entry > .tm-cursor {
     position: absolute;
     top: calc((var(--tm-line-h) - var(--tm-cursor-h)) / 2);
-    left: calc(var(--tm-caret, 0) * 1ch - var(--tm-scroll, 0px));
+    left: calc(var(--tm-caret-x, 0px) - var(--tm-scroll, 0px));
     pointer-events: none;
     /* over a character the block shows it in black */
     mix-blend-mode: difference;

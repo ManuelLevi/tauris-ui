@@ -87,3 +87,4 @@ jobs:
       - run: python test/terminal_run.py
       - run: python test/files_run.py
       - run: python test/menus_run.py
+      - run: python test/doctor_run.py

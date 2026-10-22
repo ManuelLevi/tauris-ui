@@ -514,6 +514,48 @@ with sync_playwright() as p:
     check("Windows high contrast: an item that is off is greyed (GrayText)", off != on, (off, on))
     page.close()
 
+    # ---------- a seventh review ----------
+    page = fresh(browser)
+    page.evaluate("""() => { const nav = document.createElement('nav'); document.body.prepend(nav); window.heard = [];
+      window.b7 = TaurisMenu.bar(nav, { menus: [{ label: 'File', items: [{ label: 'New' }] }, { label: 'Edit', items: [{ label: 'Undo' }, { label: 'Recent', items: [{ label: 'r1' }, { label: 'r2' }] }] },
+        { label: 'View', items: [{ label: 'Zoom' }] }, { label: 'Off', disabled: true, items: [{ label: 'x' }] }],
+        onOpen: e => heard.push(['open', e.label]), onClose: e => heard.push(['close', e.label]) }); return 0; }""")
+    page.locator("nav .tmn-title", has_text="Edit").first.click()
+    page.evaluate("b7.setMenus([{ label: 'File', items: [{ label: 'New' }] }, { label: 'View', items: [{ label: 'Zoom' }] }]); 0")
+    check("onClose names the menu that was open, even after setMenus took it away", page.evaluate("heard") == [["open", "Edit"], ["close", "Edit"]], page.evaluate("heard"))
+    page.evaluate("""b7.setMenus([{ label: 'File', items: [{ label: 'New' }] }, { label: 'Edit', items: [{ label: 'Undo' }, { label: 'Recent', items: [{ label: 'r1' }, { label: 'r2' }] }] }]); 0""")
+    page.focus("#search") if page.locator("#search").count() else page.evaluate("document.querySelector('.tf-q').focus()")
+    before = page.evaluate("document.activeElement.className || document.activeElement.id")
+    page.evaluate("b7.open(1); 0")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("ArrowDown")
+    page.evaluate("""b7.setMenus([{ label: 'File', items: [{ label: 'New' }] }, { label: 'Edit', items: [{ label: 'Undo' }, { label: 'Recent', items: [{ label: 'r1' }, { label: 'r2' }, { label: 'r3' }] }] }]); 0""")
+    check("new items while a sub-menu is open: it stays open, the focus on the same item",
+          page.locator(".tmn-menu").count() == 2 and focused(page) == "r2", (page.locator(".tmn-menu").count(), focused(page)))
+    page.evaluate("b7.close(); 0")
+    after = page.evaluate("document.activeElement.className || document.activeElement.id")
+    check("close() from the app leaves the focus in the bar (the menu was opened from the keys), not on the page",
+          after == "tmn-title", (before, after))
+    page.locator("nav .tmn-title", has_text="File").first.click()
+    page.locator("nav .tmn-title", has_text="Edit").first.dispatch_event("pointerdown", {"button": 2})
+    check("a right press on the bar closes the open menu", page.locator(".tmn-menu").count() == 0)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""() => { demo.bar.setMenus([{ label: 'File', items: [{ label: 'Open Recent' }, { label: 'Remove' }, { label: 'Open Report' },
+      { label: 'Delete', danger: true, disabled: true }, { label: 'Erase', danger: true, shortcut: '⌘⌫' }] }]); return 0; }""")
+    page.click(title("File"))
+    page.keyboard.type("Open R")
+    check("Shift while typing a label keeps what was typed", focused(page) == "Open Recent", focused(page))
+    off = page.evaluate("getComputedStyle([...document.querySelectorAll('.tmn-item')].find(i => i.textContent.startsWith('Delete'))).color")
+    plain = page.evaluate("getComputedStyle([...document.querySelectorAll('.tmn-item')].find(i => i.getAttribute('aria-disabled') === 'true' && !i.classList.contains('tmn-danger')) || document.querySelector('.tmn-item')).color")
+    check("a danger item that is off looks off", off == "rgb(163, 166, 173)", off)
+    check("the shortcut of a danger item is as readable as its label",
+          page.evaluate("getComputedStyle([...document.querySelectorAll('.tmn-item.tmn-danger .tmn-shortcut')][0]).opacity") == "1")
+    check("a long menu does not hand the wheel to the page", css(page, ".tmn-menu", "overscroll-behavior-y") == "contain")
+    page.close()
+
     # ---------- onOpen and onClose (for a sound) ----------
     page = fresh(browser)
     page.evaluate("""() => { demo.bar.destroy(); window.ev = [];

@@ -44,6 +44,8 @@ declare global {
     emptyTitle: string | ((place: string) => string);
     emptyText: string | ((place: string) => string);
     noMatch: (query: string) => string;
+    /** The button under "No files match": empties the search ("" for none). */
+    clearSearch: string;
     drop: string | ((place: string) => string);
     /** A second line under "Drop to add to …", e.g. "Up to 50 MB per file". */
     dropHint: string | ((place: string) => string);

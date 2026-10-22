@@ -46,8 +46,8 @@
     --tv-sel-bg: var(--tauris-sel-bg, #2b5bd6);           /* the selected row while the tree has focus */
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tv-sel-line: rgb(255 255 255 / 0.7);
-    --tv-sel-inactive-bg: var(--tauris-sel-inactive, #2b2b31);  /* the selected row while focus is elsewhere */
-    --tv-sel-inactive-fg: var(--tv-fg);
+    --tv-sel-inactive-bg: var(--tauris-sel-inactive, #34343b);  /* the selected row while focus is elsewhere */
+    /* --tv-sel-inactive-fg: unset, the text colour */
     --tv-focus: var(--tauris-accent, #5b8cff);
     --tv-head-bg: var(--tauris-chrome, #1c1c20);
     --tv-head-fg: var(--tauris-dim, #9e9ea8);
@@ -59,7 +59,7 @@
     --tv-check-bg: var(--tauris-bg, #1e1e22);
     --tv-check-border: var(--tauris-dim, #74747e);
     --tv-check-on: var(--tauris-accent, #4d7dff);
-    --tv-check-mark: #ffffff;
+    --tv-check-mark: var(--tauris-on-accent, #ffffff);
     --tv-swatch-line: rgb(255 255 255 / 0.28);
     --tv-scroll-thumb: var(--tauris-line, #3b3b43);
     /* icons */
@@ -90,7 +90,7 @@
       --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
       --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
       --tv-sel-line: rgb(255 255 255 / 0.7);
-      --tv-sel-inactive-bg: var(--tauris-sel-inactive, #e2e3e8);
+      --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
       --tv-focus: var(--tauris-accent, #2f6bff);
       --tv-head-bg: var(--tauris-chrome, #f6f6f8);
       --tv-head-fg: var(--tauris-dim, #5c5c66);
@@ -129,7 +129,7 @@
     --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tv-sel-line: rgb(255 255 255 / 0.7);
-    --tv-sel-inactive-bg: var(--tauris-sel-inactive, #e2e3e8);
+    --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
     --tv-focus: var(--tauris-accent, #2f6bff);
     --tv-head-bg: var(--tauris-chrome, #f6f6f8);
     --tv-head-fg: var(--tauris-dim, #5c5c66);
@@ -214,8 +214,8 @@
 
   .tv-row[aria-selected="true"] {
     background: var(--tv-sel-inactive-bg);
-    color: var(--tv-sel-inactive-fg);
-    --tv-muted: var(--tv-sel-inactive-fg);  /* secondary text stays readable on the selection */
+    color: var(--tv-sel-inactive-fg, var(--tv-fg));
+    --tv-muted: var(--tv-sel-inactive-fg, var(--tv-fg));  /* secondary text stays readable on the selection */
   }
 
   .tv-body:focus-within .tv-row[aria-selected="true"] {
@@ -551,6 +551,12 @@
     .tv-check.tv-on { background: Highlight; border-color: Highlight; }
     .tv-check.tv-on::after { border-color: HighlightText; }
     .tv-row:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+    /* The row with the focus among several selected: a ring in the text colour. */
+    .tv-row[aria-selected="true"]:focus { outline: 2px solid HighlightText; outline-offset: -3px; }
+    /* Lines drawn with shadows vanish here: the header's edge and the columns' get borders. */
+    .tv-head { border-bottom: 1px solid CanvasText; }
+    .tv-hcell:not(:last-child),
+    .tv-columns .tv-row > .tv-cell:not(:last-child) { border-right: 1px solid GrayText; }
   }
 }
 

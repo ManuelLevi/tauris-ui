@@ -79,6 +79,7 @@
   // (position: fixed), so no container of the app can clip it.
 
   let current = null;
+  let lastReturn = null; // where the last menu sent the focus back to
 
   function closeCurrent(refocus) {
     current?.close(refocus);
@@ -86,7 +87,10 @@
 
   // Where focus goes back to: the element that had it before the menu opened.
   function restore(target) {
-    if (target instanceof HTMLElement && target.isConnected && target !== document.body) target.focus({ preventScroll: true });
+    if (target instanceof HTMLElement && target.isConnected && target !== document.body) {
+      lastReturn = target;
+      target.focus({ preventScroll: true });
+    }
   }
 
   function build(list, label) {
@@ -164,7 +168,10 @@
   function show(list, at, how, o = {}) {
     closeCurrent(false);
     addStyles();
-    const returnTo = o.returnTo ?? document.activeElement;
+    // Where the focus goes back to; when it is on the page itself (a menu that
+    // had it was just closed by this press), where that menu would have put it.
+    let returnTo = o.returnTo ?? document.activeElement;
+    if ((!returnTo || returnTo === document.body) && lastReturn?.isConnected) returnTo = lastReturn;
     // Inside a modal <dialog> everything else is inert: the menu goes in the dialog.
     const host = (o.owner ?? returnTo)?.closest?.("dialog[open]") ?? document.body;
     const life = new AbortController();
@@ -182,13 +189,16 @@
         if (handle.closed) return;
         handle.closed = true;
         life.abort();
+        // The focus was in the menu (opened from the keys, or the mouse): it
+        // goes back where it was, also when the app or a press elsewhere closes it.
+        const inside = levels.some(lv => lv.menu.contains(document.activeElement));
         for (const lv of levels) {
           clearTimeout(lv.timer);
           lv.menu.remove();
         }
         if (current === handle) current = null;
         o.onClose?.({ chosen: handle.chosen, hop: handle.hop });
-        if (refocus) restore(o.refocusTo?.() ?? returnTo);
+        if (refocus || (inside && !handle.hop)) restore(o.refocusTo?.() ?? returnTo);
       },
       // New items while it is open: drawn again in place, the focus kept on
       // the item with the same label. Returns the new menu's id.
@@ -197,16 +207,26 @@
         if (handle.closed) return null;
         const active = document.activeElement;
         const inside = levels.some(lv => lv.menu.contains(active));
-        const was = active?.closest?.(".tmn-item")?.querySelector(".tmn-label")?.textContent ?? null;
+        const labelOf = node => node?.querySelector(".tmn-label")?.textContent ?? null;
+        const was = labelOf(active?.closest?.(".tmn-item"));
+        // The sub-menus open now, by the labels of the items that opened them.
+        const path = levels.slice(1).map(lv => labelOf(lv.row));
         for (const lv of levels) {
           clearTimeout(lv.timer);
           lv.menu.remove();
         }
         levels.length = 0;
         handle.el = null;
-        const lv = level(next, o.label, at, "mouse");
-        if (inside) go(lv, enabledIn(lv.menu).find(n => n.querySelector(".tmn-label").textContent === was) ?? null);
-        return lv.menu.id;
+        let lv = level(next, o.label, at, "mouse");
+        const top = lv;
+        for (const name of path) {
+          const row = enabledIn(lv.menu).find(n => labelOf(n) === name && n.__tmnSub?.length);
+          if (!row) break;
+          openSub(lv, row, "mouse");
+          lv = lv.child;
+        }
+        if (inside) go(lv, enabledIn(lv.menu).find(n => labelOf(n) === was) ?? null);
+        return top.menu.id;
       },
     };
     current = handle;
@@ -269,7 +289,8 @@
       let typedAt = 0;
       menu.addEventListener("keydown", e => {
         if (e.isComposing) return;
-        if (e.key.length !== 1) typed = ""; // any other key ends what was being typed
+        // Any other key ends what was being typed (Shift and the like do not).
+        if (e.key.length !== 1 && !["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) typed = "";
         const list = enabledIn(menu);
         const i = list.indexOf(document.activeElement);
         const focused = i >= 0 ? list[i] : null;
@@ -565,6 +586,7 @@
     let titles = [];
     let openAt = -1;
     let openHow = "keyboard";
+    let openName = ""; // the open menu's title, for onClose even after setMenus
     let handle = null;
     let roving = 0;
     // Where focus was before it came into the bar: a chosen item puts it back there.
@@ -627,6 +649,7 @@
       const back = returnTo ?? keepReturn ?? document.activeElement;
       openAt = i;
       openHow = how;
+      openName = String(menus[i].label ?? "");
       handle = show(list, { x: r.left, y: r.bottom }, how, {
         label: menus[i].label,
         owner: nav,
@@ -649,7 +672,7 @@
             openAt = -1;
             handle = null;
           }
-          if (!info.hop) options.onClose?.({ label: String(menus[i]?.label ?? t.textContent), chosen: info.chosen });
+          if (!info.hop) options.onClose?.({ label: openName, chosen: info.chosen });
         },
       });
       if (!hopping) options.onOpen?.({ label: String(menus[i].label ?? ""), how: how === "mouse" ? "mouse" : "keyboard" });
@@ -675,8 +698,8 @@
 
     nav.addEventListener("pointerdown", e => {
       const t = titleAt(e.target);
-      if (e.button !== 0) return;
-      if (!t) {
+      // A right press, a press beside the titles or on a title that is off: the open menu closes.
+      if (e.button !== 0 || !t || !usable(t.__tmnIndex)) {
         handle?.close(true);
         return;
       }
@@ -736,9 +759,18 @@
         if (at < 0) at = menus.findIndex(m => String(m?.label ?? "") === String(was.label ?? ""));
         const list = usable(at) ? listOf(menus[at].items) : [];
         if (!list.length) handle.close(true);
-        else if (at === openAt) titles[at].setAttribute("aria-controls", handle.replace(list, menus[at].label));
-        // Its title moved: it opens again under it (the bar stays open: no onClose, no onOpen).
-        else openMenu(at, openHow === "mouse" ? "mouse" : "keyboard");
+        else if (at === openAt) {
+          openName = String(menus[at].label ?? "");
+          titles[at].setAttribute("aria-controls", handle.replace(list, menus[at].label));
+        } else {
+          // Its title moved: it opens again under it (the bar stays open: no
+          // onClose, no onOpen), the focus on the same item.
+          const was = document.activeElement?.closest?.(".tmn-item")?.querySelector(".tmn-label")?.textContent;
+          openMenu(at, openHow === "mouse" ? "mouse" : "keyboard");
+          const same = [...(handle?.el?.querySelectorAll(".tmn-item:not([aria-disabled='true'])") ?? [])]
+            .find(n => n.querySelector(".tmn-label").textContent === was);
+          same?.focus({ preventScroll: true });
+        }
       },
       /** Opens menu number `index` with its first item chosen, and moves focus into it. */
       open(index = 0) { openMenu(index, "keyboard", document.activeElement); },

@@ -649,6 +649,35 @@ with sync_playwright() as p:
     check("and still after update()", reachable == ["0", "-1", "-1"], reachable)
     page.close()
 
+    # --- a seventh review ---
+    page = fresh(browser, """{ renderTab: tab => { const t = document.createElement('span'); t.className = 'my-title'; t.textContent = tab.title;
+      t.addEventListener('dblclick', () => { window.renames = (window.renames || 0) + 1; }); return [t]; } }""")
+    page.locator(".tt-tab").nth(1).click()
+    check("a click on a tab gives it the focus (the keys work on the strip right after)",
+          page.evaluate("document.activeElement.classList.contains('tt-tab')"), page.evaluate("document.activeElement.tagName"))
+    page.keyboard.press("ArrowRight")
+    check("and → goes on to the next tab", page.locator(".tt-tab.tt-active .my-title").text_content() == "Tab 3")
+    box = page.locator(".tt-tab").nth(0).locator(".my-title").bounding_box()
+    page.mouse.dblclick(box["x"] + 4, box["y"] + box["height"] / 2)
+    check("a double-click reaches what the app drew in the tab (to rename it)", page.evaluate("window.renames") >= 1, page.evaluate("window.renames"))
+    page.evaluate("window.held = tabs.tabs[0]; tabs.update(held, { title: 'A' }); held.note = 'x'; tabs.update(held)")
+    check("a tab object the app keeps: a later update(tab) does not undo the earlier one",
+          page.evaluate("tabs.tabs[0].title") == "A" and page.evaluate("tabs.tabs[0].note") == "x")
+    gap = page.evaluate("(() => { const r = document.querySelector('.tt-tabs').getBoundingClientRect(); const t = document.querySelectorAll('.tt-tab')[1].getBoundingClientRect(); return { x: t.left - 1, y: r.top + r.height / 2 }; })()")
+    page.mouse.click(gap["x"], gap["y"], button="right")
+    check("a right click between two tabs opens the strip's menu, not the browser's", page.locator(".tt-menu").count() == 1)
+    page.keyboard.press("Escape")
+    page.close()
+
+    page = fresh(browser)
+    page.locator(".tt-tab").first.focus()
+    page.keyboard.press("Shift+F10")
+    page.keyboard.press("ArrowDown")
+    ring = page.evaluate("getComputedStyle(document.activeElement).outlineStyle")
+    check("the item the keys chose in a tab's menu has a ring", ring == "solid", ring)
+    page.keyboard.press("Escape")
+    page.close()
+
     # --- the terminal as the plugin delivers it: no stylesheet until it is used ---
     term_js = (WEB / "terminal.js").read_text().replace('"__TAURIS_TERMINAL_CSS__"', json.dumps((WEB / "terminal.css").read_text()))
     page = browser.new_page(viewport={"width": 600, "height": 300})

@@ -148,7 +148,10 @@ with sync_playwright() as p:
           (css(page, pdf, "color"), css(page, pdf, "border-top-color")))
     cells = page.evaluate("[...document.querySelector('.tf-file:nth-child(6)').cells || document.querySelector('.tf-file:nth-child(6)').children].map(c => c.textContent)")
     # The demo's file was added a day ago, whatever today is.
-    yesterday = page.evaluate("(() => { const d = new Date(Date.now() - 86400000); return `${d.getDate()} ${d.toLocaleString('en-GB', { month: 'short' })}`; })()")
+    # As the page writes it: with the year when it is another year (on 1 January).
+    yesterday = page.evaluate("""(() => { const d = new Date(Date.now() - 86400000);
+      const year = d.getFullYear() === new Date().getFullYear() ? {} : { year: '2-digit' };
+      return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', ...year }).format(d); })()""")
     check("a row: badge, name, size, short date, who", cells[:5] == ["PPT", "Launch plan.pptx", "4.5 MB", yesterday, "sophie"], cells)
     sizes = page.evaluate("[...document.querySelectorAll('.tf-c-size.tf-cell')].map(c => c.textContent)")
     check("sizes in KB and MB", sizes == ["22 MB", "86 KB", "402 KB", "12.4 MB", "6 KB", "4.5 MB", "3.2 MB", "145 MB"], sizes)
@@ -217,7 +220,11 @@ with sync_playwright() as p:
     check("search: only the names that contain it, any case", names(page) == ["Launch plan.pptx"], names(page))
     check("search: the count still tells the whole place", page.inner_text(".tf-sub") == "Documents · 8 files · 187.6 MB")
     page.fill(".tf-q", "zzz")
-    check("search: no match says so", page.inner_text(".tf-nomatch") == "No files match “zzz”." and page.locator(".tf-file").count() == 0)
+    check("search: no match says so", page.inner_text(".tf-nomatch-text") == "No files match “zzz”." and page.locator(".tf-file").count() == 0)
+    page.click(".tf-nomatch .tf-clear")
+    check("its Clear search button empties the search and goes back to the field",
+          page.input_value(".tf-q") == "" and len(names(page)) == 8 and page.evaluate("document.activeElement.classList.contains('tf-q')"))
+    page.fill(".tf-q", "zzz")
     page.keyboard.press("Escape")
     check("search: Escape empties it", page.input_value(".tf-q") == "" and page.locator(".tf-file").count() == 8 and page.is_hidden(".tf-nomatch"))
     page.fill(".tf-q", "e")
@@ -327,10 +334,6 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     check("Escape keeps the file and gives the focus back to the list",
           page.is_hidden(".tf-veil") and len(names(page)) == 8 and page.evaluate("document.activeElement.classList.contains('tf-list')"))
-    if sys.platform == "darwin":
-        page.keyboard.press("Control+Backspace")
-        page.keyboard.press("Control+Meta+Backspace")
-        check("on a Mac, ⌃⌫ and ⌃⌘⌫ are not ⌘⌫: nothing asks", page.is_hidden(".tf-veil") and len(names(page)) == 8)
     page.keyboard.press("ControlOrMeta+Backspace")  # ⌘⌫ on a Mac, Ctrl+Backspace elsewhere
     page.keyboard.press("Enter")
     check("Enter on the focused Cancel keeps the file", len(names(page)) == 8 and page.is_hidden(".tf-veil"))
@@ -367,10 +370,6 @@ with sync_playwright() as p:
     check("Shift+Down extends it", len(sel_names()) == 6 and page.evaluate("demo.files.selected().name") == "Launch plan.pptx")
     page.keyboard.press("ArrowDown")
     check("Down alone goes back to one file", sel_names() == ["Moodboard.heic"])
-    if sys.platform == "darwin":
-        page.keyboard.press("Control+Meta+a")
-        page.keyboard.press("Control+a")
-        check("on a Mac, ⌃⌘A and ⌃A select nothing more", sel_names() == ["Moodboard.heic"], sel_names())
     page.keyboard.press("ControlOrMeta+a")
     check("⌘A selects every file shown", len(sel_names()) == 8)
     page.fill(".tf-q", "pdf")
@@ -669,6 +668,85 @@ with sync_playwright() as p:
           on_header == "name" and sorted_by == "size" and page.evaluate("document.activeElement.classList.contains('tf-list')"), (on_header, sorted_by))
     page.close()
 
+    # ---------- a seventh review ----------
+    page = fresh(browser)
+    seen = page.evaluate("""() => { const host = document.createElement('div'); document.body.append(host); window.calls = [];
+      const v = TaurisFiles.mount(host, { files: [{ id: 1, name: 'a.pdf' }], onSelect: () => calls.push(v.selected()) }); return calls.length; }""")
+    check("onSelect is not called while mount() runs (nothing changed yet)", seen == 0, seen)
+    page.evaluate("demo.files.update({ multiple: false }); demo.files.addPaths(['/x/One.pdf', '/x/Two.pdf']); 0")
+    page.wait_for_timeout(500)
+    check("without multiple, adding several files selects one", len(page.evaluate("demo.files.selection()")) == 1, page.evaluate("demo.files.selection().map(f => f.name)"))
+    page.evaluate("window.opens = 0; demo.files.update({ onOpen: async () => { opens++; } }); 0")
+    page.focus(".tf-list")
+    page.evaluate("""() => { const g = document.querySelector('.tf-list');
+      for (let n = 0; n < 4; n++) g.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: n > 0, bubbles: true })); return 0; }""")
+    page.wait_for_timeout(100)
+    check("holding Enter opens once", page.evaluate("opens") == 1, page.evaluate("opens"))
+    page.keyboard.press("Alt+Delete")
+    page.keyboard.press("Shift+Delete")
+    check("Delete with ⌥ or ⇧ held asks nothing", page.is_hidden(".tf-veil"))
+    check("the row's buttons are left to the mouse (the keys reach every action)",
+          page.evaluate("[...document.querySelectorAll('.tf-acts')].every(a => a.getAttribute('aria-hidden') === 'true')"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""demo.files.setFiles([{ id: 'r10', name: 'Report 10.pdf' }, { id: 'r2', name: 'Report 2.pdf' }, { id: 'r1', name: 'Report 1.pdf' },
+      { id: 'e2', name: 'résumé.pdf' }, { id: 'e1', name: 'resume.pdf' }])""")
+    order1 = names(page)
+    page.evaluate("demo.files.setFiles(demo.files.files().slice().reverse())")
+    check("names equal but for accents keep one order, whatever order they came in", names(page) == order1, (order1, names(page)))
+    page.evaluate("demo.files.select('r2')")
+    page.focus(".tf-list")
+    page.keyboard.type("report 1")
+    check("a whole name typed finds that name (not the next one after the selection)", selected(page) == "Report 1.pdf", selected(page))
+    page.keyboard.press("q")
+    page.keyboard.press("Space")
+    check("Space after a letter that matched nothing scrolls nothing", page.evaluate("document.querySelector('.tf-list').scrollTop") == 0)
+    page.evaluate("window.renamed = []; demo.files.update({ confirmDelete: false, onRename: async (f, n) => renamed.push(n), onDelete: async () => {} }); 0")
+    page.evaluate("demo.files.rename('r1')")
+    page.keyboard.type("x")
+    page.evaluate("""document.querySelector('.tf-rename').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))""")
+    check("Enter that confirms an input method's text does not save the name", page.locator(".tf-rename").count() == 1 and page.evaluate("renamed") == [])
+    ok = page.evaluate("demo.files.remove('r1').then(() => true, () => false)")
+    check("deleting the file being renamed ends the rename and works", ok and "Report 1.pdf" not in names(page) and page.locator(".tf-rename").count() == 0, names(page))
+    page.close()
+
+    page = fresh(browser)
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("Delete")
+    page.click(".tf-ask-text")
+    page.keyboard.press("Enter")
+    check("after a click on the question's text, Enter goes to Cancel (not to nothing)",
+          page.is_visible(".tf-ask") and page.evaluate("document.activeElement.textContent") == "Cancel")
+    page.keyboard.press("Escape")
+    page.close()
+
+    # ---------- a Mac's keys, on any machine (the page is told it runs on a Mac) ----------
+    page = browser.new_page(viewport=SIZE, device_scale_factor=2, locale="en-GB")
+    page.add_init_script("Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' })")
+    page.goto(DEMO.as_uri())
+    page.wait_for_selector(".tf-file")
+    sel_names = lambda: page.evaluate("demo.files.selection().map(f => f.name)")
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("Control+Backspace")
+    page.keyboard.press("Control+Meta+Backspace")
+    check("on a Mac, ⌃⌫ and ⌃⌘⌫ are not ⌘⌫: nothing asks", page.is_hidden(".tf-veil"))
+    page.keyboard.press("Meta+Backspace")
+    check("and ⌘⌫ asks", page.is_visible(".tf-ask"))
+    page.keyboard.press("Escape")
+    page.keyboard.press("Control+Meta+a")
+    page.keyboard.press("Control+a")
+    check("on a Mac, ⌃⌘A and ⌃A select nothing more", len(sel_names()) == 1, sel_names())
+    page.click(".tf-file:nth-child(3) .tf-c-name", modifiers=["Control", "Meta"])
+    check("⌃⌘-click is not ⌘-click: it adds nothing", len(sel_names()) <= 1, sel_names())
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("Control+Meta+ArrowDown")
+    check("⌃⌘↓ is not ⌘↓: the focus does not move alone, leaving the selection behind",
+          page.evaluate("document.querySelector('.tf-file.tf-focused')?.getAttribute('aria-selected')") != "false")
+    page.keyboard.press("Meta+a")
+    check("⌘A selects every file", len(sel_names()) == 8, sel_names())
+    page.close()
+
     # ---------- the row's buttons, double-click, the row menu ----------
     page = fresh(browser)
     page.dblclick(".tf-file:nth-child(2) .tf-c-name")
@@ -752,7 +830,8 @@ with sync_playwright() as p:
           "Q3 board deck.pdf" in names(page) and "Studio floor plan.png" in names(page) and selected(page) == "Q3 board deck.pdf"
           and page.locator(".tf-file.tf-fresh").count() == 2 and message(page) == "Added 2 files to Northwind Launch."
           and page.inner_text(".tf-sub") == "Documents · 10 files · 190.4 MB")
-    check("the flash is a short tint", css(page, ".tf-file.tf-fresh .tf-cell", "animation-name") == "tf-flash")
+    check("the flash is a short tint; on a selected row a darker one, so its text stays readable",
+          css(page, ".tf-file.tf-fresh .tf-cell", "animation-name") == "tf-flash-selected")
     page.wait_for_timeout(1500)
     check("the flash ends", page.locator(".tf-fresh").count() == 0)
     page.evaluate("window.__pick = []")

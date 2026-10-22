@@ -190,7 +190,12 @@ fn follow_mouse<R: Runtime>(app: AppHandle<R>) {
     }
 }
 
-fn finish<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>, tab: u64, hover: Option<(String, usize)>) {
+pub(crate) fn finish<R: Runtime>(
+    app: &AppHandle<R>,
+    window: &WebviewWindow<R>,
+    tab: u64,
+    hover: Option<(String, usize)>,
+) {
     let mut m = inner(app).model();
     m.drag = None;
     // The dragged window closed meanwhile (⌘W mid-drag): its tab went with it.

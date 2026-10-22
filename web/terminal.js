@@ -35,8 +35,9 @@
   // Filled in by the plugin; left as is when the file is loaded on its own.
   const CSS = "__TAURIS_TERMINAL_CSS__";
   let stylesAdded = false;
+  let ownStyles = false; // mount(root, { styles: false }): the page brings its own
   function addStyles() {
-    if (stylesAdded || CSS.startsWith("__TAURIS")) return;
+    if (stylesAdded || ownStyles || CSS.startsWith("__TAURIS")) return;
     stylesAdded = true;
     // A constructed sheet is not blocked by a page's style-src policy.
     try {
@@ -118,6 +119,7 @@
     if (root.__taurisTerminal) throw new Error("TaurisTerminal.mount: this element is already a terminal; call destroy() first");
     const opt = { styles: true, ...options };
     if (opt.styles) addStyles();
+    else ownStyles = true; // nor do the command line, the log or a pane add them later
     root.__taurisTerminal = true;
     // An app that writes class="tm" itself keeps it after destroy() (React StrictMode mounts twice).
     const addedClass = !root.classList.contains("tm");
@@ -232,12 +234,20 @@
     const clock = el("span", null, { "data-tm-clock": "" });
     element.replaceChildren(promptEl, entry, date, clock);
 
-    // The block sits on the caret. Characters are 1ch wide in a monospace font.
+    // The block sits on the caret: the width of the text before it, measured
+    // (a CJK character or an emoji is wider than a letter).
+    const ruler = document.createElement("canvas").getContext("2d");
+    function widthOf(text) {
+      const cs = getComputedStyle(input);
+      if (!ruler) return text.length * parseFloat(cs.fontSize) * 0.6;
+      ruler.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      return ruler.measureText(text).width + (parseFloat(cs.letterSpacing) || 0) * [...text].length;
+    }
     let frame = 0;
     function place() {
       frame = 0;
       const at = input.selectionDirection === "backward" ? input.selectionStart : input.selectionEnd;
-      entry.style.setProperty("--tm-caret", String(at ?? input.value.length));
+      entry.style.setProperty("--tm-caret-x", `${widthOf(input.value.slice(0, at ?? input.value.length))}px`);
       entry.style.setProperty("--tm-scroll", `${input.scrollLeft}px`);
       // Solid while typing; it blinks again once the typing stops.
       if (typeof cursor.getAnimations === "function") for (const a of cursor.getAnimations()) a.currentTime = 0;
@@ -260,6 +270,8 @@
     }
 
     input.addEventListener("keydown", e => {
+      // Keys that end an input method's text are the input method's.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.key === "Enter") {
         e.preventDefault();

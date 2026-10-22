@@ -341,7 +341,8 @@
     document.addEventListener("pointerdown", e => { if (menu && !menu.contains(e.target)) closeMenu(); }, { capture: true, signal });
     window.addEventListener("blur", closeMenu, { signal });
     strip.addEventListener("contextmenu", e => {
-      if (e.target !== strip && e.target !== fill) return;
+      // The strip's empty parts: around and between the tabs, and the + button.
+      if (![strip, fill, tabsEl].includes(e.target) && !newBtn.contains(e.target)) return;
       e.preventDefault();
       openMenu(e.clientX, e.clientY, null);
     }, { signal });
@@ -350,7 +351,27 @@
 
     let shownActive = null;
     function render() {
+      // Held while a tab is dragged along the strip: the drop draws it all.
+      if (drag?.moved && !drag.handedOff) return;
       const hadFocus = tabsEl.contains(document.activeElement);
+      const shown = [...tabsEl.children];
+      if (!hover && shown.length === tabs.length && shown.every((n, i) => n.__ttSig === JSON.stringify(tabs[i]))) {
+        // The same tabs: only which one is active changed. Each tab stays the
+        // element it was (a click, then a second one for a double-click, still
+        // reach what was pressed), unless it now draws differently.
+        shown.forEach((node, i) => {
+          if (node.classList.contains("tt-active") === (tabs[i].id === active)) return;
+          const next = tabElement(tabs[i]);
+          if (next.innerHTML !== node.innerHTML) return node.replaceWith(next);
+          node.className = next.className;
+          node.setAttribute("aria-selected", next.getAttribute("aria-selected"));
+        });
+        const now = [...tabsEl.children];
+        now.forEach(n => n.setAttribute("tabindex", Number(n.dataset.id) === active ? "0" : "-1"));
+        if (!now.some(n => n.tabIndex === 0)) now[0]?.setAttribute("tabindex", "0");
+        finishRender(hadFocus);
+        return;
+      }
       const items = tabs.map(tabElement);
       // Tabs that just arrived pop in; the first render of a window does not.
       const first = known.size === 0;
@@ -366,6 +387,10 @@
       // One tab is always reachable with Tab, even with none active.
       if (!items.some(n => n.tabIndex === 0)) items.find(n => !n.classList.contains("tt-ghost"))?.setAttribute("tabindex", "0");
       tabsEl.replaceChildren(...items);
+      finishRender(hadFocus);
+    }
+
+    function finishRender(hadFocus) {
       const current = tabEl(active);
       if (hadFocus) current?.focus({ preventScroll: true });
       // Bring the active tab into view only when it changed, so a row the user
@@ -393,6 +418,7 @@
           // the app draws is named by what it shows.
           "aria-label": opt.renderTab ? null : tab.title, "aria-controls": opt.panelId }, body);
       node.dataset.id = tab.id;
+      node.__ttSig = JSON.stringify(tab); // what it was drawn from: a tab that changed is drawn again
       node.querySelectorAll("button, a, input, select, textarea").forEach(c => c.setAttribute("tabindex", "-1"));
       node.addEventListener("pointerdown", e => startDrag(e, tab.id));
       node.addEventListener("contextmenu", e => { e.preventDefault(); openMenu(e.clientX, e.clientY, tab, node); });
@@ -488,9 +514,8 @@
         x0: e.clientX, y0: e.clientY, x: e.clientX,
         grabInTab: e.clientX - rects[from].left,
         grabY: e.clientY - rects[from].top,
-        moved: false, handedOff: false, preview: null, frame: 0,
+        moved: false, handedOff: false, preview: null, frame: 0, pointer: e.pointerId,
       };
-      strip.setPointerCapture(e.pointerId);
     }
 
     function makePreview(tab, node) {
@@ -513,11 +538,16 @@
       return preview;
     }
 
-    strip.addEventListener("pointermove", e => {
+    // Heard on the whole window: before the drag begins the strip does not hold
+    // the pointer, and a quick move can leave the strip in one step.
+    window.addEventListener("pointermove", e => {
       if (!drag || drag.handedOff) return;
       if (!drag.moved) {
         if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < opt.moveThreshold) return;
         drag.moved = true;
+        // The pointer is held by the strip only once the drag begins, so a plain
+        // click or double-click still reaches what was pressed (a renderTab's span).
+        try { strip.setPointerCapture(drag.pointer); } catch { /* the pointer is gone */ }
         const node = drag.els[drag.from];
         node.classList.add("tt-dragging");
         drag.els.forEach((n, i) => { if (i !== drag.from) n.classList.add("tt-shifting"); });
@@ -600,6 +630,9 @@
       drag = null;
       cancelAnimationFrame(finished.frame);
       finished.preview?.remove();
+      // A click: the tab was drawn again as it became active; the focus goes to it
+      // (a click gives a tab the focus), not to the page.
+      if (!finished.moved && !finished.handedOff) tabEl(finished.id)?.focus({ preventScroll: true });
       if (finished.handedOff || !finished.moved) return;
 
       // The strip may have been drawn again meanwhile (a tab closed elsewhere):
@@ -629,6 +662,7 @@
     }
 
     strip.addEventListener("pointerup", endDrag, { signal });
+    window.addEventListener("pointerup", endDrag, { signal });
     strip.addEventListener("pointercancel", endDrag, { signal });
     strip.addEventListener("lostpointercapture", endDrag, { signal });
 
@@ -710,11 +744,16 @@
         // Changes made to the tab object itself are kept too; the result is a
         // new object, so frameworks that compare objects (React) see the change.
         const next = { ...tabs[at], ...(typeof tab === "object" ? tab : {}), ...rest, id: tabs[at].id };
+        // The object the app holds gets the patch too, so changing it later and
+        // calling update(tab) again does not undo this.
+        if (tab && typeof tab === "object" && !Object.isFrozen(tab)) Object.assign(tab, rest);
         tabs = tabs.slice();
         tabs[at] = next;
         local(save(next));
         const old = tabEl(next.id);
-        if (old && !hover) {
+        if (drag?.moved && !drag.handedOff) {
+          // Drawn when the drag ends.
+        } else if (old && !hover) {
           // Only this tab is drawn again; it keeps the focus, and stays the one Tab reaches.
           const hadFocus = old.contains(document.activeElement);
           const fresh = tabElement(next);
