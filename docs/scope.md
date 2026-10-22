@@ -15,7 +15,7 @@ Agreed on 2026-10-22 between tauris-ui and the apps that use it (MLPC, MHive).
 
 - **Tabs**, and each tab's Back/Forward history (`history` option, `visit`, `back`, `forward`).
 - **Menus**, and the toolbar (`TaurisMenu.toolbar`): Back, Forward and Find. The pressed button is the app's `aria-pressed`.
-- **Sidebar**: one level of places. A tree goes in a `TaurisTree` passed as `content`.
+- **Sidebar**: one level of places. A tree goes in a `TaurisTree` passed as `content`. Collapsed, the strip can show the tree's projects (`railItems`), each its icon or its letter.
 - **Tree**:
   - a right-click hook, and `how` on select;
   - `fit` and `header: false`;
@@ -45,7 +45,6 @@ Agreed on 2026-10-22 between tauris-ui and the apps that use it (MLPC, MHive).
 - **No.** A group name that opens on a click: a click selects, a double click opens.
 - **No.** A cell spanning two columns.
 - **No.** An app's own Settings window as a library dialog.
-- **No.** The collapsed sidebar showing tree rows: an app puts its places in the sidebar's own items.
 
 ## Stays in each app
 
