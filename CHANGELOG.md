@@ -8,6 +8,10 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.34 — 2026-10-22
+
+- Reorder: a control in a row marked `.tauris-drag` (a project's name that opens on a click) starts a drag too: a click still opens it, a press and a move drags the row, and the click that ends the drag is swallowed. Other controls still never start one.
+
 ## 0.4.33 — 2026-10-22
 
 - New: `TaurisReorder.attach(container, { onMove })` (from MLPC's tables): drag rows into another order, as in a macOS table. The row lifts and follows the pointer, a line shows where it lands, Esc puts it back, and the rows slide into place once the app has drawn the new order. ⌥⌘↑ ⌥⌘↓ (Ctrl+Alt elsewhere) move the current row, and `move(id, dir)` is a menu's Move Up. `group` keeps a row among its own; a drop over another group's rows is refused. `movable` says why a row cannot move, `items` moves a heading with its rows, and `onStart` gives the order to hold still while a row is dragged. `TaurisReorder.arrange(list, order)` and `TaurisReorder.keys` help. It is on only where an app attaches it, and `enabled: false` turns it off. `Component::Reorder`.

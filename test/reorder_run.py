@@ -212,10 +212,13 @@ with sync_playwright() as p:
     first = order(page, projects)
     b = box(page, "#projects tbody tr[data-id=p1]")
     page.mouse.move(b["x"] + 30, b["y"] + b["h"] / 2)
+    check("(pressed on the project's name, a button marked tauris-drag)",
+          page.evaluate("([x, y]) => document.elementFromPoint(x, y).closest('.glink')?.textContent", [b["x"] + 30, b["y"] + b["h"] / 2]) == "Atlas")
     page.mouse.down()
     page.mouse.move(b["x"] + 30, box(page, "#projects tbody tr[data-id=k5]")["y"] + 12, steps=10)
     check("a heading drags with its rows: all of them faint", page.locator("#projects .trd-src").count() == 3)
     page.mouse.up()
+    check("the click that ends the drag does not open the project", page.evaluate("clicks") == [], page.evaluate("clicks"))
     check("and they land together, after the next project's rows", said(page)[-1][:5] == ["move", "p1", 0, 1, "mouse"]
           and order(page, projects) == ["p2", "k3", "k4", "k5", "p1", "k1", "k2", "p3", "k6"], order(page, projects))
     page.wait_for_timeout(250)  # the rows' slide into place
@@ -229,6 +232,15 @@ with sync_playwright() as p:
           and box(page, ".trd-line")["x"] >= box(page, "#projects tbody tr[data-id=k5]")["x"] + 15, box(page, ".trd-line"))
     page.mouse.up()
     check("it moves among them", order(page, projects)[:4] == ["p2", "k4", "k5", "k3"], order(page, projects))
+    page.wait_for_timeout(250)  # the rows' slide into place
+    page.click("#projects tbody tr[data-id=p2] .glink")
+    check("a click on the name (no move) opens it", page.evaluate("clicks") == ["Northwind"] and page.locator(".trd-ghost").count() == 0, page.evaluate("clicks"))
+    ib = box(page, "#projects tbody tr[data-id=p2] .ib")
+    page.mouse.move(ib["x"] + 4, ib["y"] + 4)
+    page.mouse.down()
+    page.mouse.move(ib["x"] + 4, ib["y"] + 80, steps=6)
+    check("a control not marked never drags", page.locator(".trd-ghost:not(.trd-back)").count() == 0)
+    page.mouse.up()
     page.close()
 
     # ---------- not a table, scrolling, the look ----------

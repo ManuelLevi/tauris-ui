@@ -35,7 +35,7 @@ declare global {
     group?: ((row: Element) => unknown) | null;
     /** What the row's item moves among, in the order shown, itself included (items of several rows). */
     items?: ((row: Element) => TaurisReorderItem[]) | null;
-    /** A drag starts only here (a grip); default anywhere on the row but its controls. */
+    /** A drag starts only here (a grip); default anywhere on the row but its controls (a control marked .tauris-drag starts one too: a name that opens on a click). */
     handle?: string | null;
     /** false: no drags and no keys (default true). */
     enabled?: boolean;

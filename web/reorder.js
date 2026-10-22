@@ -65,7 +65,8 @@
     // row => [{ id, els }]: what the row's item moves among, in the order shown,
     // itself included. For items of several rows (a heading and the rows under it).
     items: null,
-    // A selector inside a row: a drag starts only there (default anywhere but its controls).
+    // A selector inside a row: a drag starts only there (default anywhere but
+    // its controls, unless a control is marked .tauris-drag).
     handle: null,
     // false: no drags and no keys, until update({ enabled: true }).
     enabled: true,
@@ -92,7 +93,8 @@
 
   const say = (label, ...args) => (typeof label === "function" ? label(...args) : String(label ?? ""));
 
-  // Where a drag never starts: the row's own controls.
+  // Where a drag never starts: the row's own controls, but one marked
+  // .tauris-drag (a name that opens on a click: a press and a move drags).
   const CONTROLS = "input, textarea, select, button, a[href], label, [contenteditable]:not([contenteditable='false']), [role='button'], [role='checkbox'], [role='menuitem'], .tauris-no-drag";
   // Elements a <div> cannot be put in: the lifted copy and the line go beside them.
   const NO_DIV = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "UL", "OL", "DL", "SELECT"]);
@@ -321,7 +323,7 @@
       const row = t?.closest(opt.rows);
       if (!row || !container.contains(row) || row.closest(".trd-ghost")) return;
       const control = t.closest(CONTROLS);
-      if (opt.handle ? !t.closest(opt.handle) : control && control !== row && row.contains(control)) return;
+      if (opt.handle ? !t.closest(opt.handle) : control && control !== row && row.contains(control) && !control.classList.contains("tauris-drag")) return;
       const id = idOf(row);
       if (id == null) return;
       press(e, row, id);

@@ -100,11 +100,16 @@
       return tr;
     };
     document.querySelector("#projects tbody").replaceChildren(...PROJECTS.flatMap(p => [
-      row("project", p.id, p.id, `<td>${p.name}</td><td></td>`),
+      row("project", p.id, p.id, `<td><button type="button" class="glink tauris-drag" tabindex="-1">${p.name}</button></td><td><button type="button" class="ib">✎</button></td>`),
       ...p.kpis.map(k => row("kpi", k.id, p.id, `<td>${k.name}</td><td>42</td>`)),
     ]));
   }
   drawProjects();
+  // A project's name opens it on a click.
+  document.querySelector("#projects").addEventListener("click", e => {
+    const name = e.target.closest(".glink");
+    if (name) clicks.push(name.textContent);
+  });
   const body = () => document.querySelector("#projects tbody");
   window.projects = TaurisReorder.attach(document.getElementById("projects-wrap"), {
     rows: "tbody tr",
