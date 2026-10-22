@@ -783,6 +783,8 @@
         const key = tr.dataset.id;
         if (e.button === 0 && opt.multiple && cmd(e)) toggleOne(key, "mouse");
         else if (e.button === 0 && opt.multiple && e.shiftKey) extend(key, "mouse");
+        // ⌘-click without `multiple`: opens the other way (its click), the selection staying where it was.
+        else if (e.button === 0 && !opt.multiple && cmd(e)) e.preventDefault();
         else if (!(e.button === 2 && picked.has(key))) select(key, "mouse", false);
       } else if (g && collapsible()) {
         e.preventDefault();

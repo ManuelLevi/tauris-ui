@@ -1364,12 +1364,13 @@
         if (changed) emitSelect();
         return;
       }
-      go(i);
-      // ⌘-click (Ctrl-click): the app's other way to open (a new tab), when rows are picked one at a time.
+      // ⌘-click (Ctrl-click): the app's other way to open (a new tab), when rows are picked one at a
+      // time. The selection stays where it was, as in Finder's sidebar.
       if (toggleKey && !e.shiftKey && !opt.multiple) {
         emit("activate", { node: row.node, cmd: true });
         return;
       }
+      go(i);
       const cell = e.target.closest(".tv-cell[data-col]");
       const ci = cell ? Number(cell.dataset.col) : -1;
       if (!canEdit(row, ci)) return;

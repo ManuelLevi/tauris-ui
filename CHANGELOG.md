@@ -8,6 +8,10 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.40 — 2026-10-22
+
+- Tree and table: a ⌘-click (without `multiple`) only opens the other way (a new tab). The selection stays where it was, as in Finder's sidebar.
+
 ## 0.4.39 — 2026-10-22
 
 - Dialogs: a form's `{ type: "row" }` field showed nothing (it has no `name` of its own, and was left out). It shows now.
