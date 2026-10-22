@@ -493,6 +493,9 @@
 
     let typed = "";
     let typedAt = 0;
+    // When the key was pressed, not when it was handled: a page busy drawing the
+    // last match does not cut short a name typed quickly (0 in an engine that leaves it out).
+    const keyTime = e => e.timeStamp || performance.now();
     list.addEventListener("keydown", e => {
       const row = e.target instanceof Element ? e.target.closest(".tsb-item") : null;
       if (!row || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -530,7 +533,7 @@
         call(opt.onContextMenu, r.item, { x: box.left + 12, y: box.bottom, how: "keyboard" });
       } else if (e.key.length === 1 && e.key !== " ") {
         // A letter: the next item whose label starts with what was typed.
-        const now = Date.now();
+        const now = keyTime(e);
         typed = now - typedAt < opt.typeAheadMs ? typed + e.key.toLowerCase() : e.key.toLowerCase();
         typedAt = now;
         const starts = x => String(x.item.label ?? "").toLowerCase().startsWith(typed);

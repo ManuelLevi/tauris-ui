@@ -1543,6 +1543,9 @@
     };
     let typed = "";
     let typedAt = 0;
+    // When the key was pressed, not when it was handled: a page busy drawing the
+    // last match does not cut short a name typed quickly (0 in an engine that leaves it out).
+    const keyTime = e => e.timeStamp || performance.now();
     const KEEP_TYPED = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Dead", "AltGraph", "Compose", "Process", "Unidentified"]);
     // Scrolled, or a new height (shown at last, the window resized): the rows now in view.
     grid.addEventListener("scroll", windowSoon, { passive: true, signal });
@@ -1574,7 +1577,7 @@
       // accent: "Dead", AltGr) ends what was being typed.
       if (e.key.length !== 1 && !KEEP_TYPED.has(e.key)) typed = "";
       // A space in the middle of typing a name is part of it ("Launch p").
-      const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < opt.typeAheadMs;
+      const spelling = e.key === " " && typed !== "" && keyTime(e) - typedAt < opt.typeAheadMs;
       if (e.key === " ") e.preventDefault(); // the list never scrolls a page on Space
       // Holding a key down opens, renames or deletes once, not again and again.
       if (e.repeat && ["Enter", "F2", "Delete", "Backspace"].includes(e.key)) {
@@ -1629,7 +1632,7 @@
         // Typing jumps to the next file whose name starts with what was typed, and
         // selects it alone, as in a file manager. One letter again and again steps
         // through the files that start with it.
-        const now = Date.now();
+        const now = keyTime(e);
         typed = now - typedAt < opt.typeAheadMs ? typed + e.key.toLowerCase() : e.key.toLowerCase();
         typedAt = now;
         const same = [...typed].every(c => c === typed[0]);

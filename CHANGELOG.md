@@ -6,10 +6,14 @@ dependency, `cargo update -p tauris-ui`).
 
 ## Unreleased
 
+- Type-ahead (the tree, the files table, the sidebar, menus) times each key by
+  when it was pressed, not when the page got to it: a page busy drawing the
+  last match no longer cuts short a name typed quickly.
 - Tests: a check that follows a pause asks again for up to 3 s before it fails
   (`engine.settled`), so CI's slow Mac no longer fails a different pair of
   WebKit checks each run. A check that something did not happen still answers
-  at once.
+  at once. The type-ahead checks give the slow machine's keys a long window, and
+  the delete-then-add check waits for the delete before adding.
 
 ## 0.4.32 — 2026-10-22
 

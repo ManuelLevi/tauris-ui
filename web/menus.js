@@ -438,6 +438,9 @@
 
       let typed = "";
       let typedAt = 0;
+      // When the key was pressed, not when it was handled: a page busy drawing the
+      // last match does not cut short a label typed quickly (0 in an engine that leaves it out).
+      const keyTime = e => e.timeStamp || performance.now();
       menu.addEventListener("keydown", e => {
         if (e.isComposing) return;
         // Any other key ends what was being typed (Shift and the like do not).
@@ -447,7 +450,7 @@
         const focused = i >= 0 ? list[i] : null;
         // A space in the middle of typing a label is part of it, not a choice.
         // A space in the middle of typing a label ("Save a"), when one goes on like that; else it chooses.
-        const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < 700
+        const spelling = e.key === " " && typed !== "" && keyTime(e) - typedAt < 700
           && enabledIn(menu).some(node => node.querySelector(".tmn-label").textContent.trim().toLowerCase().startsWith(typed + " "));
         // Moving with the keys leaves a sub-menu opened by the mouse behind: it closes.
         const to = n => {
@@ -493,7 +496,7 @@
           // Typing jumps to the next item that starts with what was typed; one
           // letter again and again steps through the items that start with it.
           e.preventDefault();
-          const now = Date.now();
+          const now = keyTime(e);
           typed = now - typedAt < 700 ? typed + e.key.toLowerCase() : e.key.toLowerCase();
           typedAt = now;
           const text = node => node.querySelector(".tmn-label").textContent.trim().toLowerCase();

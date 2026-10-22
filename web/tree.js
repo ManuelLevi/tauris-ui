@@ -1089,8 +1089,10 @@
 
     let typed = "";
     let typedAt = 0;
-    function typeAhead(ch, at) {
-      const now = performance.now();
+    // When the key was pressed, not when it was handled: a page busy drawing the
+    // last match does not cut short a name typed quickly (0 in an engine that leaves it out).
+    const keyTime = e => e.timeStamp || performance.now();
+    function typeAhead(ch, at, now) {
       typed = now - typedAt > 700 ? ch : typed + ch;
       typedAt = now;
       // One letter again and again steps through the rows that start with it.
@@ -1205,7 +1207,7 @@
         case "*":
           handled();
           // Inside a name being typed ("src-tauri"), part of it.
-          if (typed && performance.now() - typedAt < 700) typeAhead(e.key, at);
+          if (typed && keyTime(e) - typedAt < 700) typeAhead(e.key, at, keyTime(e));
           else if (e.key === "+") setOpen([row.key], true);
           else if (e.key === "-") setOpen([row.key], false);
           else setOpen([row.key, ...descendants(row.node)], true);
@@ -1226,8 +1228,8 @@
         case " ": {
           handled();
           // A space in the middle of typing a name is part of it ("open at login").
-          if (typed && performance.now() - typedAt < 700) {
-            typeAhead(" ", at);
+          if (typed && keyTime(e) - typedAt < 700) {
+            typeAhead(" ", at, keyTime(e));
             break;
           }
           const ci = checkboxColumn(row);
@@ -1242,7 +1244,7 @@
         default:
           if (e.key.length === 1 && e.key.trim()) {
             handled();
-            typeAhead(e.key, at);
+            typeAhead(e.key, at, keyTime(e));
           }
       }
     }, { signal });

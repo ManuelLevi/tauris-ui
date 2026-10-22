@@ -628,10 +628,12 @@ with sync_playwright() as p:
     page.click(".tf-ask-text")
     check("a click on the delete question's own text keeps the question open", page.is_visible(".tf-ask"))
     page.keyboard.press("Escape")
-    page.evaluate("demo.files.select(null)")
+    # A slow machine hands the page each key late: a long typeAheadMs keeps the name whole.
+    page.evaluate("demo.files.select(null); demo.files.update({ typeAheadMs: 10000 }); 0")
     page.focus(".tf-list")
     page.keyboard.type("Launch p")
     check("typing a name with a space in it finds it", selected(page) == "Launch plan.pptx", selected(page))
+    page.evaluate("demo.files.update({ typeAheadMs: undefined }); 0")
     page.evaluate("window.renamed = []; demo.files.update({ confirmDelete: false, onRename: async (f, n) => renamed.push(n) }); 0")
     page.click(".tf-file:nth-child(2) .tf-c-name")
     page.keyboard.press("F2")
@@ -719,10 +721,11 @@ with sync_playwright() as p:
     order1 = names(page)
     page.evaluate("demo.files.setFiles(demo.files.files().slice().reverse())")
     check("names equal but for accents keep one order, whatever order they came in", names(page) == order1, (order1, names(page)))
-    page.evaluate("demo.files.select('r2')")
+    page.evaluate("demo.files.select('r2'); demo.files.update({ typeAheadMs: 10000 }); 0")
     page.focus(".tf-list")
     page.keyboard.type("report 1")
     check("a whole name typed finds that name (not the next one after the selection)", selected(page) == "Report 1.pdf", selected(page))
+    page.evaluate("demo.files.update({ typeAheadMs: undefined }); 0")
     page.keyboard.press("q")
     page.keyboard.press("Space")
     check("Space after a letter that matched nothing scrolls nothing", page.evaluate("document.querySelector('.tf-list').scrollTop") == 0)
@@ -1383,10 +1386,11 @@ with sync_playwright() as p:
     page.wait_for_timeout(700)
     check("a search: how many files show is spoken once the typing stops", lambda: "2 of 4 files" in page.evaluate("document.querySelector('.tf .tf-live').textContent"),
           lambda: page.evaluate("document.querySelector('.tf .tf-live').textContent"))
-    page.evaluate("v.search(''); v.update({ typeAheadMs: 1000 }); v.focus(); 0")
+    # Wide margins: a timer fires late on a slow machine, never early.
+    page.evaluate("v.search(''); v.update({ typeAheadMs: 3000 }); v.focus(); 0")
     typed = page.evaluate("""() => { const g = document.querySelector('.tf .tf-list'); const k = key => g.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
       k('x'); const said = document.querySelector('.tf .tf-status').textContent;
-      return new Promise(r => setTimeout(() => { k('p'); setTimeout(() => { k('l'); r([said, v.selected()?.name]); }, 850); }, 1100)); }""")
+      return new Promise(r => setTimeout(() => { k('p'); setTimeout(() => { k('l'); r([said, v.selected()?.name]); }, 300); }, 3200)); }""")
     check("type-ahead: a miss says so; typeAheadMs sets how long a name keeps being typed (\"pl\" from the top, not Lease)",
           typed[0] == "Nothing starts with “x”." and typed[1] == "Plan.docx", typed)
     page.close()
@@ -1574,11 +1578,14 @@ with sync_playwright() as p:
       onAdd: async p => { const out = p.map(x => ({ id: x, name: x.split('/').pop() })); v.setFiles(out); await wait(20); return out; } });
       v.select('Plan.docx'); v.focus(); 0""")
     page.keyboard.press("Delete")
-    page.wait_for_timeout(100)
+    # The add comes after the delete has shown, as a person's would.
+    check("the last file deleted (before one is added)", lambda: page.evaluate("v.files().length") == 0,
+          lambda: page.evaluate("[v.files().map(f => f.name), document.activeElement?.className]"))
     page.evaluate("v.addPaths(['/u/First.pdf']); 0")
     page.wait_for_timeout(200)
-    got = page.evaluate("[v.files().map(f => f.name), v.selected()?.name ?? null]")
-    check("the last file deleted, then one added: it is added and selected (the same place)", got == [["First.pdf"], "First.pdf"], got)
+    check("the last file deleted, then one added: it is added and selected (the same place)",
+          lambda: page.evaluate("[v.files().map(f => f.name), v.selected()?.name ?? null]") == [["First.pdf"], "First.pdf"],
+          lambda: page.evaluate("[v.files().map(f => f.name), v.selected()?.name ?? null]"))
     page.close()
 
     page = fresh(browser)
