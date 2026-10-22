@@ -72,7 +72,7 @@ Do all of these, every time:
    python scripts/doctor.py examples/basic
    python test/doctor_run.py                 # the checker itself, on small apps set up right and wrong
    (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
-   cargo +1.90 build                         # the oldest Rust the library builds with
+   CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback cargo +1.90 build --features files   # the oldest Rust it builds with (as CI)
    ```
 9. **Delete the build output** when finished: `target/`, `examples/basic/src-tauri/target/` and `test/freeze_check/target/`.
 10. **Commit and push the release** once every check passes, as `tauris-ui X.Y.Z: what changed`. Do not ask the maintainer first.

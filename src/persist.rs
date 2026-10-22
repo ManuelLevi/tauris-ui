@@ -27,8 +27,18 @@ struct SavedWin {
     frame: Option<Frame>,
 }
 
+// The app's layout_file can be called inside Tauri's plugin lock (⌘W on the
+// last tab, quitting): a panic there must not unwind through Tauri.
 fn layout_file<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
-    inner(app).config.layout_file.as_ref().and_then(|f| f(app))
+    let file = inner(app).config.layout_file.as_ref()?;
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| file(app))) {
+        Ok(path) => path,
+        Err(payload) => {
+            std::mem::forget(payload); // its drop could panic too
+            eprintln!("tauris-ui: the app's layout_file panicked; the layout is not saved");
+            None
+        }
+    }
 }
 
 // Opens the remembered windows, or one new window when there are none; then
@@ -125,9 +135,9 @@ fn open_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
             }
             label
         };
-        // A window remembered on a screen no longer attached opens centred,
-        // and is remembered there.
-        let frame = w.frame.filter(|f| on_screen(app, f));
+        // A window remembered on a screen no longer attached opens centred
+        // (with its size, maximized if it was), and is remembered there.
+        let frame = w.frame.map(|f| Frame { centre: !on_screen(app, &f), ..f });
         if let Some(win) = inner(app).model().win(&label) {
             win.frame = frame;
         }
@@ -155,15 +165,30 @@ fn open_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
 }
 
 fn on_screen<R: Runtime>(app: &AppHandle<R>, f: &Frame) -> bool {
-    // No screens known (some systems report none): nothing is off one.
-    let Ok(monitors) = app.available_monitors() else { return true };
-    if monitors.is_empty() {
-        return true;
-    }
-    monitors.iter().any(|m| {
-        let (p, s) = (m.position().to_logical::<f64>(m.scale_factor()), m.size().to_logical::<f64>(m.scale_factor()));
-        f.x + 40.0 >= p.x && f.x + 40.0 <= p.x + s.width && f.y + 10.0 >= p.y && f.y + 10.0 <= p.y + s.height
-    })
+    // A runtime that cannot list its screens (the test runtime cannot) knows none.
+    let monitors = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.available_monitors()))
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
+    let screens: Vec<(f64, f64, f64, f64)> = monitors
+        .iter()
+        .map(|m| {
+            let (p, s) =
+                (m.position().to_logical::<f64>(m.scale_factor()), m.size().to_logical::<f64>(m.scale_factor()));
+            (p.x, p.y, s.width, s.height)
+        })
+        .collect();
+    within(f, &screens)
+}
+
+// Whether a window's title bar (a point just inside its top left) is on one of
+// these screens (x, y, width, height). No screens known (some systems report
+// none): nothing is off one.
+fn within(f: &Frame, screens: &[(f64, f64, f64, f64)]) -> bool {
+    screens.is_empty()
+        || screens
+            .iter()
+            .any(|&(x, y, w, h)| f.x + 40.0 >= x && f.x + 40.0 <= x + w && f.y + 10.0 >= y && f.y + 10.0 <= y + h)
 }
 
 // The user closed every tab: nothing is remembered, so tab titles (which can
@@ -222,7 +247,8 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
             tabs: c.tabs.clone(),
             frame: c.win.frame,
         });
-        let open = m.wins.iter().map(|w| SavedWin {
+        // A window still opening may never show (the app is quitting): left out.
+        let open = m.wins.iter().filter(|w| !w.opening).map(|w| SavedWin {
             tabs: w.tabs.iter().filter_map(|id| m.tabs.get(id).cloned()).collect(),
             active: w.active.and_then(|a| w.tabs.iter().position(|t| *t == a)).unwrap_or(0),
             frame: w.frame,
@@ -275,7 +301,19 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::SavedWin;
+    use super::{within, SavedWin};
+    use crate::model::Frame;
+
+    #[test]
+    fn a_window_is_on_a_screen_by_its_title_bar() {
+        let f = |x, y| Frame { x, y, width: 900.0, height: 700.0, maximized: false, centre: false };
+        let screens = [(0.0, 0.0, 1440.0, 900.0), (1440.0, -200.0, 2560.0, 1440.0)];
+        assert!(within(&f(100.0, 50.0), &screens));
+        assert!(within(&f(2000.0, -150.0), &screens), "on the second screen, above the first");
+        assert!(!within(&f(5000.0, 50.0), &screens), "on a screen no longer attached");
+        assert!(!within(&f(-900.0, 50.0), &screens), "its title bar off the left edge");
+        assert!(within(&f(5000.0, 50.0), &[]), "no screens known: nothing is off one");
+    }
 
     #[test]
     fn a_saved_layout_reads_back_with_the_apps_fields() {

@@ -195,7 +195,7 @@ with sync_playwright() as p:
     check("dark: the list, the text and the selection follow the system",
           css(page, ".tf-panel", "background-color") == DARK_BG and css(page, ".tf-title", "color") == DARK_FG
           and css(page, ".tf-file:nth-child(2) .tf-cell", "background-color") == DARK_SEL
-          and css(page, ".tf-file:nth-child(3) .tf-kind", "color") == "rgb(244, 140, 133)")
+          and css(page, ".tf-file:nth-child(3) .tf-kind", "color") == "rgb(246, 150, 144)")
     page.evaluate("__emit('tauri://drag-enter', { paths: ['/a.pdf'] })")
     check("dark: accent text is the lighter ink, readable on the list (about 5:1, not 2.5:1)",
           css(page, ".tf-drop-title", "color") == "rgb(106, 166, 224)" and css(page, ".tf-arrow", "color") == "rgb(106, 166, 224)")
@@ -283,7 +283,7 @@ with sync_playwright() as p:
 
     # ---------- the app chooses light or dark ----------
     for os_mode, app_mode, panel, pdf, menu_bg in [("dark", "light", "rgb(255, 255, 255)", PDF_RED, "rgb(255, 255, 255)"),
-                                                   ("light", "dark", DARK_BG, "rgb(244, 140, 133)", "rgb(47, 50, 52)")]:
+                                                   ("light", "dark", DARK_BG, "rgb(246, 150, 144)", "rgb(47, 50, 52)")]:
         page = fresh(browser, os_mode)
         page.evaluate(f"document.documentElement.dataset.taurisTheme = '{app_mode}'")
         page.click(".tmn-title:text-is('File')")
@@ -1281,6 +1281,113 @@ with sync_playwright() as p:
     check("selecting 20,000 files by id takes one pass, not one per file", many < 300, many)
     again = page.evaluate("""() => { const first = document.querySelector('.tf-file'); v.search('File 1'); v.search(''); return document.querySelector('.tf-file') === first; }""")
     check("a search keeps the rows that were drawn (only what changed is drawn again)", again)
+    page.close()
+
+    # ---------- a ninth review ----------
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("""v.update({ confirmDelete: false, onDelete: async f => { await wait(20); window.A = A.filter(x => x.id !== f.id); v.setFiles(A); } });
+      v.selectAll(); v.focus(); 0""")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(400)
+    check("deleting every file (the app sending its empty list) says so, and the focus stays in the component",
+          "Deleted 3 files." in page.evaluate("document.querySelector('.tf-status').textContent")
+          and page.evaluate("document.activeElement.closest('.tf') !== null"), (page.evaluate("document.querySelector('.tf-status').textContent"),
+                                                                              page.evaluate("document.activeElement.className")))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("""v.update({ onOpen: async f => { log.push(f.where + '/' + f.name); await wait(60); } });
+      v.select(['Plan.docx', 'Budget.xlsx', 'Notes.md']); v.focus(); 0""")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(20)
+    page.evaluate("v.update({ title: 'B', files: B }); 0")
+    page.wait_for_timeout(300)
+    check("opening several, then another place shown: none of its files is opened", all(x.startswith("A/") for x in page.evaluate("log")), page.evaluate("log"))
+    check("and the new place has nothing selected (a file of the same id there was not chosen)", page.evaluate("v.selection().length") == 0)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    reused = page.evaluate("""() => { const first = document.querySelector('.tf .tf-file'); v.update({ title: 'A', files: A.slice() });
+      return document.querySelector('.tf .tf-file') === first; }""")
+    check("update({ files }) with the same files keeps the rows drawn (the React pattern)", reused)
+    page.evaluate("v.update({ onRename: async () => {} }); v.search('n'); v.rename('Plan.docx'); 0")
+    page.wait_for_timeout(50)
+    before = page.inner_text(".tf .tf-sub")
+    page.evaluate("v.update({ confirmDelete: false, onDelete: async () => {} }); v.remove('Notes.md'); 0")
+    page.wait_for_timeout(100)
+    after = page.inner_text(".tf .tf-sub")
+    check("a delete while another file is renamed during a search: the count follows",
+          before.startswith("2 of 3 files") and after.startswith("1 of 2 files"), (before, after))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("""v.update({ multiple: true, onDelete: async f => { if (f.id === 'Budget.xlsx') return; } }); v.select(['Plan.docx', 'Budget.xlsx']); v.focus(); 0""")
+    page.keyboard.press("Delete")
+    page.wait_for_selector(".tf .tf-veil:not([hidden])")
+    page.evaluate("v.setFiles(A.filter(f => f.id !== 'Budget.xlsx')); 0")
+    page.keyboard.press("Tab")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(100)
+    said = page.evaluate("document.querySelector('.tf .tf-status').textContent")
+    check("several to delete, the list losing one meanwhile: the one that went is named (not \"1 files\")", "Deleted Plan.docx." in said, said)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.setFiles([]); v.update({ onAdd: async p => p.map(x => ({ id: x, name: x.split('/').pop() })) }); 0")
+    page.focus(".tf .tf-empty .tf-btn")
+    page.evaluate("v.addPaths(['/x/one.pdf']); 0")
+    page.wait_for_timeout(200)
+    check("files added while the focus is on the empty place's button: the focus goes to the list", page.evaluate("document.activeElement.classList.contains('tf-list')"),
+          page.evaluate("document.activeElement.className"))
+    page.evaluate("v.setFiles([{ id: 's', name: 'Scan', type: 'application/pdf' }, { id: 'p', name: 'Plan.docx' }, { id: 'q', name: 'Plan 2.docx' }]); 0")
+    names = page.evaluate("[...document.querySelectorAll('.tf .tf-file')].map(r => r.getAttribute('aria-label'))")
+    check("a row whose name does not say its kind is named with it", any(n.startswith("Scan, PDF") for n in names) and not any(n.startswith("Plan.docx, ") and "DOC" in n for n in names), names)
+    page.evaluate("v.search('plan'); 0")
+    page.wait_for_timeout(700)
+    check("a search: how many files show is spoken once the typing stops", "2 of 3 files" in page.evaluate("document.querySelector('.tf .tf-live').textContent"),
+          page.evaluate("document.querySelector('.tf .tf-live').textContent"))
+    page.evaluate("v.search(''); v.update({ typeAheadMs: 1000 }); v.focus(); 0")
+    typed = page.evaluate("""() => { const g = document.querySelector('.tf .tf-list'); const k = key => g.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      k('x'); const said = document.querySelector('.tf .tf-status').textContent;
+      return new Promise(r => setTimeout(() => { k('p'); setTimeout(() => { k('l'); r([said, v.selected()?.name]); }, 850); }, 1100)); }""")
+    check("type-ahead: a miss says so; typeAheadMs sets how long a name keeps being typed (\"pl\" from the top)",
+          typed[0] == "Nothing starts with “x”." and typed[1] == "Plan.docx", typed)
+    page.close()
+
+    page = fresh(browser)
+    took = page.evaluate("""() => { const all = Array.from({ length: 20000 }, (_, i) => ({ id: i, name: 'File ' + i + '.pdf' }));
+      const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:-9999px;width:600px;height:300px'; document.body.append(host);
+      const w = TaurisFiles.mount(host, { multiple: true, confirmDelete: false, files: all, onDelete: async () => {} });
+      w.select(all.slice(0, 2000).map(f => f.id)); w.focus(); const t = performance.now();
+      host.querySelector('.tf-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+      return new Promise(r => { const wait = () => w.files().length === 18000 ? r(performance.now() - t) : setTimeout(wait, 20); wait(); }); }""")
+    check("deleting 2,000 of 20,000 files takes one pass, not one per file", took < 3000, took)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("""v.update({ dropArea: 'element', onAdd: async p => { log.push('A'); return []; } });
+      const d = document.createElement('div'); d.style.cssText = 'position:fixed;left:0;top:0;width:400px;height:200px;background:#fff;z-index:5'; document.body.append(d); 0""")
+    page.evaluate("__emit('tauri://drag-drop', { paths: ['/x/a.pdf'], position: { x: 100 * devicePixelRatio, y: 100 * devicePixelRatio } }); 0")
+    page.wait_for_timeout(100)
+    check("dropArea element: a drop over something drawn on top of it is not its", page.evaluate("log") == [], page.evaluate("log"))
+    page.close()
+
+    page = fresh(browser, "dark", reduced_motion="reduce")
+    page.click(".tf-file:nth-child(2) .tf-c-name")
+    bar = page.evaluate("getComputedStyle(document.querySelector('.tf-file[aria-selected=true] .tf-cell')).backgroundSize")
+    check("dark: a selected row has a bar at its start (its tint alone is under 3:1 on the list)", bar.startswith("3px"), bar)
+    page.close()
+    page = fresh(browser)
+    page.emulate_media(forced_colors="active")
+    page.evaluate("demo.files.busy('Adding…'); 0")
+    look = page.evaluate("(() => { const c = getComputedStyle(document.querySelector('.tf-add')); return [c.opacity, c.color]; })()")
+    check("Windows high contrast: the Add button while adding is drawn in the system's disabled colour", look[0] == "1", look)
     page.close()
 
     # ---------- a delete question and the light look, side by side with dark ----------

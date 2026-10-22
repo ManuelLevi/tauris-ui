@@ -370,10 +370,16 @@ Set variables in your own CSS:
   --tt-accent: #FFB800;     /* the bar on top of the active tab */
   --tt-active-bg: #171a23;  /* use your page's background */
   --tt-strip-bg: #0a0c11;
+  --tt-fg: #9aa0ad;         /* a dark strip on a light system: its text colours too */
+  --tt-fg-hover: #d4d8e0;
+  --tt-fg-active: #f2f4f8;
+  --tt-hover-bg: #1c2030;
   --tt-tab-h: 34px;
   --tt-tab-w: 140px;
 }
 ```
+
+A strip darker (or lighter) than the system's mode gets its text colours from that mode unless you set them, as above; an app that is dark all through sets `data-tauris-theme="dark"` instead (see [One look](#one-look-for-every-component)).
 
 Every variable is listed at the top of `web/tabs.css`. They cover:
 - the strip
@@ -608,7 +614,8 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 | `sort` | `{ key: "name", up: true }` | The first order. A new column starts A to Z for names, biggest and newest first for sizes and dates. Names sort as in Finder: the name before its extension ("Q3 plan.md" before "Q3 plan 2.md"), numbers as numbers ("Item 2" before "Item 10") |
 | `header`, `search` | `true` | The header row, and its search field (shown once there are files) |
 | `multiple` | `false` | ⌘-click (Ctrl-click) and Shift-click select several files. Turn it on when the app's own actions (a File › Delete) use `selection()` |
-| `dropArea` | `"window"` | Where a drop adds files: `"window"` (anywhere; with two components shown, a drop over one is that one's, and elsewhere the first mounted takes it), `"element"` (over the component only) or `"none"` |
+| `dropArea` | `"window"` | Where a drop adds files: `"window"` (anywhere; with two components shown, a drop over one is that one's, and elsewhere the first mounted takes it), `"element"` (over the component only, where nothing is drawn over it) or `"none"` |
+| `typeAheadMs` | `700` | How long after a key the next one still adds to the name being typed in the list (a miss says `labels.noneStarts`, as an `"error"` message) |
 | `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function `(file) => question`: its own question for one file (`null`, `false` or `""`: that file goes without a question). Several files at once are asked about with `labels.confirmDeleteMany` (`files => "Delete 3 files?"`) |
 | `formatDate` | short | `(date, file) => text` for the Added column |
 | `pick` | the system's | `(title) => Promise<paths>` behind Add files… |
@@ -756,7 +763,7 @@ python test/menus_run.py [shots-dir]       # the menus, mouse and keyboard
 python test/doctor_run.py                  # the checker, on small apps set up right and wrong
 (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build) && python scripts/doctor.py examples/basic
 (cd test/freeze_check && cargo run)        # macOS: a real app; the Dock click and New Window must open their windows
-cargo +1.90 build                          # the oldest Rust the library builds with
+CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback cargo +1.90 build --features files   # the oldest Rust it builds with (as CI)
 ```
 
 ## Limits
@@ -766,7 +773,7 @@ cargo +1.90 build                          # the oldest Rust the library builds 
 - The page tests run in Chrome (CI runs them in the Chromium that comes with its pinned Playwright, the same browser every day; `TAURIS_TEST_CHROMIUM=1` does that here too). Tauri on macOS uses WebKit, and on Windows WebView2 (Chromium).
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
 - The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
-- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once; one made inside that lock, by an async page command, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows (and must not need the main thread). A quitting app waits for it (half a second at most; it cannot open windows then). Other plugins' callbacks (deep-link's `on_open_url`, for one) can run inside that same lock: there, call `app.tabs()` from a thread of your own (`std::thread::spawn`), or a window that opens freezes the app.
+- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once (unless earlier calls are still waiting, or the hook is running on another thread: then it waits its turn, on the worker); one made inside that lock, by an async page command, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows (and must never block waiting for the main thread). A quitting app waits for it (half a second at most; it cannot open windows then). Other plugins' callbacks (deep-link's `on_open_url`, for one) can run inside that same lock: there, call `app.tabs()` from a thread of your own (`std::thread::spawn`), or a window that opens freezes the app.
 - A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing

@@ -146,8 +146,10 @@ out, _ = app(page="<script src='tabs.js'></script>", extra={"tabs.js": "TaurisTa
 check("an app's own tabs.js that mounts the strip is not a copy of the library's", "own copy of the library's tabs.js" not in out, out)
 out, _ = app(page="<script src='tabs.js'></script>", extra={"tabs.js": "window.TaurisTabs = { mount() {} }; const CSS = '__TAURIS_TABS_CSS__';"})
 check("a copy of the library's tabs.js is found", "own copy of the library's tabs.js" in out, out)
-out, code = app(capability=None)
-check("an app with its own pick needs no capability for the picker", "no capability grants" not in out and code == 0, out)
+out, code = app(capability={"identifier": "default", "windows": ["*"], "permissions": ["core:default"]}, conf_app={"withGlobalTauri": True, "windows": [{"title": "x"}]})
+check("an app with its own pick needs no tauris-ui:default for the picker", "no capability grants" not in out and code == 0, out)
+out, code = app(capability=None, conf_app={"withGlobalTauri": True, "windows": [{"title": "x"}]})
+check("but its windows must listen for events, or dropped files are never heard", "listen for events, so dropped files" in out and code == 1, out)
 out, code = app(page="<script>TaurisFiles.mount(el)</script>", dependency=f'{{ path = "{LIBRARY}", version = "0.4", features = ["files"] }}',
                 capability={**GOOD_CAP, "windows": ["settings"]}, conf_app={"withGlobalTauri": True, "windows": [{"title": "x"}]})
 check("a capability for other windows does not cover the app's", "does not cover the app's windows" in out and code == 1, out)
@@ -207,6 +209,49 @@ git = f'{{ git = "https://example.com/tauris-ui", version = "0.4" }}'
 out, code = app(dependency=git, workspace='[workspace]\nmembers = ["src-tauri"]\n',
                 root_files={"Cargo.lock": '[[package]]\nname = "tauris-ui"\nversion = "0.4.1"\n'})
 check("the workspace's Cargo.lock is read", "locked to tauris-ui 0.4.1" in out and code == 1, out)
+
+# ---------- an eighth review ----------
+START = "fn s(app: &tauri::App) { app.tabs().start(); }\n"
+out, code = app(page=TABS, rust=GOOD_RUST + START, capability={**GOOD_CAP, "permissions": ["tauris-ui:default"]})
+check("tabs: a capability without core:default leaves the strip deaf: said", "listen for events, so the strip" in out and code == 1, out)
+out, _ = app(page="<script>window.TaurisTabs?.mount(document.getElementById('strip'))</script>", rust=GOOD_RUST + START)
+check("window.TaurisTabs?.mount(...) mounts the strip", "ok    the page mounts the strip" in out, out)
+out, _ = app(page=TABS, rust=GOOD_RUST + "fn s(app: &tauri::App) { let tabs = app.tabs(); tabs.start(); }\n")
+check("let tabs = app.tabs(); tabs.start() starts them", "ok    app.tabs().start()" in out, out)
+out, code = app(page="<script>TaurisFiles.mount(el)</script>", rust=GOOD_RUST + "use tauri_plugin_dialog as dialog;\nfn d() { dialog::init(); }\n",
+                manifest=f'[package]\nname = "x"\nversion = "0.1.0"\n[features]\ndefault = ["native-files"]\nnative-files = ["tauris-ui/files"]\n'
+                         f'[dependencies]\ntauri-plugin-dialog = "2"\ntauris-ui = {{ path = "{LIBRARY}", version = "0.4" }}\n',
+                conf_app={"withGlobalTauri": True, "windows": [{"title": "x"}]})
+check("the files feature through a feature of the app's own, and the dialog plugin under another name",
+      'the "files" feature is on' in out and "ok    the dialog plugin is registered" in out and code == 0, out)
+out, code = app(tsconfig=True, extra={"main.ts": f'/// <reference path="{LIBRARY}/web/files.d.ts" />\nTaurisFiles.mount(el, {{ pick: f }})'})
+check("TypeScript types through a /// <reference> to the library's own", "no file has its types" not in out and code == 0, out)
+
+# ---------- every note is said when it applies ----------
+WINDOWS = {"withGlobalTauri": True, "windows": [{"title": "x"}]}
+TABS_APP = {"page": TABS, "rust": GOOD_RUST + START}
+other_copy = Path(tempfile.mkdtemp(prefix="tauris-copy-"))
+(other_copy / "Cargo.toml").write_text('[package]\nname = "tauris-ui"\nversion = "0.4.0"\n')
+for name, kwargs, says in [
+    ("a lock without tauris-ui", {"root_files": {"src-tauri/Cargo.lock": "# nothing yet\n"}}, "Cargo.lock has no tauris-ui yet"),
+    ("no lock", {}, "no Cargo.lock yet"),
+    ("windows not known", {"page": "<script>TaurisFiles.mount(el)</script>"}, "could not tell which windows the app opens"),
+    ("no default menu", TABS_APP, "no tauris_ui::default_menu"),
+    ("layers", {"page": "<style>@layer reset { p { margin: 0 } }</style><script>TaurisFiles.mount(el, { pick: f })</script>"}, "the app's CSS uses layers"),
+    ("the strip's padding", TABS_APP, "give the page padding-top"),
+    ("an older build", {"root_files": {"src-tauri/Cargo.lock": '[[package]]\nname = "tauris-ui"\nversion = "0.3.0"\n'}}, "last built with tauris-ui 0.3.0"),
+    ("git", {"dependency": '{ git = "https://example.com/tauris-ui", version = "0.4" }'}, "the app takes tauris-ui from git"),
+    ("another copy", {"dependency": f'{{ path = "{other_copy}", version = "0.4" }}'}, "the app uses the copy of tauris-ui at"),
+    ("its own windows", {**TABS_APP, "conf_app": WINDOWS}, "tauri.conf.json opens its own windows"),
+    ("no dragging permission", TABS_APP, "core:window:allow-start-dragging"),
+]:
+    out, _ = app(**kwargs)
+    check(f"note: {name}", says in out, out[-400:])
+shutil.rmtree(other_copy, ignore_errors=True)
+out, code = app(page="<script>TaurisFiles.mount(el)</script>", conf_app=WINDOWS,
+                capability={"identifier": "default", "windows": ["*"], "permissions": ["core:default"]},
+                dependency=f'{{ path = "{LIBRARY}", version = "0.4", features = ["files"] }}')
+check("the picker without tauris-ui:default: said, exit 1", "so Add files… cannot open the system's picker" in out and code == 1, out[-400:])
 
 # ---------- what is wrong is said, and the exit code says so ----------
 for name, kwargs, says in [

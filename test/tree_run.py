@@ -901,6 +901,52 @@ with sync_playwright() as p:
     check("lines: false draws no connector lines", page.evaluate("document.getElementById('mine').classList.contains('tv-nolines')"))
     page.close()
 
+    # ---------- a ninth review ----------
+    page = fresh(browser)
+    page.evaluate("window.build = v => [{ id: 'a', label: 'A', values: { v } }, { id: 'b', label: 'B', values: { v: 'y' } }]; 0")
+    page.evaluate(f"(" + MINE + f")({{ columns: {COLS}, data: build('Atlas') }}); 0")
+    page.click("#mine .tv-row[data-key=a] .tv-label")
+    page.keyboard.press("Enter")
+    page.evaluate("t.setData(build('Atlas 2 (from the server)')); 0")
+    page.wait_for_timeout(50)
+    check("setData while an editor is open but untouched: the new data stands, and nothing is said changed",
+          page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']") == "Atlas 2 (from the server)" and page.evaluate("got") == [],
+          (page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']"), page.evaluate("got")))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("(" + MINE + ")({ columns: [{ label: 'Name' }, { label: 'On', key: 'on', editable: true }, { label: 'N', key: 'n', editable: true, editor: 'text' },"
+                  " { label: 'C', key: 'c', editable: true, editor: 'color' }, { label: 'Size', key: 'size', editable: true }],"
+                  " data: [{ id: 'a', label: 'A', values: { on: true, n: 3128, c: '#5B8CFF', size: 12 } },"
+                  " { id: 'r', label: 'R', readOnly: true, values: { on: false, n: 1, c: '#ff0000', size: 1 }, editor: { n: { type: 'select', options: [{ value: 1, label: 'Weekly' }] } } }] }); 0")
+    page.evaluate("t.edit('a', 'on'); 0")
+    check("edit() on a true/false value gives its box the focus; it does not flip it",
+          page.evaluate("document.activeElement.getAttribute('role')") == "checkbox" and page.evaluate("got") == [], page.evaluate("got"))
+    for col in ("n", "c"):
+        page.evaluate(f"t.edit('a', '{col}'); 0")
+        page.keyboard.press("Enter")
+    check("an editor opened and closed with nothing changed changes nothing (a number in a text field, a colour's case)",
+          page.evaluate("got") == [] and page.evaluate("t.get('a').values.n") == 3128, page.evaluate("got"))
+    page.evaluate("t.edit('a', 'size'); 0")
+    page.mouse.move(*[v + 5 for v in (lambda r: (r['x'], r['y']))(page.locator('#mine .tv-editor').bounding_box())])
+    page.mouse.wheel(0, 120)
+    page.wait_for_timeout(50)
+    check("the wheel over a number being edited does not change it", page.input_value("#mine .tv-editor") == "12", page.input_value("#mine .tv-editor"))
+    page.keyboard.press("Escape")
+    cells = page.evaluate("[...document.querySelectorAll('#mine .tv-row[data-key=r] .tv-cell')].slice(1).map(c => [c.textContent, !!c.querySelector('.tv-check'), !!c.querySelector('.tv-swatch'), c.getAttribute('role')])")
+    check("a read-only node shows its values as an editable one does (a choice's label, a box, a swatch), and none can be changed",
+          cells[0] == ["", True, False, None] and cells[1][0] == "Weekly" and cells[2][2], cells)
+    page.close()
+
+    page = fresh(browser)
+    page.click(".tv-row:has(.tv-label:text-is('atlas-desktop'))") if page.locator(".tv-row:has(.tv-label:text-is('atlas-desktop'))").count() else page.locator("#files .tv-row").first.click()
+    for k in "src-t":
+        page.keyboard.press(k if k != "-" else "Minus")
+    picked = page.evaluate("demo.files.selected()?.label")
+    toggled = page.evaluate("__ev.filter(e => e[1] === 'toggle').length")
+    check("type-ahead: a - inside a typed name is part of it (src-tauri), not a close", picked == "src-tauri" and toggled == 0, (picked, toggled))
+    page.close()
+
     # ---------- light mode ----------
     page = fresh(browser, "light")
     bg = page.evaluate("getComputedStyle(document.getElementById('files')).backgroundColor")

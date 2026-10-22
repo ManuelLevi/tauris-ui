@@ -211,7 +211,8 @@ with sync_playwright() as p:
     check("command line: the date and time on the right, in white",
           DATE.match(date) and TIME.match(clock) and css(page, ".tm-cmd [data-tm-clock]", "color") == WHITE
           and rect(page, ".tm-cmd [data-tm-clock]")["x"] + rect(page, ".tm-cmd [data-tm-clock]")["w"] > SIZE["width"] - 12, (date, clock))
-    check("a clock in a band shows the same time", page.inner_text("#monitor .tm-band [data-tm-clock]") == page.inner_text(".tm-cmd [data-tm-clock]"))
+    both = page.evaluate("[...document.querySelectorAll('#monitor .tm-band [data-tm-clock], .tm-cmd [data-tm-clock]')].map(c => c.textContent)")
+    check("a clock in a band shows the same time (both read at once)", len(both) == 2 and both[0] == both[1], both)
     page.wait_for_function("t => document.querySelector('.tm-cmd [data-tm-clock]').textContent !== t", arg=clock, timeout=1500)
     check("the clock ticks every second", page.inner_text(".tm-cmd [data-tm-clock]") != clock)
 
@@ -502,6 +503,27 @@ with sync_playwright() as p:
     narrower = page.evaluate(inside)
     check("at the end of a line that scrolls, the block stays inside the field, also once the window narrows",
           at_end[:2] == [True, True] and narrower[:2] == [True, True], (at_end, narrower))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("demo.cmd.clear(); demo.cmd.focus()")
+    page.keyboard.insert_text("abc שלום")
+    page.evaluate(TWO_FRAMES)
+    caret = page.evaluate("""(() => { const i = document.querySelector('.tm-cmd-input'); const c = document.querySelector('.tm-cmd .tm-cursor');
+      const m = document.createElement('span'); m.style.font = getComputedStyle(i).font; m.style.position = 'absolute'; m.style.whiteSpace = 'pre';
+      m.textContent = 'abc '; document.body.append(m); const w = m.getBoundingClientRect().width; m.remove();
+      return [c.getBoundingClientRect().left - i.getBoundingClientRect().left, w]; })()""")
+    check("after right-to-left text the block sits where the caret is (at the Hebrew's left edge), not past it",
+          abs(caret[0] - caret[1]) < 2, caret)
+    page.close()
+
+    page = fresh(browser)
+    rows = page.evaluate("""(() => { const ol = document.createElement('ol'); ol.style.cssText = 'height:120px;overflow:auto;overflow-anchor:none'; /* as WebKit: no scroll anchoring */ document.body.prepend(ol);
+      const log = TaurisTerminal.log(ol, { max: 20 }); for (let i = 1; i <= 20; i++) log.add(`ROW ${i}`);
+      const r9 = [...ol.children][8]; ol.scrollTop = r9.offsetTop - ol.firstElementChild.offsetTop;
+      const top = () => [...ol.children].find(li => li.getBoundingClientRect().bottom > ol.getBoundingClientRect().top + 1).textContent;
+      const before = top(); for (let i = 21; i <= 23; i++) log.add(`ROW ${i}`); return [before, top()]; })()""")
+    check("a full log trimming old rows keeps the place of someone reading further up", rows[0] == rows[1], rows)
     page.close()
 
     # ---------- a page that brings its own stylesheet ----------

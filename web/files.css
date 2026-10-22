@@ -57,7 +57,7 @@
     --tf-bg: var(--tauris-bg, #ffffff);                /* the list and the fields */
     --tf-chrome: var(--tauris-chrome, #e9e9eb);            /* the column headers */
     --tf-border: var(--tauris-line, #c4c6cc);
-    --tf-border-2: #8f939b;          /* the edges of the buttons and the search field: 3:1 on --tf-bg */
+    --tf-border-2: #7d8189;          /* the edges of the buttons and the search field: 3:1 on --tf-bg and on a grey page */
     --tf-sep: var(--tauris-line, #d3d5da);
     --tf-grid: var(--tauris-line, #ececef);              /* between rows */
     --tf-badge-bg: var(--tauris-chrome, #f6f6f8);
@@ -65,8 +65,13 @@
     --tf-row-hover: var(--tauris-hover, #f1f5fb);
     --tf-accent: var(--tauris-accent, #2675bf);
     /* --tf-accent-2: unset, the accent a little darker: the primary button's edge and hover */
-    --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #2675bf));        /* the accent as text and lines, readable on --tf-bg */
-    --tf-on-accent: var(--tauris-on-accent, #ffffff);   /* text on the accent: keep it readable */
+    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: mixed with the text colour. */
+    --tf-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #1e1f22));
+    --tf-accent-ink: var(--tauris-accent-ink, var(--tf-ink-auto, #2675bf));        /* the accent as text and lines, readable on --tf-bg */
+    /* --tauris-accent alone: white or black text on it, whichever reads */
+    --tf-on-auto: oklch(from var(--tauris-accent) clamp(0, (0.58 - l) * 1000, 1) 0 0);
+    --tf-on-accent: var(--tauris-on-accent, var(--tf-on-auto, #ffffff));   /* text on the accent: keep it readable */
+    --tf-sel-bar-w: 0px;             /* a bar at a selected row's start (dark: the selection's tint alone is under 3:1) */
     /* --tf-focus: unset, the soft halo around a focus line: --tf-accent-ink at --tf-focus-mix */
     --tf-focus-mix: 32%;
     --tf-sel-bg: var(--tauris-sel-bg, #2675bf);
@@ -109,19 +114,21 @@
       --tf-hover: var(--tauris-hover, #4c5052);
       --tf-row-hover: var(--tauris-hover, #3b4148);
       --tf-accent: var(--tauris-accent, #3570b0);
-      --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
+      --tf-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #dfe1e5));
+      --tf-accent-ink: var(--tauris-accent-ink, var(--tf-ink-auto, #6aa6e0));
       --tf-focus-mix: 45%;
       --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
+      --tf-sel-bar-w: 3px;
       --tf-danger: #f49a92;
       --tf-danger-fill: #c4453b;
       --tf-veil: rgb(0 0 0 / 0.3);
       --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
-      --tf-kind-pdf: #f48c85;
+      --tf-kind-pdf: #f69690;
       --tf-kind-img: #4cc3a3;
       --tf-kind-xls: #5ccb69;
       --tf-kind-doc: #6aa6e0;
-      --tf-kind-ppt: #e8955a;
-      --tf-kind-aud: #b597f0;
+      --tf-kind-ppt: #eda06a;
+      --tf-kind-aud: #bea4f3;
     }
   }
 
@@ -140,19 +147,21 @@
     --tf-hover: var(--tauris-hover, #4c5052);
     --tf-row-hover: var(--tauris-hover, #3b4148);
     --tf-accent: var(--tauris-accent, #3570b0);
-    --tf-accent-ink: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
+    --tf-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #dfe1e5));
+    --tf-accent-ink: var(--tauris-accent-ink, var(--tf-ink-auto, #6aa6e0));
     --tf-focus-mix: 45%;
     --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
+    --tf-sel-bar-w: 3px;
     --tf-danger: #f49a92;
     --tf-danger-fill: #c4453b;
     --tf-veil: rgb(0 0 0 / 0.3);
     --tf-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
-    --tf-kind-pdf: #f48c85;
+    --tf-kind-pdf: #f69690;
     --tf-kind-img: #4cc3a3;
     --tf-kind-xls: #5ccb69;
     --tf-kind-doc: #6aa6e0;
-    --tf-kind-ppt: #e8955a;
-    --tf-kind-aud: #b597f0;
+    --tf-kind-ppt: #eda06a;
+    --tf-kind-aud: #bea4f3;
   }
 
   /* ---------- frame ---------- */
@@ -436,6 +445,12 @@
     color: var(--tf-sel-fg);
     background: var(--tf-sel-bg);
   }
+  /* The bar at its start: the selection shows by more than its tint. */
+  .tf-file[aria-selected="true"] .tf-cell:first-child {
+    background-image: linear-gradient(var(--tf-sel-fg), var(--tf-sel-fg));
+    background-size: var(--tf-sel-bar-w) 100%;
+    background-repeat: no-repeat;
+  }
 
 
   .tf-file[aria-selected="true"] .tf-kind {
@@ -665,6 +680,7 @@
   /* Windows high contrast: the system's colours for the selection and the drop zone,
      and the focus ring drawn with borders (high contrast removes shadows). */
   @media (forced-colors: active) {
+    .tf-btn[aria-disabled="true"] { opacity: 1; color: GrayText; border-color: GrayText; }
     .tf-list:focus .tf-file.tf-focused .tf-cell { border-top: 2px solid Highlight; border-bottom: 2px solid Highlight; }
     .tf-list:focus .tf-file.tf-focused .tf-cell:first-child { border-left: 2px solid Highlight; }
     .tf-list:focus .tf-file.tf-focused .tf-cell:last-child { border-right: 2px solid Highlight; }

@@ -343,6 +343,17 @@ fn runs_something(path: &Path) -> bool {
             return true;
         }
     }
+    // A Finder alias is an ordinary file (not a link) that macOS follows to
+    // whatever it points at, whatever it is called: its contents start "book…mark".
+    #[cfg(any(target_os = "macos", test))]
+    {
+        use std::io::Read;
+        let mut head = [0u8; 12];
+        let read = std::fs::File::open(&target).and_then(|mut f| f.read_exact(&mut head));
+        if read.is_ok() && &head[..4] == b"book" && &head[8..12] == b"mark" {
+            return true;
+        }
+    }
     #[rustfmt::skip]
     const PROGRAMS: &[&str] = &[
         "app", "command", "tool", "terminal", "workflow", "action", "service", "scpt", "scptd", "applescript", "osax",
@@ -361,6 +372,7 @@ fn runs_something(path: &Path) -> bool {
         "mav", "maw", "mcf", "mda", "mdb", "mde", "mdt", "mdw", "mdz", "accde", "accdr", "accda", "docm", "dotm",
         "xlsm", "xltm", "xlam", "xla", "xll", "ppam", "ppa", "pptm", "potm", "sldm", "wll", "iqy", "slk", "vsmacros",
         "vsw", "webpnp",
+        "shs", "shb", "psdm1", "ppsm", "xlm", "xlsb", "themepack", "deskthemepack", "onepkg", "afploc", "ftploc",
     ];
     let ext = Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     PROGRAMS.contains(&ext.as_str())
@@ -558,6 +570,8 @@ mod tests {
         );
         let program = dir.join("Q3 plan.command");
         std::fs::write(&program, "x").unwrap();
+        // Checked first: a guard that let it through would make the next line run it.
+        assert!(runs_something(&program));
         assert_eq!(open_path(&program).unwrap_err(), "Q3 plan.command could be a program, so it is not opened.");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -600,9 +614,27 @@ mod tests {
         assert!(runs_something(Path::new("Q3 plan.command")) && runs_something(Path::new("setup.EXE")));
         assert!(runs_something(Path::new("a.exe. ")) && runs_something(Path::new("Budget.xlsm")));
         assert!(!runs_something(Path::new("Board deck.pdf")) && !runs_something(Path::new("notes")));
-        for name in
-            ["Q3.xll", "x.scf", "disk.iso", "a.vhdx", "go.appref-ms", "p.settingcontent-ms", "n.one", "Doc.fileloc"]
-        {
+        for name in [
+            "Q3.xll",
+            "x.scf",
+            "disk.iso",
+            "a.vhdx",
+            "go.appref-ms",
+            "p.settingcontent-ms",
+            "n.one",
+            "Doc.fileloc",
+            "Q3 results.ppsm",
+            "x.xlm",
+            "x.xlsb",
+            "x.shs",
+            "x.shb",
+            "x.psdm1",
+            "x.themepack",
+            "x.deskthemepack",
+            "x.onepkg",
+            "x.afploc",
+            "x.ftploc",
+        ] {
             assert!(runs_something(Path::new(name)), "{name}");
         }
         #[cfg(unix)]
@@ -613,6 +645,10 @@ mod tests {
             std::fs::write(&tool, "#!/bin/sh\n").unwrap();
             std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
             assert!(runs_something(&tool));
+            // A Finder alias named like a document: macOS would open what it points at.
+            let alias = dir.join("Invoice (alias).pdf");
+            std::fs::write(&alias, b"book\0\0\0\0mark\0\0\0\0the rest of the bookmark").unwrap();
+            assert!(runs_something(&alias));
             // A document marked executable (every file on a USB stick is) still opens.
             let board = dir.join("Board.pdf");
             std::fs::write(&board, "%PDF").unwrap();

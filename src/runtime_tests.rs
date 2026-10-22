@@ -563,7 +563,12 @@ fn the_event_handler_opens_no_window_itself() {
     let from = source.find(".on_event(|app, event|").expect("the plugin's on_event");
     let to = from + source[from..].find(".build()").expect("the end of on_event");
     let handler = &source[from..to];
-    assert!(handler.contains("InPlugin::enter()"), "on_event does not mark Tauri's lock");
+    // The guard is the first statement and is kept (a `let _ =` would drop it at once).
+    let body = &handler[handler.find('{').expect("the handler's body") + 1..];
+    assert!(
+        body.trim_start().starts_with("let _locked = windows::InPlugin::enter();"),
+        "on_event does not mark Tauri's lock"
+    );
     assert!(handler.contains("RunEvent::Exit => exiting(app)"), "quitting does not wait for the hook");
     // Everything inside after_event( ... ) runs later, on the worker: take it out.
     let mut outside = String::new();
@@ -822,29 +827,30 @@ fn eventually(what: &str, ok: impl Fn() -> bool) {
 #[test]
 fn the_hook_runs_after_the_change_in_order() {
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let seen = calls.clone();
+    let threads = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (seen, on) = (calls.clone(), threads.clone());
     let app = app(quiet().on_change(move |_, label| {
         seen.lock().unwrap().push(label.to_string());
+        on.lock().unwrap().push(std::thread::current().id());
     }));
     app.tabs().start().unwrap();
     windows::settle(app.handle(), std::time::Duration::from_secs(2));
     calls.lock().unwrap().clear();
-    // Hold the hook back, as a page's command would be holding Tauri's lock.
-    let gate = Arc::new(std::sync::Mutex::new(()));
-    let held = gate.lock().unwrap();
-    let g = gate.clone();
-    windows::send(app.handle(), windows::Kind::Hook, Box::new(move |_| drop(g.lock())));
+    threads.lock().unwrap().clear();
+    // Nothing waits on the worker: only the lock sends these there.
     {
         let _locked = windows::InPlugin::enter();
         windows::changed(app.handle(), "tabs-1");
         windows::changed(app.handle(), "tabs-2");
     }
-    assert!(calls.lock().unwrap().is_empty(), "the hook ran inside Tauri's lock");
-    drop(held);
     windows::settle(app.handle(), std::time::Duration::from_secs(2));
     assert_eq!(*calls.lock().unwrap(), ["tabs-1", "tabs-2"]);
+    let here = std::thread::current().id();
+    assert!(threads.lock().unwrap().iter().all(|t| *t != here), "the hook ran inside Tauri's lock");
+    threads.lock().unwrap().clear();
     windows::changed(app.handle(), "tabs-3");
     assert_eq!(calls.lock().unwrap().len(), 3, "outside the lock the hook runs at once");
+    assert_eq!(*threads.lock().unwrap(), [std::thread::current().id()]);
 }
 
 // Quitting waits (half a second at most) for the hook to hear the last changes.
@@ -1179,6 +1185,141 @@ fn forgetting_the_layout_removes_the_copies_kept_aside() {
     assert!(!file.with_extension("unopened").exists() && !file.with_extension("unreadable").exists());
 }
 
+// The last tab closed from the app's own code, and a hook that opens a tab
+// when it hears of it: the old layout does not come back.
+#[test]
+fn a_hook_opening_a_tab_after_the_last_one_closed_brings_no_old_layout_back() {
+    let file = temp_file("forget-first");
+    let path = file.clone();
+    let opened = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let o = opened.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())).on_change(move |app, _| {
+        if app.tabs().window_count() == 0 && !o.swap(true, Ordering::SeqCst) {
+            app.tabs().open(NewTab::new("Fresh")).unwrap();
+        }
+    }));
+    app.tabs().start().unwrap();
+    app.tabs().open(NewTab::new("Old")).unwrap();
+    persist::save(app.handle(), true);
+    let ids: Vec<u64> = app.tabs().windows()[0].tabs.iter().map(|t| t.id).collect();
+    for id in ids {
+        app.tabs().close_tab(id);
+    }
+    windows::settle(app.handle(), std::time::Duration::from_secs(2));
+    assert_eq!(titles(&app), [["Fresh"]]);
+}
+
+// A hung page: presses of the close button a second apart still close the
+// window two seconds after the first.
+#[test]
+fn pressing_close_again_does_not_restart_the_wait_for_a_hung_page() {
+    let app = app(quiet());
+    app.tabs().start().unwrap();
+    if let Some(w) = windows::inner(app.handle()).model().win("tabs-1") {
+        w.guarded = true;
+    }
+    assert!(windows::ask_before_window_closes(app.handle(), "tabs-1"));
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+    assert!(windows::ask_before_window_closes(app.handle(), "tabs-1"), "asked again at 1.2 s");
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+    assert!(
+        !windows::ask_before_window_closes(app.handle(), "tabs-1"),
+        "the third press, 2.2 s after the first, still waits"
+    );
+}
+
+// The app's own close handler kept a window open: it takes tabs again.
+#[test]
+fn a_window_the_app_kept_open_takes_tabs_again() {
+    let app = app(quiet());
+    app.tabs().start().unwrap();
+    let second = app.tabs().new_window().unwrap();
+    assert!(!windows::ask_before_window_closes(app.handle(), &second));
+    assert_eq!(app.tabs().open_in(&second, NewTab::new("Late")), None);
+    eventually("the window to take tabs again", || app.tabs().open_in(&second, NewTab::new("Later")).is_some());
+}
+
+// Quitting: a window asked for then is not recorded, nor saved.
+#[test]
+fn no_window_opens_or_is_saved_once_quitting() {
+    let file = temp_file("quit-new");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    windows::begin_exit(app.handle());
+    assert!(app.tabs().new_window().is_err());
+    assert_eq!(app.tabs().window_count(), 1);
+    // A window recorded but still opening is left out of the save.
+    let opening = windows::inner(app.handle()).model().create_win(vec![]);
+    persist::save(app.handle(), true);
+    let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(saved.as_array().map(Vec::len), Some(1), "{opening} was saved");
+}
+
+// Quitting with windows open saves them all.
+#[test]
+fn quitting_saves_the_windows_open() {
+    let file = temp_file("quit-save");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    app.tabs().open(NewTab::new("Users")).unwrap();
+    app.tabs().new_window().unwrap();
+    crate::exiting(app.handle());
+    let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(saved.as_array().map(Vec::len), Some(2));
+    assert!(saved.to_string().contains("Users"));
+}
+
+// The Dock click after the last window closed: the remembered windows come back.
+#[test]
+fn restore_brings_back_the_windows_after_the_last_one_closed() {
+    let file = temp_file("dock");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    app.tabs().open(NewTab::new("Users")).unwrap();
+    windows::forget_window(app.handle(), "tabs-1");
+    assert_eq!(app.tabs().window_count(), 0);
+    app.tabs().restore().unwrap();
+    assert_eq!(titles(&app), [["Home", "Users"]]);
+}
+
+// A layout_file that panics (inside Tauri's lock, at times) saves nothing and stops nothing.
+#[test]
+fn a_layout_file_that_panics_saves_nothing() {
+    let app = app(quiet().layout_file(|_| panic!("no data folder")));
+    app.tabs().start().unwrap();
+    app.tabs().open(NewTab::new("Users")).unwrap();
+    persist::save(app.handle(), true);
+    let only = app.tabs().windows()[0].tabs.iter().map(|t| t.id).collect::<Vec<_>>();
+    for id in only {
+        app.tabs().close_tab(id);
+    }
+    assert_eq!(app.tabs().window_count(), 0);
+}
+
+// A remembered window comes back where it was, its size and maximized state
+// too (the test runtime knows no screens: none is off one).
+#[test]
+fn a_remembered_frame_comes_back() {
+    let file = temp_file("frame-back");
+    std::fs::write(
+        &file,
+        r#"[{"tabs":[{"id":1,"title":"Users"}],"active":0,"frame":{"x":40.0,"y":60.0,"width":900.0,"height":700.0,"maximized":true}}]"#,
+    )
+    .unwrap();
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    let label = app.tabs().frontmost().unwrap();
+    let frame = windows::inner(app.handle()).model().win(&label).and_then(|w| w.frame);
+    assert_eq!(
+        frame.map(|f| (f.x, f.y, f.width, f.height, f.maximized, f.centre)),
+        Some((40.0, 60.0, 900.0, 700.0, true, false))
+    );
+}
+
 // Where each window sits is saved with it (the test runtime knows no
 // screens, so only the saving is checked here).
 #[test]
@@ -1187,7 +1328,7 @@ fn a_frame_is_saved_with_its_window() {
     let path = file.clone();
     let app = app(quiet().layout_file(move |_| Some(path.clone())));
     app.tabs().start().unwrap();
-    let frame = crate::model::Frame { x: 40.0, y: 60.0, width: 900.0, height: 700.0, maximized: true };
+    let frame = crate::model::Frame { x: 40.0, y: 60.0, width: 900.0, height: 700.0, maximized: true, centre: false };
     if let Some(w) = windows::inner(app.handle()).model().win("tabs-1") {
         w.frame = Some(frame);
     }

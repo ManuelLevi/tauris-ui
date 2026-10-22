@@ -1,6 +1,9 @@
 // The smallest app of tabs: each tab holds a note. Run it with `cargo run`
 // from this folder.
 
+// A release build on Windows opens no console window beside the app's own.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use tauris_ui::{Config, NewTab, TabsExt};
 
 fn main() {

@@ -254,6 +254,33 @@ def window_labels(app, rust):
     return list(dict.fromkeys(labels))
 
 
+def permissions(capability):
+    return json.dumps(capability.get("permissions", []))
+
+
+def listens(capability):
+    """Whether a capability lets its windows listen for events (core:default has it)."""
+    return any(f'"{p}"' in permissions(capability) for p in ("core:default", "core:event:default", "core:event:allow-listen"))
+
+
+def feature_on(manifest_data, dependency, feature):
+    """Whether the app's default features turn on `feature` of `dependency`,
+    directly ("tauris-ui/files") or through a feature of its own."""
+    table = manifest_data.get("features", {})
+    seen, todo = set(), ["default"]
+    while todo:
+        name = todo.pop()
+        if name in seen or not isinstance(table.get(name), list):
+            continue
+        seen.add(name)
+        for item in table[name]:
+            if item in (f"{dependency}/{feature}", f"{dependency}?/{feature}"):
+                return True
+            if isinstance(item, str) and "/" not in item and not item.startswith("dep:"):
+                todo.append(item)
+    return False
+
+
 def workspace_spec(tauri):
     """tauris-ui as the workspace's Cargo.toml gives it ([workspace.dependencies]),
     with its path made relative to the app."""
@@ -533,7 +560,9 @@ def main():
             ok("no windows in tauri.conf.json (the plugin opens them)")
         prefix_match = re.search(r'window_prefix\(\s*"([^"]*)"', rust)
         prefix = prefix_match.group(1) if prefix_match else "tabs-"
-        if re.search(r"\.tabs\(\)\s*\.\s*start\(\)", rust):
+        # app.tabs().start(), or let tabs = app.tabs(); ... tabs.start()
+        held = re.findall(r"\blet\s+(?:mut\s+)?(\w+)\s*(?::[^=;]+)?=\s*[\w.()&]*\.tabs\(\)\s*;", rust)
+        if re.search(r"\.tabs\(\)\s*\.\s*start\(\)", rust) or any(re.search(rf"\b{v}\s*\.\s*start\(\)", rust) for v in held):
             ok("app.tabs().start() opens the windows")
         else:
             bad("app.tabs().start() is never called", "call app.tabs().start()? in .setup(...)")
@@ -561,7 +590,13 @@ def main():
                     f'set "windows": ["{prefix}*"] (or ["*"]); otherwise the strip stays empty')
             if not any("allow-start-dragging" in json.dumps(c.get("permissions", [])) for _, c in granting):
                 note('without "core:window:allow-start-dragging" the window cannot be dragged by its tab strip')
-        if "TaurisTabs.mount" in text:
+            # The strip hears Rust (⌘T, a tab closed or moved) through events.
+            tab_windows = [c for _, c in caps if any(w == "*" or (w.endswith("*") and f"{prefix}1".startswith(w[:-1]))
+                                                     for w in c.get("windows") or c.get("webviews") or [])]
+            if not any(listens(c) for c in tab_windows):
+                bad("no capability lets the tab windows listen for events, so the strip never hears ⌘T or a tab closing",
+                    'add "core:default" to the "permissions" of the capability for the tab windows')
+        if re.search(r"TaurisTabs\s*\??\.\s*mount\s*\(", text):
             ok("the page mounts the strip")
         else:
             bad("no page calls TaurisTabs.mount(...)", 'TaurisTabs.mount(document.getElementById("strip"))')
@@ -576,11 +611,21 @@ def main():
             else:
                 bad("app.withGlobalTauri is not true, so dropped files are never heard",
                     'set "app": { "withGlobalTauri": true } in tauri.conf.json')
-            # Only the system's picker needs it: an app with its own pick does not.
             labels = window_labels(app, rust)
             reach = lambda c: any(pattern == "*" or pattern == label or (pattern.endswith("*") and label.startswith(pattern[:-1]))
                                   for pattern in c.get("windows") or c.get("webviews") or [] for label in labels)
-            granting = [c for _, c in capabilities(tauri, app) if "tauris-ui:default" in json.dumps(c.get("permissions", []))]
+            every = [c for _, c in capabilities(tauri, app)]
+            granting = [c for c in every if "tauris-ui:default" in permissions(c)]
+            # Dropped files reach the page as events, with or without the app's own pick
+            # (windows not known: at least one capability must allow it).
+            if not labels and any(listens(c) for c in every):
+                pass
+            elif labels and any(reach(c) and listens(c) for c in every):
+                ok("a capability lets the app's windows listen for events (dropped files)")
+            else:
+                bad(f"no capability lets the app's windows ({', '.join(labels) or 'main'}) listen for events, so dropped files are never heard",
+                    f'add "core:default" to "permissions" in a capability whose "windows" has {json.dumps((labels or ["main"])[0])}')
+            # Only the system's picker needs tauris-ui:default: an app with its own pick does not.
             if own_picker(text):
                 pass
             elif granting and not labels:
@@ -594,15 +639,15 @@ def main():
                 bad("no capability grants tauris-ui:default, so Add files… cannot open the system's picker",
                     'add "tauris-ui:default" to "permissions" in src-tauri/capabilities/default.json')
         features = spec.get("features", []) if isinstance(spec, dict) else []
-        # Or turned on by the app's own default features: "tauris-ui/files".
-        named = found[0] if found else "tauris-ui"
-        on_by_default = {f"{named}/files", f"{named}?/files"} & set(manifest_data.get("features", {}).get("default", []))
+        # Or turned on by the app's own default features: "tauris-ui/files", or a feature of its own that does.
+        on_by_default = feature_on(manifest_data, found[0] if found else "tauris-ui", "files")
         if "files" in features or on_by_default:
             ok('the "files" feature is on (the system\'s picker and save dialog)')
             if not any("tauri-plugin-dialog" in d for d in sections):
                 bad("the files feature needs the dialog plugin, and Cargo.toml does not depend on it",
                     'add tauri-plugin-dialog = "2" under [dependencies], and .plugin(tauri_plugin_dialog::init()) to tauri::Builder')
-            elif "tauri_plugin_dialog::init(" in rust:
+            elif any(re.search(rf"\b{re.escape(n)}::init\s*\(", rust)
+                     for n in {"tauri_plugin_dialog"} | set(re.findall(r"\buse\s+tauri_plugin_dialog\s+as\s+(\w+)", rust))):
                 ok("the dialog plugin is registered")
             else:
                 bad("the files feature needs the dialog plugin, and the app does not register it",
@@ -640,9 +685,11 @@ def main():
                       if not {"node_modules", "target"} & set(p.parts) and p.resolve() != types]
             stale = [p for p in copies if read(p) != read(types)]
             in_ts = any(p.suffix in {".ts", ".tsx"} and word in read(p) for p in files)
+            # A /// <reference path="…/files.d.ts" /> (a comment to everything else), or tsconfig's include.
+            referenced = any(name in read(p) for p in files) or name in read(tauri.parent / "tsconfig.json")
             if stale:
                 bad(f"the app's copy of {name} is out of date: {stale[0]}", f"copy {types} over it")
-            elif in_ts and name not in text and not copies:
+            elif in_ts and not referenced and not copies:
                 bad(f"TypeScript code uses {word} but no file has its types",
                     f"copy {types} into the app (for example src/{name}); TypeScript picks it up from there")
             elif in_ts:

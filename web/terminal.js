@@ -241,14 +241,24 @@
     const clock = el("span", null, { "data-tm-clock": "" });
     element.replaceChildren(promptEl, entry, date, clock);
 
-    // The block sits on the caret: the width of the text before it, measured
-    // (a CJK character or an emoji is wider than a letter).
-    const ruler = document.createElement("canvas").getContext("2d");
-    function widthOf(text) {
+    // The block sits on the caret, found in a hidden copy of the line laid out
+    // as the field lays it out: a CJK character or an emoji is wider than a
+    // letter, and right-to-left text puts the caret on its left.
+    const mirror = el("span", "tm-mirror", { "aria-hidden": "true" });
+    entry.append(mirror);
+    function caretX(at) {
       const cs = getComputedStyle(input);
-      if (!ruler) return text.length * parseFloat(cs.fontSize) * 0.6;
-      ruler.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-      return ruler.measureText(text).width + (parseFloat(cs.letterSpacing) || 0) * [...text].length;
+      mirror.style.font = cs.font;
+      mirror.style.letterSpacing = cs.letterSpacing;
+      mirror.style.direction = cs.direction;
+      mirror.textContent = input.value;
+      const text = mirror.firstChild;
+      if (!text) return 0;
+      const range = document.createRange();
+      range.setStart(text, Math.min(at, text.length));
+      range.collapse(true);
+      const box = range.getBoundingClientRect();
+      return box.left - mirror.getBoundingClientRect().left;
     }
     let frame = 0;
     function place() {
@@ -256,7 +266,7 @@
       const at = input.selectionDirection === "backward" ? input.selectionStart : input.selectionEnd;
       // Kept inside the field: at the end of a line that scrolls, the block
       // would start at its right edge and hang out.
-      const x = widthOf(input.value.slice(0, at ?? input.value.length)) - input.scrollLeft;
+      const x = caretX(at ?? input.value.length) - input.scrollLeft;
       const room = Math.max(0, input.clientWidth - cursor.getBoundingClientRect().width);
       entry.style.setProperty("--tm-caret-x", `${Math.min(Math.max(x, 0), room)}px`);
       entry.style.setProperty("--tm-scroll", "0px");
@@ -361,7 +371,14 @@
         item.append(time, body);
         item.addEventListener("animationend", () => item.classList.remove("tm-new"), { once: true });
         list.append(item);
-        while (list.children.length > max) list.firstElementChild.remove();
+        // The oldest rows go; a person reading further up keeps their place
+        // (WebKit, which Tauri uses on macOS, does not keep it by itself).
+        const extra = list.children.length - max;
+        if (extra > 0) {
+          const gone = list.children[extra].offsetTop - list.firstElementChild.offsetTop;
+          for (let n = 0; n < extra; n++) list.firstElementChild.remove();
+          if (!atBottom) list.scrollTop -= gone;
+        }
         if (atBottom) list.scrollTop = list.scrollHeight;
         return item;
       },

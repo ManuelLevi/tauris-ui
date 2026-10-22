@@ -427,6 +427,9 @@ pub(crate) fn open_window<R: Runtime>(
         !IN_PLUGIN.with(|p| p.get()),
         "tauris-ui: window {label} opened inside Tauri's plugin lock; it would freeze the app (use after_event)"
     );
+    if inner(app).exiting.load(Ordering::SeqCst) {
+        return Err(quitting());
+    }
     let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_window(app, label, frame, focused)))
         .unwrap_or_else(|payload| {
             std::mem::forget(payload); // its drop could panic too
@@ -468,7 +471,8 @@ fn build_window<R: Runtime>(
         builder = hook(builder);
     }
     builder = match frame {
-        Some(f) => builder.position(f.x, f.y).maximized(f.maximized),
+        Some(f) if !f.centre => builder.position(f.x, f.y).maximized(f.maximized),
+        Some(f) => builder.center().maximized(f.maximized),
         None => builder.center(),
     };
     builder.build()
@@ -483,6 +487,10 @@ pub(crate) fn create_window<R: Runtime>(
     focused: bool,
 ) -> tauri::Result<(String, Vec<u64>)> {
     let state = inner(app);
+    // Quitting: nothing new is recorded, so the layout saved holds no window that never showed.
+    if state.exiting.load(Ordering::SeqCst) {
+        return Err(quitting());
+    }
     let (label, ids) = {
         let mut m = state.model();
         let ids: Vec<u64> = tabs.into_iter().map(|t| m.create_tab(t)).collect();
@@ -494,6 +502,10 @@ pub(crate) fn create_window<R: Runtime>(
     }
     changed(app, &label);
     Ok((label, ids))
+}
+
+fn quitting() -> tauri::Error {
+    tauri::Error::Io(std::io::Error::other("the app is quitting: no new window opens"))
 }
 
 pub(crate) fn default_tab<R: Runtime>(app: &AppHandle<R>) -> NewTab {
@@ -562,11 +574,13 @@ pub(crate) fn remove_tab<R: Runtime>(app: &AppHandle<R>, label: &str, tab: u64) 
     match closed {
         None => notify(app, label),
         Some(last) => {
-            window_gone(app, label);
-            // The user closed the last tab there was: the next launch starts fresh.
+            // The user closed the last tab there was: the next launch starts
+            // fresh. Forgotten first, so a hook that opens a tab when it hears
+            // this does not bring the old layout back.
             if last {
                 crate::persist::forget(app);
             }
+            window_gone(app, label);
             if let Some(w) = app.get_webview_window(label) {
                 let _ = w.destroy();
             }
@@ -705,7 +719,11 @@ pub(crate) fn ask_before_window_closes<R: Runtime>(app: &AppHandle<R>, label: &s
         let unanswered = win.close_asked_at.is_some_and(|at| at.elapsed() >= UNANSWERED) && !win.close_seen;
         let ask = win.guarded && !win.may_close && !unanswered;
         if ask {
-            win.close_asked_at = Some(std::time::Instant::now());
+            // Pressing again while the page has not answered does not restart
+            // its two seconds.
+            if win.close_asked_at.is_none() || win.close_seen {
+                win.close_asked_at = Some(std::time::Instant::now());
+            }
             win.close_seen = false;
         } else {
             // It closes: a tab opened before it is gone goes elsewhere.
@@ -713,10 +731,27 @@ pub(crate) fn ask_before_window_closes<R: Runtime>(app: &AppHandle<R>, label: &s
         }
         ask
     };
+    if !ask {
+        kept_open_after_all(app, label);
+    }
     if ask {
         let _ = app.emit(CLOSE_WINDOW_REQUEST, label.to_string());
     }
     ask
+}
+
+// The app's own close handler (or another plugin's) may still have kept the
+// window open: one still there a moment later takes tabs again.
+fn kept_open_after_all<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    let (app, label) = (app.clone(), label.to_string());
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        if app.get_webview_window(&label).is_some() {
+            if let Some(win) = inner(&app).model().win(&label) {
+                win.leaving = false;
+            }
+        }
+    });
 }
 
 // The page answered a close request: it is alive and asking its tabs.
@@ -829,7 +864,7 @@ pub(crate) fn frame_changed<R: Runtime>(window: &WebviewWindow<R>) {
         let before = win.frame.filter(|_| maximized);
         win.frame = Some(match before {
             Some(f) => Frame { maximized: true, ..f },
-            None => Frame { x: pos.x, y: pos.y, width: size.width, height: size.height, maximized },
+            None => Frame { x: pos.x, y: pos.y, width: size.width, height: size.height, maximized, centre: false },
         });
         m.changed();
     }
@@ -873,8 +908,9 @@ pub(crate) fn open_or_focus<R: Runtime>(
     let existing = window_tabs(app, &label).tabs.iter().find(|t| is_same(t)).map(|t| t.id);
     let id = {
         let mut m = inner(app).model();
-        // The window closed meanwhile: the tab gets a window of its own.
-        if m.win(&label).is_none() {
+        // The window closed meanwhile (or is closing, or a tab is being
+        // dragged in it): the tab gets a window of its own.
+        if !m.takes_tabs(&label) {
             drop(m);
             let (label, ids) = create_window(app, vec![tab], None, true)?;
             bring_up(app, &label);
@@ -917,8 +953,9 @@ pub(crate) fn open_many<R: Runtime>(
     };
     let ids = {
         let mut m = inner(app).model();
-        // The window closed meanwhile: the tabs get a window of their own.
-        if m.win(&label).is_none() {
+        // The window closed meanwhile (or is closing, or a tab is being
+        // dragged in it): the tabs get a window of their own.
+        if !m.takes_tabs(&label) {
             drop(m);
             let (label, ids) = create_window(app, tabs, None, true)?;
             bring_up(app, &label);

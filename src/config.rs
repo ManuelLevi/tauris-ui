@@ -107,13 +107,17 @@ impl<R: Runtime> Config<R> {
     }
 
     /// The tab the + button, ⌘T and a new window start with (default "New tab").
+    /// For the + button it is called inside Tauri's plugin lock: it must not
+    /// open a window or wait for the main thread.
     pub fn new_tab(mut self, make: impl Fn(&AppHandle<R>) -> NewTab + Send + Sync + 'static) -> Self {
         self.new_tab = Arc::new(make);
         self
     }
 
     /// Where the layout is remembered between runs (default: `tabs.json` in the
-    /// app's data folder). Return None to remember nothing.
+    /// app's data folder). Return None to remember nothing. It can be called
+    /// inside Tauri's plugin lock (⌘W on the last tab, quitting): it must not
+    /// open a window or wait for the main thread (a panic there saves nothing).
     pub fn layout_file(mut self, file: impl Fn(&AppHandle<R>) -> Option<PathBuf> + Send + Sync + 'static) -> Self {
         self.layout_file = Some(Arc::new(file));
         self
@@ -131,8 +135,8 @@ impl<R: Runtime> Config<R> {
     /// the hook at once, on that thread. One made inside Tauri's plugin lock
     /// (the plugin's own events, the page's commands, async ones too) or by a
     /// window job (⌘N, ⌘T, the Dock click) reaches it a moment later on a
-    /// worker thread, so the hook may open windows there too (and must not need
-    /// the main thread). Calls never overlap and keep their order (a change
+    /// worker thread, so the hook may open windows there too (and must never
+    /// block waiting for the main thread). Calls never overlap and keep their order (a change
     /// made while earlier calls wait reaches the hook after them, on the
     /// worker); several changes to one window while its call waits make one
     /// call, at the place of the newest. It may use `app.tabs()`.

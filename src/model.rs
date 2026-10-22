@@ -108,6 +108,9 @@ pub(crate) struct Frame {
     pub height: f64,
     #[serde(default)]
     pub maximized: bool,
+    // Its screen is gone: it opens centred, with its size and maximized state.
+    #[serde(skip)]
+    pub centre: bool,
 }
 
 pub(crate) struct Drag {
@@ -280,6 +283,13 @@ impl Model {
             .rev()
             .find(|w| !w.opening && !w.leaving && Some(w.label.as_str()) != dragged)
             .map(|w| w.label.clone())
+    }
+
+    // Whether new tabs may go in this window now: it is open, not about to
+    // close, and not the one a tab is being dragged in.
+    pub fn takes_tabs(&self, label: &str) -> bool {
+        self.wins.iter().any(|w| w.label == label && !w.opening && !w.leaving)
+            && self.drag.as_ref().map(|d| d.window.as_str()) != Some(label)
     }
 
     // Takes a window out of the open windows (it is going away), returning the

@@ -108,7 +108,7 @@ declare global {
     selectAll(): void;
     get(id: string | number): TaurisTreeNode<V> | null;
     isExpanded(id: string | number): boolean;
-    /** Opens a cell's editor (the first editable column by default); false if it cannot. */
+    /** Opens a cell's editor (the first editable column by default; a true/false value's box takes the focus); false if it cannot. */
     edit(id: string | number, column?: keyof V & string): boolean;
     focus(): void;
     /** Every column's width in pixels, as the person left them. */

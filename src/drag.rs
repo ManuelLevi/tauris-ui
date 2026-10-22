@@ -62,7 +62,8 @@ pub(crate) fn start<R: Runtime>(
         notify(app, &source);
         let (cx, cy) = mouse::location();
         let size = state.config.window_size;
-        let frame = Frame { x: cx - grab.0, y: cy - grab.1, width: size.0, height: size.1, maximized: false };
+        let frame =
+            Frame { x: cx - grab.0, y: cy - grab.1, width: size.0, height: size.1, maximized: false, centre: false };
         if let Err(e) = open_window(app, &moving, Some(frame), false) {
             // No new window: put the tab back where it was and end the drag.
             let back = {

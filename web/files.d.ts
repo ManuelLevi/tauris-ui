@@ -47,6 +47,8 @@ declare global {
     emptyTitle: string | ((place: string) => string);
     emptyText: string | ((place: string) => string);
     noMatch: (query: string) => string;
+    /** Typed in the list, and no name starts with it (said as an "error" message). */
+    noneStarts: (typed: string) => string;
     /** The button under "No files match": empties the search ("" for none). */
     clearSearch: string;
     drop: string | ((place: string) => string);
@@ -88,6 +90,8 @@ declare global {
     /** Where a drop adds files: anywhere on the window (default; a drop over another component is that one's),
      * over the component only, or nowhere. */
     dropArea?: "window" | "element" | "none";
+    /** How long after a key the next one still adds to the name being typed in the list (ms; default 700). */
+    typeAheadMs?: number;
     /** Ask before onDelete: true (the component asks; default), false (the app asks), or the question for
      * one file (null, false or "": that file goes without a question). Several files at once are asked about with
      * labels.confirmDeleteMany; onDelete runs once per file. */

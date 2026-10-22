@@ -74,6 +74,8 @@ def _ratio(a, b):
 _block = (HERE.parent / "README.md").read_text().split("```css", 1)[1].split("```", 1)[0]
 _light = dict(re.findall(r"--tauris-([\w-]+): (#[0-9a-f]{6})", _block.split("@media")[0]))
 _dark = dict(re.findall(r"--tauris-([\w-]+): (#[0-9a-f]{6})", _block.split(":root[data-tauris-theme=\"dark\"]")[1]))
+_system_dark = dict(re.findall(r"--tauris-([\w-]+): (#[0-9a-f]{6})", _block.split("@media")[1].split(":root[data-tauris-theme=\"dark\"]")[0]))
+check("the README's two dark blocks (the system's, the app's choice) say the same", _system_dark == _dark and len(_dark) >= 13, (_system_dark, _dark))
 _pairs = [("fg", "bg"), ("fg", "chrome"), ("fg", "hover"), ("fg", "sel-inactive"), ("dim", "bg"), ("dim", "chrome"), ("dim", "hover"),
           ("accent-ink", "bg"), ("accent-ink", "chrome"), ("on-accent", "accent"), ("sel-fg", "sel-bg")]
 for _name, _set in (("light", _light), ("dark", _dark)):
@@ -201,7 +203,11 @@ with sync_playwright() as p:
     page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")
     look = page.evaluate("""() => { const r = getComputedStyle(document.documentElement), v = n => r.getPropertyValue(n).trim();
       return [v('--tt-accent'), v('--tt-active-bg'), v('--tt-strip-bg'), v('--tt-fg-active'), getComputedStyle(document.querySelector('.tt-tab')).fontFamily]; }""")
-    check("the tabs follow the shared --tauris-* colours and font", look == ["rgb(1, 2, 3)", "rgb(4, 5, 6)", "rgb(10, 11, 12)", "rgb(7, 8, 9)", "Georgia, serif"], look)
+    # The accent alone: its bar is the accent mixed with the text, to read on the strip.
+    check("the tabs follow the shared --tauris-* colours and font",
+          look == ["color-mix(in srgb, rgb(1, 2, 3) 55%, rgb(7, 8, 9))", "rgb(4, 5, 6)", "rgb(10, 11, 12)", "rgb(7, 8, 9)", "Georgia, serif"], look)
+    page.add_style_tag(content=":root { --tauris-accent-ink: rgb(16, 17, 18); }")
+    check("with --tauris-accent-ink, the bar is that", page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--tt-accent').trim()") == "rgb(16, 17, 18)")
     page.close()
 
     # --- the app chooses light or dark ---
@@ -362,7 +368,11 @@ with sync_playwright() as p:
     page.wait_for_timeout(200)
     counts = page.evaluate("({ u: __calls.filter(c => c[0] === 'update_tab').length, r: __calls.filter(c => c[0] === 'report_strip').length })")
     check("ten updates send ten updates and no layout", counts == {"u": 10, "r": 0}, counts)
-    check("update keeps the app's fields", page.evaluate("window.__titles().length") == 3)
+    page.evaluate("tabs.reload(); 0")
+    page.wait_for_timeout(100)
+    sent = page.evaluate("__calls.filter(c => c[0] === 'update_tab').at(-1)[1].fields.query")
+    check("update sends the app's fields to Rust, and they come back from it", sent == "q9" and page.evaluate("tabs.activeTab().query") == "q9",
+          (sent, page.evaluate("tabs.activeTab().query")))
     page.close()
 
     page = fresh(browser, "{ panelId: 'page' }")
@@ -815,6 +825,68 @@ with sync_playwright() as p:
       return [ca.boxShadow, ca.borderTopColor, cb.borderTopColor, cb.backgroundColor]; })()""")
     check("Windows high contrast: the active tab is framed, with its bar on top; idle tabs draw no frame",
           "inset" in look[0] and look[1] != look[2], look)
+    page.close()
+
+    # --- a ninth review ---
+    page = fresh(browser, before="window.__tabCount = 30")
+    page.evaluate("const t = document.querySelector('.tt-tabs'); t.scrollLeft = t.scrollWidth; 0")
+    page.wait_for_timeout(100)
+    mids = page.evaluate("__calls.filter(c => c[0] === 'report_strip').at(-1)[1].mids")
+    check("a scrolled row tells Rust where its tabs are now (drops from other windows land right)", mids[0] < 0, mids[:3])
+    last = tab_box(page, 27)
+    page.evaluate("__calls.length = 0")
+    page.mouse.move(last["x"] + 30, last["y"] + 16)
+    page.mouse.down()
+    page.mouse.move(last["x"] + 30, last["y"] + 140, steps=8)
+    page.mouse.up()
+    grab = page.evaluate("(__calls.find(c => c[0] === 'drag_out') || [0, {}])[1].grabX")
+    check("a tab dragged out of a scrolled row is held where it was grabbed (its new window under the mouse)", grab is not None and 0 <= grab < 300, grab)
+    page.close()
+
+    page = fresh(browser, before="window.__tabCount = 30")
+    page.evaluate("window.drops = []; tabs.on('drop', d => drops.push(d.index)); 0")
+    lefts = page.evaluate("[...document.querySelectorAll('.tt-tab')].map(t => t.getBoundingClientRect().left)")
+    first = tab_box(page, 0)
+    page.mouse.move(first["x"] + 20, first["y"] + 16)
+    page.mouse.down()
+    page.mouse.move(first["x"] + 40, first["y"] + 16, steps=3)
+    page.mouse.move(lefts[8] + 20, first["y"] + 16, steps=12)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    check("a tab dropped exactly on a place lands there (the tabs sit a gap apart)", page.evaluate("drops") == [8], (page.evaluate("drops"), titles(page)[:10]))
+    page.close()
+
+    page = fresh(browser, """{ renderTab: tab => { const s = document.createElement('span'); s.className = 'my-title'; s.textContent = tab.title;
+      if (tab.id === 1) { const i = document.createElement('input'); i.id = 'rename'; i.value = tab.title; s.append(i); } return [s]; } }""")
+    page.focus("#rename")
+    page.keyboard.type("ab")
+    page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|update_tab', { tab: 2, title: 'Tab 2', fields: { status: 'synced' } }); __emit('tauris-ui:state-changed', 'tabs-1'); 0")
+    page.wait_for_timeout(100)
+    check("Rust changing another tab keeps a field the app drew in a tab, its text and the focus",
+          page.evaluate("document.activeElement.id") == "rename" and page.input_value("#rename").endswith("ab"), page.evaluate("document.activeElement.tagName"))
+    page.close()
+
+    page = fresh(browser, "{ onBeforeClose: () => true }", before="window.__slow = { window_state: 150 }")
+    page.wait_for_timeout(300)
+    page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|new_tab'); 0")
+    page.evaluate("__emit('tauris-ui:close-request', { label: 'tabs-1', tab: 4 }); 0")
+    page.wait_for_timeout(600)
+    check("⌘W for a tab the page had not loaded yet still closes it", page.evaluate("__titles()") == ["Tab 1", "Tab 2", "Tab 3"], page.evaluate("__titles()"))
+    page.close()
+
+    page = fresh(browser, "{ contextMenu: (tab, items) => [...items, '-', { label: 'Remove all', danger: true }] }")
+    page.evaluate("const a = document.createElement('textarea'); a.id = 'notes'; a.style.cssText = 'position:fixed;top:120px;left:20px'; document.body.append(a); 0")
+    page.focus("#notes")
+    gap = page.evaluate("(() => { const r = document.querySelector('.tt-strip, #strip').getBoundingClientRect(); return { x: r.right - 120, y: r.top + r.height / 2 }; })()")
+    page.mouse.click(gap["x"], gap["y"], button="right")
+    page.keyboard.press("Escape")
+    check("a menu opened with the mouse gives the focus back where it was (the page's field)", page.evaluate("document.activeElement.id") == "notes",
+          page.evaluate("document.activeElement.className"))
+    page.locator(".tt-tab").first.click(button="right")
+    page.hover(".tt-menu-item.tt-danger")
+    look = page.evaluate("[getComputedStyle(document.querySelector('.tt-menu-item.tt-danger')).color, getComputedStyle(document.documentElement).getPropertyValue('--tt-menu-fg').trim()]")
+    check("a danger item hovered takes the menu's text colour (readable on the hover)", look[0] == page.evaluate(f"(() => {{ const d = document.createElement('div'); d.style.color = '{look[1]}'; document.body.append(d); const c = getComputedStyle(d).color; d.remove(); return c; }})()"), look)
+    page.keyboard.press("Escape")
     page.close()
 
     # --- the example app's page (examples/basic/ui), as a new app starts from it ---

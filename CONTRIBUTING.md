@@ -35,7 +35,7 @@ them.
    python scripts/doctor.py examples/basic
    python test/doctor_run.py                 # the checker itself, on small apps set up right and wrong
    (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
-   cargo +1.90 build                         # the oldest Rust the library builds with
+   CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback cargo +1.90 build --features files   # the oldest Rust it builds with (as CI)
    ```
 6. If you touched dragging between windows, try it by hand on macOS. No
    test can drive the real mouse.

@@ -169,6 +169,19 @@
     height: var(--tm-line-h);
   }
 
+  /* A hidden copy of the line, where the caret is looked for. */
+  .tm-cmd-entry > .tm-mirror {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden; /* a long line makes nothing scroll */
+    visibility: hidden;
+    white-space: pre;
+    pointer-events: none;
+  }
+
   .tm-cmd-entry > .tm-cursor {
     position: absolute;
     top: calc((var(--tm-line-h) - var(--tm-cursor-h)) / 2);
@@ -401,6 +414,7 @@
   /* ---------- message log ---------- */
 
   .tm-log {
+    overflow-anchor: none; /* rows trimmed at the top: terminal.js keeps the place, the same in every engine */
     flex: 1 1 auto;
     box-sizing: border-box;
     min-height: var(--tm-log-min-h);

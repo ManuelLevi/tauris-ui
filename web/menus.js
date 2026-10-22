@@ -85,6 +85,17 @@
     current?.close(refocus);
   }
 
+  // A place for the focus to go back to: on the page, still there, not in a menu.
+  const fine = t => t instanceof HTMLElement && t.isConnected && t !== document.body && !t.closest(".tmn-menu");
+  // `target`, unless it is inside a menu (one about to close) or gone: then
+  // where the open menu would have put the focus.
+  function settle(target) {
+    if (fine(target)) return target;
+    if (fine(current?.returnTarget)) return current.returnTarget;
+    if (fine(lastReturn)) return lastReturn;
+    return target;
+  }
+
   // Where focus goes back to: the element that had it before the menu opened.
   function restore(target) {
     if (target instanceof HTMLElement && target.isConnected && target !== document.body) {
@@ -157,10 +168,31 @@
     const { width, height } = menu.getBoundingClientRect();
     let x = at.x;
     let y = at.y;
-    if (y + height > vh - pad && !at.below) y = at.above != null && at.above - height >= pad ? at.above - height : Math.max(pad, vh - pad - height);
-    if (x + width > vw - pad) x = at.flipX != null && at.flipX - width >= pad ? at.flipX - width : Math.max(pad, vw - pad - width);
+    if (y + height > vh - pad && !at.below) {
+      if (at.above == null) {
+        y = Math.max(pad, vh - pad - height);
+      } else if (at.above - height >= pad) {
+        y = at.above - height;
+      } else {
+        // Room on neither side of its button: on the roomier side, scrolling, never over the button.
+        const below = vh - pad - at.y;
+        const above = at.above - pad;
+        const room = Math.max(80, below, above);
+        menu.style.maxHeight = `${room}px`;
+        y = below >= above ? at.y : at.above - Math.min(height, room);
+      }
+    }
+    let leftward = false;
+    if (at.left && at.flipX != null && at.flipX - width >= pad) {
+      x = at.flipX - width;
+      leftward = true;
+    } else if (x + width > vw - pad) {
+      leftward = at.flipX != null && at.flipX - width >= pad;
+      x = leftward ? at.flipX - width : Math.max(pad, vw - pad - width);
+    }
     menu.style.left = `${Math.round(x)}px`;
     menu.style.top = `${Math.round(y)}px`;
+    return leftward;
   }
 
   const hasSub = item => Boolean(item) && (Array.isArray(item.items) || typeof item.items === "function");
@@ -172,12 +204,13 @@
   // `list` is made by the caller (listOf) before anything changes, so items()
   // that throws leaves everything as it was.
   function show(list, at, how, o = {}) {
+    // Where the focus goes back to; in a menu about to close, or on the page
+    // itself (a menu that had it was just closed by this press), where that
+    // menu would have put it.
+    const before = settle(o.returnTo ?? document.activeElement);
     closeCurrent(false);
     addStyles();
-    // Where the focus goes back to; when it is on the page itself (a menu that
-    // had it was just closed by this press), where that menu would have put it.
-    let returnTo = o.returnTo ?? document.activeElement;
-    if ((!returnTo || returnTo === document.body) && lastReturn?.isConnected) returnTo = lastReturn;
+    const returnTo = o.returnTo || !fine(document.activeElement) ? before : document.activeElement;
     // Inside a modal <dialog> everything else is inert: the menu goes in the dialog.
     const host = (o.owner ?? returnTo)?.closest?.("dialog[open]") ?? document.body;
     const life = new AbortController();
@@ -189,6 +222,7 @@
     const handle = {
       el: null,
       owner: o.owner ?? null,
+      returnTarget: returnTo,
       closed: false,
       // why it closed: an item was picked, or the bar went on to another menu
       chosen: false,
@@ -230,6 +264,7 @@
         const path = levels.slice(1).map(lv => labelOf(lv.row));
         for (const lv of levels) {
           clearTimeout(lv.timer);
+          clearTimeout(lv.rest);
           lv.menu.remove();
         }
         levels.length = 0;
@@ -277,7 +312,8 @@
       clearTimeout(child.timer);
       clearTimeout(child.rest);
       child.menu.remove();
-      levels.splice(levels.indexOf(child), 1);
+      const at = levels.indexOf(child);
+      if (at >= 0) levels.splice(at, 1);
       child.row.setAttribute("aria-expanded", "false");
       child.row.removeAttribute("aria-controls");
       lv.child = null;
@@ -294,7 +330,7 @@
       const item = row.__tmnItem;
       if (!row.__tmnSub?.length) return;
       const r = row.getBoundingClientRect();
-      const child = level(row.__tmnSub, item.label, { x: r.right - 3, y: r.top - 5, flipX: r.left + 3 }, how, lv, row);
+      const child = level(row.__tmnSub, item.label, { x: r.right - 3, y: r.top - 5, flipX: r.left + 3, left: lv.leftward }, how, lv, row);
       row.setAttribute("aria-expanded", "true");
       row.setAttribute("aria-controls", child.menu.id);
       lv.child = child;
@@ -319,8 +355,13 @@
     function level(list, label, where, how, parent = null, row = null) {
       const menu = build(list, label);
       host.append(menu);
-      place(menu, where);
-      const lv = { menu, parent, row, child: null, timer: 0, rest: 0, hover: null, opening: null, last: null };
+      // In a <dialog>, in the top layer: neither the dialog's transform nor its overflow moves or cuts it.
+      if (host !== document.body && typeof menu.showPopover === "function") {
+        menu.popover = "manual";
+        menu.showPopover();
+      }
+      const leftward = place(menu, where);
+      const lv = { menu, parent, row, child: null, timer: 0, rest: 0, hover: null, opening: null, last: null, leftward };
       levels.push(lv);
       if (!handle.el) handle.el = menu;
 
@@ -339,6 +380,7 @@
         const to = n => {
           e.preventDefault();
           clearTimeout(lv.timer);
+          clearTimeout(lv.rest);
           lv.opening = null;
           if (lv.child) closeSub(lv);
           if (list.length) go(lv, list[(n + list.length) % list.length]);
@@ -389,6 +431,7 @@
           const hit = same ? order.find(node => text(node).startsWith(typed[0])) : order.find(node => text(node).startsWith(typed));
           if (hit) {
             clearTimeout(lv.timer);
+            clearTimeout(lv.rest);
             lv.opening = null;
             if (lv.child && lv.child.row !== hit) closeSub(lv);
             go(lv, hit);
@@ -419,7 +462,7 @@
       }, { signal });
       // The item under the pointer is the one Enter chooses; resting on one with a sub-menu opens it.
       function hoverOn(item) {
-        if (handle.closed) return;
+        if (handle.closed || !levels.includes(lv)) return;
         if (item && !off(item)) {
           if (document.activeElement !== item) item.focus({ preventScroll: true });
         } else if (document.activeElement !== menu) {
@@ -432,10 +475,10 @@
         if (item && hasSub(item.__tmnItem) && !off(item)) {
           if (lv.child?.row !== item) {
             lv.opening = item;
-            lv.timer = setTimeout(() => openSub(lv, item, "mouse"), 150);
+            lv.timer = setTimeout(() => { if (levels.includes(lv)) openSub(lv, item, "mouse"); }, 150);
           }
         } else if (lv.child) {
-          lv.timer = setTimeout(() => closeSub(lv), 250);
+          lv.timer = setTimeout(() => { if (levels.includes(lv)) closeSub(lv); }, 250);
         }
       }
       menu.addEventListener("pointerenter", () => {
@@ -465,18 +508,20 @@
         if (!lv.child) menu.focus({ preventScroll: true });
       }, { signal });
       menu.addEventListener("click", e => {
+        if (e.detail > 0) return; // a pointer's click: its release chose already
         const hit = e.target instanceof Element ? e.target.closest(".tmn-item") : null;
         if (!hit || hit.parentElement !== menu) return;
         if (hasSub(hit.__tmnItem)) openSub(lv, hit, "mouse");
         else choose(lv, hit);
       }, { signal });
       menu.addEventListener("contextmenu", e => e.preventDefault(), { signal });
-      // Pressed on the title (or the button), dragged here and released: as a
-      // click on the item, as in desktop menus. Not a release right after the
-      // menu came up under the pointer.
+      // The release chooses, as in desktop menus: after a press on an item (or
+      // another item, sliding over), or on the title or button that opened it
+      // (press, drag, release; not a release right after the menu came up under
+      // the pointer), with any button.
       menu.addEventListener("pointerdown", () => { pressedInside = true; }, { signal });
       menu.addEventListener("pointerup", e => {
-        if (pressedInside || performance.now() - openedAt < 200) return;
+        if (!pressedInside && performance.now() - openedAt < 200) return;
         const hit = e.target instanceof Element ? e.target.closest(".tmn-item") : null;
         if (!hit || hit.parentElement !== menu || off(hit)) return;
         if (hasSub(hit.__tmnItem)) openSub(lv, hit, "mouse");
@@ -516,7 +561,8 @@
     }, { capture: true, signal });
     document.addEventListener("pointerup", () => { pressedInside = false; }, { signal });
     // Focus goes back where it was, so the app answers keys when the person returns.
-    window.addEventListener("blur", () => handle.close(true), { signal });
+    // (Not when the focus went into a frame of this page: it stays there.)
+    window.addEventListener("blur", () => handle.close(document.activeElement?.tagName !== "IFRAME"), { signal });
     // Inside a <dialog>: the dialog closing takes the menu with it.
     if (host !== document.body) host.addEventListener("close", () => handle.close(false), { signal });
     window.addEventListener("resize", () => handle.close(true), { signal });
@@ -526,7 +572,8 @@
       const t = e.target;
       if (levels.some(lv => lv.menu.contains(t))) return;
       const page = t === document || t === document.documentElement || t === document.body;
-      if (page || (o.owner && t instanceof Node && t.contains(o.owner))) handle.close(true);
+      // A menu opened at a point (a right click) has nothing to follow: any scroll under it closes it.
+      if (page || !o.owner || (t instanceof Node && t.contains(o.owner))) handle.close(true);
     }, { capture: true, signal });
     return handle;
   }
@@ -646,8 +693,8 @@
       /** Opens the menu with its first item chosen. */
       open() {
         // From an app's shortcut the focus is elsewhere (a field): it goes back there.
-        const from = document.activeElement;
-        if (!handle) openIt("keyboard", from && from !== document.body ? from : element);
+        const from = settle(document.activeElement);
+        if (!handle) openIt("keyboard", fine(from) ? from : element);
       },
       /** Closes the menu if it is open. */
       close() { handle?.close(false); },
@@ -750,7 +797,7 @@
       }
       const t = titles[i];
       const r = t.getBoundingClientRect();
-      const back = returnTo ?? keepReturn ?? document.activeElement;
+      const back = settle(returnTo ?? keepReturn ?? document.activeElement);
       openAt = i;
       openHow = how;
       openName = String(menus[i].label ?? "");
@@ -762,8 +809,11 @@
         // (Opened by the app with the focus outside the bar, say from a shortcut: back there.)
         // When the focus was on a title, it is this menu's title (the mouse may have gone on from the first one).
         refocusTo: () => (!nav.contains(back) ? back : t),
+        // A chosen item: the focus goes back to where it was before the bar
+        // (the field Copy acts on), also after the pointer went on to this menu.
         afterChoose: () => {
-          if (how !== "mouse") restore(!nav.contains(back) ? back : outside?.isConnected ? outside : t);
+          const to = !nav.contains(back) ? back : outside?.isConnected ? outside : how === "mouse" ? null : t;
+          if (to) restore(to);
         },
         onSide: dir => {
           // On to the next menu with something in it (an empty one would end the bar's open mode).
@@ -888,7 +938,7 @@
         }
       },
       /** Opens menu number `index` with its first item chosen, and moves focus into it. */
-      open(index = 0) { openMenu(index, "keyboard", document.activeElement); },
+      open(index = 0) { openMenu(index, "keyboard", settle(document.activeElement)); },
       /** Closes the open menu, if any. */
       close() { handle?.close(false); },
       /** Moves keyboard focus to the first title. */

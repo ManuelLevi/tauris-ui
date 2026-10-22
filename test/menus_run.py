@@ -802,6 +802,91 @@ with sync_playwright() as p:
     check("one letter again and again steps through the items starting with it, past a doubled letter", seen == ["Apple", "Avocado", "Aardvark"], seen)
     page.close()
 
+    # ---------- a ninth review ----------
+    page = fresh(browser)
+    own(page, "() => [{ label: 'File', items: [{ label: 'Open Recent', items: ['R1', 'R2', 'R3', 'R4'].map(l => ({ label: l })) },"
+              " { label: 'Plain 1' }, { label: 'Plain 2' }, { label: 'Plain 3' }] }]")
+    page.click(TITLE("File"))
+    recent = rect(page, ".tmn-menu .tmn-item:nth-child(1)")
+    page.mouse.move(recent["x"] + 10, recent["y"] + recent["h"] / 2)
+    page.wait_for_timeout(300)
+    page.mouse.move(recent["x"] + 30, recent["y"] + recent["h"] + 6, steps=3)
+    page.evaluate("own.setMenus(own.menus ?? [{ label: 'File', items: [{ label: 'Open Recent', items: ['R1','R2','R3','R4'].map(l => ({ label: l })) }, { label: 'Plain 1' }, { label: 'Plain 2' }, { label: 'Plain 3' }] }]); 0")
+    page.wait_for_timeout(400)
+    page.keyboard.press("Escape")
+    page.mouse.click(600, 500)
+    page.wait_for_timeout(100)
+    check("new items while the pointer heads for a sub-menu leave no menu behind once closed", page.locator(".tmn-menu").count() == 0, page.locator(".tmn-menu").count())
+    page.close()
+
+    page = fresh(browser)
+    own(page, "() => [{ label: 'File', items: [{ label: 'New', action: () => ran.push('new') }, { label: 'Quit', action: () => ran.push('quit') }] },"
+              " { label: 'Edit', items: [{ label: 'Copy', action: () => ran.push('copy') }] }]")
+    page.focus("#field")
+    page.evaluate("own.focus(); 0")
+    page.keyboard.press("Enter")
+    page.hover(TITLE("Edit"))
+    page.click(".tmn-item:has-text('Copy')")
+    check("chosen from the menu the pointer went on to (opened from the keys): the focus is back in the field it acts on",
+          page.evaluate("ran") == ["copy"] and page.evaluate("document.activeElement.id") == "field", page.evaluate("document.activeElement.className"))
+    page.focus("#field")
+    page.evaluate("own.open(0); own.open(1); 0")
+    page.keyboard.press("Escape")
+    check("opened from shortcuts one after the other, then Escape: the focus is back in the field", page.evaluate("document.activeElement.id") == "field",
+          page.evaluate("document.activeElement.className"))
+    page.click(TITLE("File"))
+    new = rect(page, ".tmn-menu .tmn-item:nth-child(1)")
+    quit_ = rect(page, ".tmn-menu .tmn-item:nth-child(2)")
+    page.mouse.move(new["x"] + 10, new["y"] + new["h"] / 2)
+    page.mouse.down()
+    page.mouse.move(quit_["x"] + 10, quit_["y"] + quit_["h"] / 2, steps=4)
+    page.mouse.up()
+    check("press on one item, slide to another, release: that one is chosen", page.evaluate("ran")[-1] == "quit" and page.locator(".tmn-menu").count() == 0,
+          page.evaluate("ran"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""(() => { const b = document.createElement('button'); b.id = 'tall'; b.textContent = 'Layers'; b.style.cssText = 'position:fixed;left:300px;top:270px';
+      document.body.append(b); window.tall = TaurisMenu.button(b, { items: Array.from({ length: 30 }, (_, i) => ({ label: 'Layer ' + i })) }); return 0; })()""")
+    page.click("#tall")
+    page.wait_for_timeout(250)
+    m, b = rect(page, ".tmn-menu"), rect(page, "#tall")
+    check("a menu taller than the room on either side of its button never covers the button", m["y"] >= b["y"] + b["h"] - 1 or m["y"] + m["h"] <= b["y"] + 1, (m, b))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""(() => { const list = document.createElement('div'); list.id = 'scroller'; list.style.cssText = 'position:fixed;left:20px;top:60px;width:300px;height:200px;overflow:auto';
+      list.innerHTML = Array.from({ length: 40 }, (_, i) => '<div style="height:30px">row ' + i + '</div>').join(''); document.body.append(list);
+      TaurisMenu.open([{ label: 'Delete row 2' }], { x: 100, y: 120 }); return 0; })()""")
+    page.evaluate("document.getElementById('scroller').scrollTop = 200; 0")
+    page.wait_for_timeout(100)
+    check("a menu opened at a point closes when what is under it scrolls", page.locator(".tmn-menu").count() == 0)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""(() => { const d = document.createElement('dialog'); d.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);overflow:hidden;width:300px;height:160px;margin:0';
+      const b = document.createElement('button'); b.id = 'indialog'; b.textContent = 'Options'; d.append(b); document.body.append(d); d.showModal();
+      window.dm = TaurisMenu.button(b, { items: [{ label: 'One' }, { label: 'Two' }] }); return 0; })()""")
+    page.click("#indialog")
+    page.wait_for_timeout(250)
+    m, b = rect(page, ".tmn-menu"), rect(page, "#indialog")
+    check("a menu in a centred <dialog> opens at its button (in the top layer, not moved or cut by the dialog)",
+          abs(m["x"] - b["x"]) < 2 and 0 < m["y"] - (b["y"] + b["h"]) < 8 and page.is_visible(".tmn-menu"), (m, b))
+    page.close()
+
+    page = fresh(browser)
+    own(page, "() => [{ label: 'Go', items: [{ label: 'Mail', items: [{ label: 'Inbox', items: [{ label: 'Today' }] }] }] }]")
+    page.set_viewport_size({"width": 1000, "height": 560})
+    page.evaluate("document.getElementById('own').style.cssText = 'position:fixed;right:0;top:0'; 0")
+    page.click(TITLE("Go"))
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("ArrowRight")
+    boxes = page.evaluate("[...document.querySelectorAll('.tmn-menu')].map(m => { const r = m.getBoundingClientRect(); return [r.left, r.right]; })")
+    check("past a sub-menu that opened to the left, the next opens to the left too (not over the first menu)",
+          len(boxes) == 3 and boxes[2][1] <= boxes[1][0] + 4 and boxes[1][1] <= boxes[0][0] + 4, boxes)
+    page.close()
+
     browser.close()
 
 print()

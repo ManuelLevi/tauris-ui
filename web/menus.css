@@ -25,7 +25,9 @@
     --tmn-disabled: var(--tauris-faint, #a3a6ad);
     /* --tmn-focus: unset, the soft halo around a focus line: --tmn-focus-line at --tmn-focus-mix */
     --tmn-focus-mix: 32%;
-    --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #2675bf));
+    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: mixed with the text colour. */
+    --tmn-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #1e1f22));
+    --tmn-focus-line: var(--tauris-accent-ink, var(--tmn-ink-auto, #2675bf));
     /* the bar */
     --tmn-bar-h: 24px;
     --tmn-bar-bg: var(--tauris-chrome, #f2f2f3);
@@ -65,7 +67,8 @@
       --tmn-fg: var(--tauris-fg, #dfe1e5);
       --tmn-disabled: var(--tauris-faint, #6f737a);
       --tmn-focus-mix: 45%;
-      --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
+      --tmn-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #dfe1e5));
+      --tmn-focus-line: var(--tauris-accent-ink, var(--tmn-ink-auto, #6aa6e0));
       --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
       --tmn-bar-line: var(--tauris-line, #515356);
       --tmn-title-hover-bg: var(--tauris-hover, #3d5a8f);
@@ -74,6 +77,7 @@
       --tmn-menu-border: var(--tauris-line, #6b6e73);
       --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
       --tmn-item-on-bg: var(--tauris-sel-bg, #3570b0);
+      --tmn-item-on-ring: rgb(255 255 255 / 0.6);   /* the chosen item's edge: its tint alone is under 3:1 on the menu */
       --tmn-danger: #f49a92;
       --tmn-sep: var(--tauris-line, #515356);
       --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
@@ -87,7 +91,8 @@
     --tmn-fg: var(--tauris-fg, #dfe1e5);
     --tmn-disabled: var(--tauris-faint, #6f737a);
     --tmn-focus-mix: 45%;
-    --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
+    --tmn-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #dfe1e5));
+    --tmn-focus-line: var(--tauris-accent-ink, var(--tmn-ink-auto, #6aa6e0));
     --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
     --tmn-bar-line: var(--tauris-line, #515356);
     --tmn-title-hover-bg: var(--tauris-hover, #3d5a8f);
@@ -96,6 +101,7 @@
     --tmn-menu-border: var(--tauris-line, #6b6e73);
     --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
     --tmn-item-on-bg: var(--tauris-sel-bg, #3570b0);
+    --tmn-item-on-ring: rgb(255 255 255 / 0.6);   /* the chosen item's edge: its tint alone is under 3:1 on the menu */
     --tmn-danger: #f49a92;
     --tmn-sep: var(--tauris-line, #515356);
     --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
@@ -139,6 +145,8 @@
   .tmn-menu {
     color-scheme: var(--tmn-scheme);
     position: fixed;
+    inset: auto;  /* in the top layer (inside a <dialog>) too: placed where it is put */
+    margin: 0;
     z-index: 2147483000;
     box-sizing: border-box;
     min-width: var(--tmn-menu-min-w);
@@ -179,6 +187,7 @@
     outline: none;
     color: var(--tmn-item-on-fg);
     background: var(--tmn-item-on-bg);
+    box-shadow: inset 0 0 0 1px var(--tmn-item-on-ring, transparent);
   }
 
   /* the item whose sub-menu is open stays lit while the mouse is in the sub-menu */

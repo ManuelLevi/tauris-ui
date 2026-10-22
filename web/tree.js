@@ -261,10 +261,16 @@
         };
         const incoming = find(list);
         const typed = incoming ? editedValue(ed) : { ok: false };
-        finishEdit(Boolean(incoming), false);
+        // Only a value the person changed is kept (untouched, the new data stands).
+        const changed = typed.ok && !Object.is(typed.value, ed.start) && ed.col.key != null;
+        finishEdit(false, false);
+        if (changed) {
+          // The new list's node is the one drawn from now on: it shows what was
+          // typed, and the app hears it for that node (once the new list is in).
+          (incoming.values ??= {})[ed.col.key] = typed.value;
+          queueMicrotask(() => { if (!signal.aborted) emit("change", { node: incoming, column: ed.col.key, value: typed.value }); });
+        }
         if (call !== dataCalls) return;
-        // The new list's node is the one drawn from now on: it shows what was typed.
-        if (typed.ok && ed.col.key != null) (incoming.values ??= {})[ed.col.key] = typed.value;
       }
       const hadFocus = body.contains(document.activeElement);
       const hadKey = selectedKey;
@@ -656,18 +662,22 @@
       cell.style.width = `var(--tv-c${ci})`;
       if (!has(n.values, c.key)) return cell;
       const v = n.values[c.key];
-      if (!c.editable || n.readOnly) {
-        if (c.editable) cell.classList.add("tv-readonly");
+      if (!c.editable) {
         cell.append(el("span", "tv-text", {}, v == null ? "" : String(v)));
         return cell;
       }
+      // A read-only value shows as an editable one does (a choice's label, a
+      // box, a swatch), only it cannot change.
+      const fixed = Boolean(n.readOnly);
       const spec = editorOf(n, c);
-      cell.classList.add("tv-editable", `tv-kind-${spec.type}`);
+      cell.classList.add(fixed ? "tv-readonly" : "tv-editable", `tv-kind-${spec.type}`);
       if (spec.type === "checkbox") {
         // Reached with Tab from the row's other values; Space flips it.
-        cell.setAttribute("role", "checkbox");
-        cell.setAttribute("aria-checked", String(Boolean(v)));
-        cell.setAttribute("aria-label", `${labelOf(n)}, ${c.label}`);
+        if (!fixed) {
+          cell.setAttribute("role", "checkbox");
+          cell.setAttribute("aria-checked", String(Boolean(v)));
+          cell.setAttribute("aria-label", `${labelOf(n)}, ${c.label}`);
+        }
         cell.append(el("span", `tv-check${v ? " tv-on" : ""}`, { "aria-hidden": "true" }));
       } else if (spec.type === "color") {
         const swatch = el("span", "tv-swatch", { "aria-hidden": "true" });
@@ -675,7 +685,8 @@
         cell.append(swatch, el("span", "tv-text", {}, String(v ?? "")));
       } else if (spec.type === "select") {
         const choice = choices(spec).find(o => o.value === v);
-        cell.append(el("span", "tv-text", {}, choice ? choice.label : String(v ?? "")), el("span", "tv-caret", { "aria-hidden": "true" }));
+        cell.append(el("span", "tv-text", {}, choice ? choice.label : String(v ?? "")));
+        if (!fixed) cell.append(el("span", "tv-caret", { "aria-hidden": "true" }));
       } else {
         cell.append(el("span", "tv-text", {}, v == null ? "" : String(v)));
       }
@@ -685,7 +696,7 @@
     function spoken(n, c) {
       const v = n.values[c.key];
       if (typeof v === "boolean") return v ? "on" : "off";
-      const spec = c.editable ? editorOf(n, c) : null;
+      const spec = c.editable ? editorOf(n, c) : null; // (read-only too: it shows the same way)
       if (spec?.type === "select") return choices(spec).find(o => o.value === v)?.label ?? String(v ?? "");
       return v == null ? "" : String(v);
     }
@@ -740,6 +751,13 @@
           min: number ? spec.min : null, max: number ? spec.max : null, step: number ? (spec.step ?? "any") : null,
         });
         input.value = v == null ? "" : String(v);
+        // The wheel over a number field scrolls the tree; Chromium would change the number.
+        if (number) {
+          input.addEventListener("wheel", e => {
+            e.preventDefault();
+            scroller.scrollTop += e.deltaY;
+          }, { passive: false, signal });
+        }
       }
       input.addEventListener("keydown", e => {
         e.stopPropagation();
@@ -761,7 +779,7 @@
       input.addEventListener("blur", () => finishEdit(true, false), { signal });
       cell.classList.add("tv-editing");
       cell.append(input);
-      editing = { key: k, ci, input, spec, node: n, col: c };
+      editing = { key: k, ci, input, spec, node: n, col: c, start: v };
       input.focus({ preventScroll: true });
       // A column off to the side comes into view (rows scroll up and down by reveal).
       const box = scroller.getBoundingClientRect();
@@ -779,6 +797,9 @@
     // What the editor holds, as the type the value has: { ok, value }.
     function editedValue(ed) {
       const { input, spec } = ed;
+      // Nothing changed in the field: the value stays what it was (a number shown
+      // in a text field stays a number, "#5B8CFF" is not rewritten).
+      if (spec.type !== "select" && ed.start != null && input.value === String(ed.start)) return { ok: true, value: ed.start };
       if (spec.type === "select") {
         const list = choices(spec);
         const j = input.selectedIndex;
@@ -1043,9 +1064,16 @@
           if (row.kids && row.open) setOpen([row.key], false);
           else if (row.parent) go(index.get(row.parent.key));
           break;
-        case "+": handled(); setOpen([row.key], true); break;
-        case "-": handled(); setOpen([row.key], false); break;
-        case "*": handled(); setOpen([row.key, ...descendants(row.node)], true); break;
+        case "+":
+        case "-":
+        case "*":
+          handled();
+          // Inside a name being typed ("src-tauri"), part of it.
+          if (typed && performance.now() - typedAt < 700) typeAhead(e.key, at);
+          else if (e.key === "+") setOpen([row.key], true);
+          else if (e.key === "-") setOpen([row.key], false);
+          else setOpen([row.key, ...descendants(row.node)], true);
+          break;
         case "Enter": {
           handled();
           const ci = firstEditable(row);
@@ -1378,6 +1406,7 @@
         if (!canEdit(rows[i], ci)) return false;
         // The row being edited is the selected one, so Escape and Tab come back to it.
         go(i);
+        if (editorOf(rows[i].node, cols[ci]).type === "checkbox") return goToCell(k, ci);
         return beginEdit(k, ci);
       },
       /** Moves keyboard focus into the tree. */

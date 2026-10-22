@@ -355,11 +355,16 @@
 
     document.addEventListener("pointerdown", e => { if (menu && !menu.contains(e.target)) closeMenu(); }, { capture: true, signal });
     window.addEventListener("blur", closeMenu, { signal });
+    // Where the focus was before a press on the strip: a menu the mouse opened gives it back there.
+    let focusBeforePress = null;
+    strip.addEventListener("pointerdown", () => { focusBeforePress = document.activeElement; }, { capture: true, signal });
+    const beforePress = () => (focusBeforePress instanceof HTMLElement && focusBeforePress !== document.body
+      && focusBeforePress.isConnected && !menu?.contains(focusBeforePress) ? focusBeforePress : null);
     strip.addEventListener("contextmenu", e => {
       // The strip's empty parts: around and between the tabs, and the + button.
       if (![strip, fill, tabsEl].includes(e.target) && !newBtn.contains(e.target)) return;
       e.preventDefault();
-      openMenu(e.clientX, e.clientY, null);
+      openMenu(e.clientX, e.clientY, null, beforePress());
     }, { signal });
 
     // ---------- rendering ----------
@@ -379,8 +384,9 @@
           const next = tabElement(tabs[i]);
           // What renderTab returns is the app's (its handlers, its references): it
           // is used. But the tab being pressed stays the element pressed until its
-          // click is done (the click is the app's), and is drawn again after.
-          const held = opt.renderTab && tabs[i].id === pressed;
+          // click is done (the click is the app's), and is drawn again after; so
+          // does one with the focus inside (a field the app drew in it).
+          const held = opt.renderTab && (tabs[i].id === pressed || (node.contains(document.activeElement) && document.activeElement !== node));
           if (!held && (opt.renderTab || next.innerHTML !== node.innerHTML)) return node.replaceWith(next);
           node.className = next.className;
           node.setAttribute("aria-selected", next.getAttribute("aria-selected"));
@@ -392,7 +398,23 @@
         finishRender(hadFocus);
         return;
       }
-      const items = tabs.map(tabElement);
+      // A tab drawn from the same data stays the element it is; the one the
+      // focus is inside (a field the app drew in it) is kept until the focus leaves.
+      const before = new Map(shown.filter(n => !n.classList.contains("tt-ghost")).map(n => [Number(n.dataset.id), n]));
+      const inside = document.activeElement?.closest?.(".tt-tab");
+      const items = tabs.map(tab => {
+        const node = before.get(tab.id);
+        const isActive = tab.id === active;
+        if (node && !node.__ttStale && node.__ttSig === JSON.stringify(tab) && node.classList.contains("tt-active") === isActive) {
+          node.setAttribute("tabindex", isActive ? "0" : "-1");
+          return node;
+        }
+        if (node && node === inside && document.activeElement !== node) {
+          node.__ttStale = true;
+          return node;
+        }
+        return tabElement(tab);
+      });
       // Tabs that just arrived pop in; the first render of a window does not.
       const first = known.size === 0;
       for (const node of items) {
@@ -406,13 +428,18 @@
       }
       // One tab is always reachable with Tab, even with none active.
       if (!items.some(n => n.tabIndex === 0)) items.find(n => !n.classList.contains("tt-ghost"))?.setAttribute("tabindex", "0");
-      tabsEl.replaceChildren(...items);
+      // Put in order without taking out the ones in place (taking out the
+      // element with the focus would drop it).
+      items.forEach((node, i) => { if (tabsEl.children[i] !== node) tabsEl.insertBefore(node, tabsEl.children[i] ?? null); });
+      while (tabsEl.children.length > items.length) tabsEl.lastElementChild.remove();
       finishRender(hadFocus);
     }
 
     function finishRender(hadFocus) {
       const current = tabEl(active);
-      if (hadFocus) current?.focus({ preventScroll: true });
+      // The focus goes to the active tab, unless it is in a field the app drew in a tab.
+      const inField = tabsEl.contains(document.activeElement) && !document.activeElement.classList.contains("tt-tab");
+      if (hadFocus && !inField) current?.focus({ preventScroll: true });
       // Bring the active tab into view only when it changed, so a row the user
       // scrolled stays put while they type.
       fitStrip(active !== shownActive ? current : null);
@@ -441,7 +468,7 @@
       node.__ttSig = JSON.stringify(tab); // what it was drawn from: a tab that changed is drawn again
       node.querySelectorAll("button, a, input, select, textarea").forEach(c => c.setAttribute("tabindex", "-1"));
       node.addEventListener("pointerdown", e => startDrag(e, tab.id));
-      node.addEventListener("contextmenu", e => { e.preventDefault(); openMenu(e.clientX, e.clientY, tab, node); });
+      node.addEventListener("contextmenu", e => { e.preventDefault(); openMenu(e.clientX, e.clientY, tab, beforePress() ?? node); });
       node.addEventListener("click", e => {
         if (!e.target.closest("[data-tt-close]")) return;
         e.stopPropagation();
@@ -504,6 +531,12 @@
       }
     }, { signal });
 
+    // The row scrolled (the wheel, a drag at its end): Rust hears where the tabs are now.
+    let scrollFrame = 0;
+    tabsEl.addEventListener("scroll", () => {
+      if (!scrollFrame) scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; if (!hover && !drag) reportStrip(); });
+    }, { passive: true, signal });
+
     // A wheel over the strip scrolls the tabs sideways when they overflow.
     tabsEl.addEventListener("wheel", e => {
       if (!tabsEl.classList.contains("tt-scrolling") || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
@@ -532,7 +565,7 @@
       drag = {
         id, from, to: from, els,
         lefts: rects.map(r => r.left - origin),
-        firstLeft: rects[0].left,
+        firstLeft: rects[0].left + tabsEl.scrollLeft, // where the first tab is with the row unscrolled
         width: rects[from].width,
         x0: e.clientX, y0: e.clientY, x: e.clientX,
         grabInTab: e.clientX - rects[from].left,
@@ -578,7 +611,7 @@
         const rects = drag.els.map(n => n.getBoundingClientRect());
         const origin = tabsEl.getBoundingClientRect().left - tabsEl.scrollLeft;
         drag.lefts = rects.map(r => r.left - origin);
-        drag.firstLeft = rects[0].left;
+        drag.firstLeft = rects[0].left + tabsEl.scrollLeft;
         drag.width = rects[drag.from].width;
         // The pointer is held by the strip only once the drag begins, so a plain
         // click or double-click still reaches what was pressed (a renderTab's span).
@@ -627,19 +660,23 @@
 
     // Keeps the dragged tab inside the strip and slides the tabs it passes.
     function slide(clientX) {
-      const { from, lefts, width, els } = drag;
+      const { from, lefts, els } = drag;
       const x = clientX - tabsEl.getBoundingClientRect().left + tabsEl.scrollLeft;
       const first = lefts[0];
       const last = lefts[lefts.length - 1];
       const left = Math.min(Math.max(x - drag.grabInTab, first), last);
-      drag.to = Math.min(Math.max(Math.round((left - first) / width), 0), els.length - 1);
+      // The nearest place (the tabs sit a gap apart, not a width).
+      let to = 0;
+      lefts.forEach((l, i) => { if (Math.abs(l - left) < Math.abs(lefts[to] - left)) to = i; });
+      drag.to = Math.min(to, els.length - 1);
 
       els[from].style.setProperty("--dx", `${left - lefts[from]}px`);
+      // The tabs passed move one place along, to where their neighbour was.
       els.forEach((node, i) => {
         if (i === from) return;
         let shift = 0;
-        if (from < i && i <= drag.to) shift = -width;
-        if (drag.to <= i && i < from) shift = width;
+        if (from < i && i <= drag.to) shift = lefts[i - 1] - lefts[i];
+        if (drag.to <= i && i < from) shift = lefts[i + 1] - lefts[i];
         node.style.setProperty("--dx", `${shift}px`);
       });
     }
@@ -728,6 +765,11 @@
     strip.addEventListener("pointercancel", endDrag, { signal });
     strip.addEventListener("lostpointercapture", endDrag, { signal });
 
+    // The focus left a tab kept as it was while it was inside: drawn as it is now.
+    tabsEl.addEventListener("focusout", e => {
+      if (e.target.closest?.(".tt-tab")?.__ttStale) setTimeout(() => { if (!signal.aborted && !tabsEl.querySelector(".tt-tab:focus-within")?.__ttStale) render(); });
+    }, { signal });
+
     newBtn.addEventListener("click", () => quiet(call("new_tab")), { signal });
     newBtn.addEventListener("keydown", e => {
       if (e.key !== "Enter" && e.key !== " ") return;
@@ -748,8 +790,16 @@
       render();
     }));
     keep(listen(CLOSE_REQUEST, e => {
-      if (e.payload?.label === ME) quiet(close(e.payload.tab));
+      if (e.payload?.label === ME) quiet(closeRequested(e.payload.tab));
     }));
+    // Rust asks to close a tab (⌘W): one this page has not loaded yet (⌘T a
+    // moment before) is loaded first; one it never had closes without a question.
+    async function closeRequested(id) {
+      if (!tabs.some(t => t.id === id)) await load();
+      if (tabs.some(t => t.id === id)) return close(id);
+      if (!signal.aborted) await call("close_tab", { tab: id });
+      return true;
+    }
     // The window's close button: every tab is asked, and the window closes
     // only if all of them agree.
     let askingWindow = false;
