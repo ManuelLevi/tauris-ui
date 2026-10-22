@@ -133,6 +133,14 @@ def idle(page):
     page.wait_for_function("document.querySelector('.tf-busy').hidden")
 
 
+def settle(page, condition):
+    """Waits up to 2s for a state behind a transition or a menu opening (a slow machine takes longer)."""
+    for _ in range(40):
+        if page.evaluate(f"!!({condition})"):
+            return
+        page.wait_for_timeout(50)
+
+
 def shot(page, name):
     if SHOTS:
         page.screenshot(path=str(SHOTS / f"files_{name}.png"), animations="disabled")
@@ -190,11 +198,13 @@ with sync_playwright() as p:
           css(page, ".tf-cell.tf-c-size", "text-align") == "right" and css(page, ".tf-cell.tf-c-size", "font-variant-numeric") == "tabular-nums")
     check("the row's buttons are hidden until the row is pointed at", css(page, ".tf-file:nth-child(2) .tf-acts", "opacity") == "0")
     page.hover(".tf-file:nth-child(2) .tf-c-name")
-    page.wait_for_timeout(150)
+    settle(page, "getComputedStyle(document.querySelector('.tf-file:nth-child(2) .tf-acts')).opacity === '1'"
+                 " && getComputedStyle(document.querySelector('.tf-file:nth-child(2) .tf-cell')).backgroundColor === 'rgb(241, 245, 251)'")
     check("pointing at a row tints it and shows Open, Save a copy…, Rename, Delete",
           css(page, ".tf-file:nth-child(2) .tf-acts", "opacity") == "1"
           and css(page, ".tf-file:nth-child(2) .tf-cell", "background-color") == "rgb(241, 245, 251)"
-          and page.evaluate("[...document.querySelectorAll('.tf-file:nth-child(2) .tf-ib')].map(b => b.title)") == ["Open", "Save a copy…", "Rename", "Delete"])
+          and page.evaluate("[...document.querySelectorAll('.tf-file:nth-child(2) .tf-ib')].map(b => b.title)") == ["Open", "Save a copy…", "Rename", "Delete"],
+          (css(page, ".tf-file:nth-child(2) .tf-acts", "opacity"), css(page, ".tf-file:nth-child(2) .tf-cell", "background-color")))
     page.click(".tf-file:nth-child(3) .tf-c-name")
     page.wait_for_timeout(150)
     sel = ".tf-file:nth-child(3)"
@@ -894,8 +904,10 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.focus(".tf-list")
     page.keyboard.press("Shift+F10")
+    settle(page, "document.querySelector('.tmn-menu') && (document.activeElement.textContent || '').startsWith('Open')")
     check("Shift+F10 opens the row menu from the keyboard, its first item chosen",
-          page.is_visible(".tmn-menu") and page.evaluate("document.activeElement.textContent").startswith("Open"))
+          page.is_visible(".tmn-menu") and page.evaluate("document.activeElement.textContent").startswith("Open"),
+          (page.locator(".tmn-menu").count(), page.evaluate("document.activeElement.className"), page.evaluate("(document.activeElement.textContent || '').slice(0, 40)")))
     page.keyboard.press("Escape")
     check("Escape closes it, and the focus is back on the list",
           page.locator(".tmn-menu").count() == 0 and page.evaluate("document.activeElement.classList.contains('tf-list')"))

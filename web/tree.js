@@ -1448,7 +1448,9 @@
       root.classList.add("tv-resizing");
       grip.classList.add("tv-grip-on");
       const drag = new AbortController();
+      // WebKit sends both pointerup and lostpointercapture: end the drag once.
       const stop = () => {
+        if (drag.signal.aborted) return;
         drag.abort();
         root.classList.remove("tv-resizing");
         grip.classList.remove("tv-grip-on");

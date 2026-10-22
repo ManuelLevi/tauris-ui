@@ -8,7 +8,14 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
-## 0.4.31 — 2026-10-26
+## 0.4.32 — 2026-10-22
+
+- Tree: dragging a column's edge tells the app its new width once. WebKit (the
+  Mac's webview) ended the drag twice and sent the same width twice.
+- Tests: the files table's pointed-at row and its Shift+F10 menu are checked
+  once they have settled, not after a fixed 150 ms a slow machine misses.
+
+## 0.4.31 — 2026-10-22
 
 - New: `TaurisDialog` (from MLPC's dialog kit): `confirm` (starts on Cancel; `danger`; `native: true` asks with the system's alert through the plugin's new `ask` command, with the `files` feature and the dialog plugin, else in the page), `form` in the Swing layout (right-aligned "Label:", compact fields, example placeholders, a balloon under a refused field, one kept line for the form's hint or refusal, `validate`, `submit` that may throw, a `review` of the changes before saving), `review` on its own, the Keyboard Shortcuts sheet (groups in balanced columns, keycaps, "either" rows), the About sheet, and titled border panels for a page (`panel`). Esc and ⌘. cancel, Tab stays inside, the rest of the page is out of reach, the focus goes back after. `Component::Dialog`; the checker knows it. The full example asks with it (Edit…, Delete…, Help › Keyboard Shortcuts ⌘/, About).
 - Tree: a desktop outline by default. In a table, rows that group others are no longer a bold band (`bandGroups: true` brings it back), and the selection without the focus is its tint alone (`--tv-sel-bar` adds the bar).
@@ -18,36 +25,36 @@ Nothing yet.
 
 - Sidebar: `image` puts a picture before its `title`: a product's or company's logo, a person's avatar. An image's address or markup starting with `<` (an svg); `imageShape: "round"` makes it a circle the picture fills (an avatar), `"square"` (default) shows the whole picture with slightly rounded corners. In the rail it alone shows, above the button, the title as its tooltip; one that fails to load leaves the title's first letter. Its size is `--tsb-image` (22px). The full example (`examples/all`) shows its logo and name there.
 
-## 0.4.29 — 2026-10-26
+## 0.4.29 — 2026-10-22
 
 What MLPC's finder had that TaurisFinder missed:
 - ⌘↩ or a ⌘-click (Ctrl elsewhere) picks with `onPick(item, { how, cmd: true })`, for the app's other way to open (a new tab); `labels.openAlt` ("New Tab") says so in the key strip. Enter with ⇧, ⌥ or ⌃ does nothing.
 - `strict: true` on an item, or on its kind: its letters must sit together (long text such as log entries: no initials, no scattered letters).
 - ⌘K (or `open()`) with the panel open selects its field's text, as Spotlight does. Closing fades out over 90ms. A label cut short is whole in its tooltip.
 
-## 0.4.28 — 2026-10-26
+## 0.4.28 — 2026-10-22
 
 - New: `TaurisFinder`, find anything with ⌘K (from MLPC's finder): a panel at the top of the window, as Spotlight or Xcode's Open Quickly, finding in memory as you type. Only an item's `label` and `more` texts are searched (a password left out is never found); words match whole, at the start, at word starts, as initials or scattered letters, accents folded; results in groups by kind, the best first, each cut at its `limit`; recent picks with nothing typed (`storageKey`). ↑ ↓ ⌃N ⌃P, Page Up and Down, Tab between groups, Enter, Esc; `onContextMenu` for a result's menu. `Component::Finder`; the checker knows it. The full example (`examples/all`) finds its teams, projects and files with it.
 
-## 0.4.27 — 2026-10-26
+## 0.4.27 — 2026-10-22
 
 From MLPC's components:
 - Menus: a disabled item's `reason` shows after its label and as its tooltip ("Hide Done (no done tasks)"). `TaurisMenu.openFor(element, items)` opens an element's menu (a list's selected row) at it from the keys, the focus back on the list after; `TaurisMenu.isMenuKey(event)` is the menu key or ⇧F10. A menu is at most 420px wide (`--tmn-menu-max-w`): a longer label ends in "…", whole in its tooltip.
 - `Config::native_feel()` (off by default): every page behaves like a desktop app's window, with no web right-click menu but in fields, no dragging pictures or links out, no page zoom, ⌘A outside a field selecting no page text, and single-line fields not autocorrected or capitalised (`web/native.js`).
 
-## 0.4.26 — 2026-10-26
+## 0.4.26 — 2026-10-22
 
 - New: `examples/all`, an app that uses every component: tabs, a sidebar holding a tree, the files table, menus and the terminal look (`CLAUDE.md` says what it does). Its page is tested by `test/all_run.py`; CI builds it and runs the checker on it.
 - New: `TaurisSidebar`, a collapsible side bar of sections, as in Mail or Finder (`web/sidebar.js`, `web/sidebar.css`, `web/sidebar.d.ts`). Items with icons and counts, headings, groups to any depth; collapsed to a rail of icons (or away) by its button, ⌃⌘S (Ctrl+Shift+B elsewhere), `toggle()` or its edge dragged narrow; resized by its edge, from the mouse or the keys; one Tab stop with the arrows, type-ahead and the menu key (`onContextMenu`); `openOnSelect`; `storageKey` keeps its width and state. `Component::Sidebar` for `Config::components`; the checker knows it.
 - Terminal: `commandLine(el, { onKey })` hears each key first; returning true takes it (↑ and ↓ through an app's suggestions). A table row chosen from the keys is `aria-selected="true"` on its `<tr>`.
 - CI: the checker's tests read and write files as UTF-8 (on Windows they read the typings in its own code page and failed).
 
-## 0.4.25 — 2026-10-26
+## 0.4.25 — 2026-10-22
 
 - Tabs: in Chromium on a Mac (which says "macOS"), the strip's shortcuts and their labels are the Mac's.
 - CI: builds with the newest clippy; a WebKit check waits for what it checks rather than a fixed time.
 
-## 0.4.24 — 2026-10-26
+## 0.4.24 — 2026-10-22
 
 Fixes from the final reviewer:
 - Files: only the rows in view are drawn (spacers stand for the others; `aria-rowcount` and `aria-rowindex` say where a row is), so 20,000 files mount, step, search and take a new list at once. A new list is compared file by file. The delete question is not marked modal, as the header stays usable while it is open.
