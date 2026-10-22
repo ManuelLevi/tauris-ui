@@ -9,6 +9,7 @@ way, and both side by side.
 """
 import io
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -163,7 +164,8 @@ def strict_page(browser, url, before=""):
 
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(channel="chrome")
+    # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
+    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
 
     # ---------- screenshots: the demo, and the reference rendered the same way ----------
     page = fresh(browser, feed=True)
@@ -486,6 +488,20 @@ with sync_playwright() as p:
     check("the block cursor sits after wide characters (CJK), not in their middle", abs(wide[0] - wide[1]) < 2, wide)
     page.evaluate("document.querySelector('.tm-cmd-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))")
     check("Enter that confirms an input method's text sends nothing", page.input_value(".tm-cmd-input") == "日本語")
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("demo.cmd.clear(); demo.cmd.focus()")
+    page.keyboard.insert_text("x" * 160)
+    page.evaluate(TWO_FRAMES)
+    inside = "(() => { const i = document.querySelector('.tm-cmd-input').getBoundingClientRect(); const c = document.querySelector('.tm-cmd .tm-cursor').getBoundingClientRect(); return [c.left >= i.left - 0.5, c.right <= i.right + 0.5, Math.round(c.left), Math.round(i.right)]; })()"
+    at_end = page.evaluate(inside)
+    page.set_viewport_size({"width": 500, "height": SIZE["height"]})
+    page.wait_for_timeout(100)
+    page.evaluate(TWO_FRAMES)
+    narrower = page.evaluate(inside)
+    check("at the end of a line that scrolls, the block stays inside the field, also once the window narrows",
+          at_end[:2] == [True, True] and narrower[:2] == [True, True], (at_end, narrower))
     page.close()
 
     # ---------- a page that brings its own stylesheet ----------

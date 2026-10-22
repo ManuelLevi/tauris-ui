@@ -187,16 +187,30 @@ def own_picker(text):
     it is given, or in the object its variable is declared with."""
     # TaurisFiles.mount(, TaurisFiles?.mount(, TaurisFiles.mount<MyFile>(
     for m in re.finditer(r"TaurisFiles\s*\??\.\s*mount\s*(?:<[^<>()]*>)?\s*\(", text):
-        args = balanced(text, m.end() - 1, "(", ")")
-        brace = args.find("{")
-        if brace >= 0:
-            if "pick" in keys(balanced(args, brace, "{", "}")):
+        given = arguments(balanced(text, m.end() - 1, "(", ")"))
+        options = given[1] if len(given) > 1 else ""
+        if options.startswith("{"):
+            if "pick" in keys(balanced(options, 0, "{", "}")):
                 return True
-            continue
-        given = re.search(r",\s*([A-Za-z_$][\w$]*)\s*,?\s*$", args)
-        if given and has_pick(text, given.group(1)):
+        elif re.fullmatch(r"[A-Za-z_$][\w$]*", options) and has_pick(text, options):
             return True
     return False
+
+
+def arguments(args):
+    """A call's arguments (the text between its brackets), split at its own
+    commas, not at those inside brackets."""
+    found, depth, start = [], 0, 0
+    for i, c in enumerate(args):
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "," and depth == 0:
+            found.append(args[start:i].strip())
+            start = i + 1
+    found.append(args[start:].strip())
+    return found
 
 
 def has_pick(text, name, seen=()):
@@ -211,14 +225,40 @@ def has_pick(text, name, seen=()):
     return any(has_pick(text, base, seen + (name,)) for base in re.findall(r"\.\.\.\s*([A-Za-z_$][\w$]*)", body))
 
 
+def manifest_of(folder):
+    """A folder's Cargo.toml, read ({} when there is none, or it cannot be read)."""
+    manifest = folder / "Cargo.toml"
+    if not manifest.is_file():
+        return {}
+    try:
+        return tomllib.loads(read(manifest))
+    except tomllib.TOMLDecodeError:
+        return {}
+
+
+def lock_file(tauri):
+    """The Cargo.lock the app is built with: its own, or its workspace's."""
+    if (tauri / "Cargo.lock").is_file():
+        return tauri / "Cargo.lock"
+    for folder in tauri.parents:
+        if "workspace" in manifest_of(folder):
+            return folder / "Cargo.lock" if (folder / "Cargo.lock").is_file() else None
+    return None
+
+
+def window_labels(app, rust):
+    """The labels of the windows the app opens: in tauri.conf.json, and from
+    its Rust code (WebviewWindowBuilder::new(app, "label", ...))."""
+    labels = [w.get("label", "main") for w in app.get("windows", []) if isinstance(w, dict)]
+    labels += re.findall(r'(?:WebviewWindowBuilder::new|WebviewWindow::builder|WindowBuilder::new)\s*\(\s*[^,]*?,\s*"([^"]+)"', rust)
+    return list(dict.fromkeys(labels))
+
+
 def workspace_spec(tauri):
     """tauris-ui as the workspace's Cargo.toml gives it ([workspace.dependencies]),
     with its path made relative to the app."""
     for folder in [tauri, *tauri.parents]:
-        manifest = folder / "Cargo.toml"
-        if not manifest.is_file():
-            continue
-        data = tomllib.loads(read(manifest))
+        data = manifest_of(folder)
         spec = data.get("workspace", {}).get("dependencies", {}).get("tauris-ui")
         if spec is not None:
             spec = {"version": spec} if isinstance(spec, str) else dict(spec)
@@ -341,7 +381,8 @@ def page_files(tauri, conf):
 def capabilities(tauri, app):
     """Every capability: (where it is, what it says)."""
     caps = []
-    for path in sorted((tauri / "capabilities").glob("*")):
+    # Tauri reads every file under capabilities/, in folders too.
+    for path in sorted((tauri / "capabilities").rglob("*")):
         try:
             if path.suffix == ".json":
                 data = json.loads(read(path))
@@ -350,7 +391,7 @@ def capabilities(tauri, app):
             else:
                 continue
         except (json.JSONDecodeError, tomllib.TOMLDecodeError):
-            bad(f"{path.name} cannot be read", "fix the file")
+            bad(f"{path.relative_to(tauri)} cannot be read", "fix the file")
             continue
         # One capability, a list of them, or { "capabilities": [...] }.
         if isinstance(data, dict) and isinstance(data.get("capabilities"), list) and "identifier" not in data:
@@ -419,8 +460,8 @@ def main():
             else:
                 ok("Cargo.toml depends on this tauris-ui")
         elif "git" in spec:
-            lock = tauri / "Cargo.lock"
-            locked = re.search(r'name = "tauris-ui"\nversion = "([^"]+)"', read(lock)) if lock.is_file() else None
+            lock = lock_file(tauri)
+            locked = re.search(r'name = "tauris-ui"\nversion = "([^"]+)"', read(lock)) if lock else None
             if locked and parts(locked.group(1))[:3] < parts(current)[:3]:
                 bad(f"the app is locked to tauris-ui {locked.group(1)} from git; this library is {current}",
                     "run `cargo update -p tauris-ui` in src-tauri (the build stops there if the new version needs app changes)")
@@ -442,7 +483,11 @@ def main():
 
     # Which components the app uses: tabs need the Rust side wired; the tree
     # view lives in the page and only needs the plugin to deliver it.
-    conf = json.loads((tauri / "tauri.conf.json").read_text(encoding="utf-8"))
+    try:
+        conf = json.loads((tauri / "tauri.conf.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"  FIX   {tauri / 'tauri.conf.json'} cannot be read: {e}")
+        return 1
     app = conf.get("app", {})
     rust = "\n".join(rust_code(read(p)) for p in (tauri / "src").rglob("*.rs"))
     files = page_files(tauri, conf)
@@ -532,12 +577,14 @@ def main():
                 bad("app.withGlobalTauri is not true, so dropped files are never heard",
                     'set "app": { "withGlobalTauri": true } in tauri.conf.json')
             # Only the system's picker needs it: an app with its own pick does not.
-            labels = [w.get("label", "main") for w in app.get("windows", []) if isinstance(w, dict)] or ["main"]
+            labels = window_labels(app, rust)
             reach = lambda c: any(pattern == "*" or pattern == label or (pattern.endswith("*") and label.startswith(pattern[:-1]))
                                   for pattern in c.get("windows") or c.get("webviews") or [] for label in labels)
             granting = [c for _, c in capabilities(tauri, app) if "tauris-ui:default" in json.dumps(c.get("permissions", []))]
             if own_picker(text):
                 pass
+            elif granting and not labels:
+                note("could not tell which windows the app opens: the capability with tauris-ui:default must cover them")
             elif any(reach(c) for c in granting):
                 ok("a capability grants tauris-ui:default to the app's windows (the system's picker)")
             elif granting:
@@ -547,7 +594,10 @@ def main():
                 bad("no capability grants tauris-ui:default, so Add files… cannot open the system's picker",
                     'add "tauris-ui:default" to "permissions" in src-tauri/capabilities/default.json')
         features = spec.get("features", []) if isinstance(spec, dict) else []
-        if "files" in features:
+        # Or turned on by the app's own default features: "tauris-ui/files".
+        named = found[0] if found else "tauris-ui"
+        on_by_default = {f"{named}/files", f"{named}?/files"} & set(manifest_data.get("features", {}).get("default", []))
+        if "files" in features or on_by_default:
             ok('the "files" feature is on (the system\'s picker and save dialog)')
             if not any("tauri-plugin-dialog" in d for d in sections):
                 bad("the files feature needs the dialog plugin, and Cargo.toml does not depend on it",
@@ -604,8 +654,8 @@ def main():
             "set your own identifier and productName in tauri.conf.json, and the package name in Cargo.toml")
 
     # 6. last build
-    lock = tauri / "Cargo.lock"
-    if lock.is_file():
+    lock = lock_file(tauri)
+    if lock:
         match = re.search(r'name = "tauris-ui"\nversion = "([^"]+)"', lock.read_text(encoding="utf-8"))
         built = match.group(1) if match else None
         if built is None:

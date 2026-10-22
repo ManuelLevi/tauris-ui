@@ -325,89 +325,43 @@ pub fn open_path(path: impl AsRef<Path>) -> Result<(), String> {
     open::that_detached(path).map_err(|e| format!("Couldn't open {name}: {e}"))
 }
 
-// Files the system would run (or open a program or web page from) rather than
-// show: by the name of what a link points at (Windows ignores trailing dots
-// and spaces), and, on Unix, any file marked executable, whatever its name.
+// Files the system would run, install, mount or open a program or web page
+// from, rather than show: by the name of what a link points at (Windows
+// ignores trailing dots and spaces; the list holds at least everything
+// Outlook blocks), and, on Unix, a file marked executable whose name is no
+// known kind of document (on a FAT or exFAT drive, every file is marked so).
 #[cfg(any(feature = "files", test))]
 fn runs_something(path: &Path) -> bool {
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let name =
+        target.file_name().map(|n| n.to_string_lossy().trim_end_matches(['.', ' ']).to_string()).unwrap_or_default();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if std::fs::metadata(&target).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0) {
+        let marked = std::fs::metadata(&target).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+        if marked && mime_for(&name) == "application/octet-stream" {
             return true;
         }
     }
+    #[rustfmt::skip]
     const PROGRAMS: &[&str] = &[
-        "app",
-        "command",
-        "tool",
-        "terminal",
-        "workflow",
-        "action",
-        "scpt",
-        "applescript",
-        "pkg",
-        "mpkg",
-        "dmg",
-        "webloc",
-        "inetloc",
-        "sh",
-        "bash",
-        "zsh",
-        "csh",
-        "ksh",
-        "fish",
-        "py",
-        "pl",
-        "rb",
-        "exe",
-        "com",
-        "bat",
-        "cmd",
-        "scr",
-        "msi",
-        "msp",
-        "cpl",
-        "ps1",
-        "psm1",
-        "vbs",
-        "vbe",
-        "js",
-        "jse",
-        "wsf",
-        "wsh",
-        "hta",
-        "lnk",
-        "url",
-        "reg",
-        "inf",
-        "jar",
-        "desktop",
-        "run",
-        "appimage",
-        "deb",
-        "rpm",
-        "jnlp",
-        "pif",
-        "chm",
-        "mobileconfig",
-        "docm",
-        "dotm",
-        "xlsm",
-        "xltm",
-        "xlam",
-        "pptm",
-        "potm",
-        "ppam",
-        "sldm",
-        "iqy",
-        "slk",
-        "msc",
-        "gadget",
+        "app", "command", "tool", "terminal", "workflow", "action", "service", "scpt", "scptd", "applescript", "osax",
+        "pkg", "mpkg", "dmg", "webloc", "inetloc", "fileloc", "shortcut", "prefpane", "saver", "kext", "plugin",
+        "bundle", "qlgenerator", "mdimporter", "wdgt", "mobileconfig", "provisionprofile", "configprofile",
+        "safariextz", "crx", "xpi", "sh", "bash", "zsh", "csh", "ksh", "fish", "py", "pyc", "pyo", "pyw", "pyz", "pyzw",
+        "pl", "rb", "jar", "class", "desktop", "run", "appimage", "deb", "rpm", "snap", "flatpakref", "flatpakrepo",
+        "exe", "com", "bat", "cmd", "scr", "msi", "msp", "mst", "msu", "msix", "msixbundle", "appx", "appxbundle",
+        "appinstaller", "cab", "cpl", "ps1", "ps1xml", "ps2", "ps2xml", "psc1", "psc2", "psd1", "psm1", "msh", "msh1",
+        "msh2", "mshxml", "msh1xml", "msh2xml", "vb", "vbe", "vbp", "vbs", "js", "jse", "ws", "wsb", "wsc", "wsf",
+        "wsh", "sct", "hta", "htc", "lnk", "url", "website", "scf", "reg", "inf", "ins", "isp", "its", "application",
+        "appref-ms", "appcontent-ms", "settingcontent-ms", "library-ms", "search-ms", "searchconnector-ms", "xbap",
+        "xnk", "diagcab", "gadget", "grp", "hlp", "hpj", "chm", "cnt", "msc", "ops", "osd", "pcd", "pif", "plg", "prf",
+        "prg", "printerexport", "jnlp", "iso", "img", "vhd", "vhdx", "cer", "crt", "der", "theme", "one", "tmp", "asp",
+        "aspx", "asx", "bas", "bgi", "fxp", "ade", "adp", "mad", "maf", "mag", "mam", "maq", "mar", "mas", "mat", "mau",
+        "mav", "maw", "mcf", "mda", "mdb", "mde", "mdt", "mdw", "mdz", "accde", "accdr", "accda", "docm", "dotm",
+        "xlsm", "xltm", "xlam", "xla", "xll", "ppam", "ppa", "pptm", "potm", "sldm", "wll", "iqy", "slk", "vsmacros",
+        "vsw", "webpnp",
     ];
-    let name =
-        target.file_name().map(|n| n.to_string_lossy().trim_end_matches(['.', ' ']).to_string()).unwrap_or_default();
     let ext = Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     PROGRAMS.contains(&ext.as_str())
 }
@@ -646,6 +600,11 @@ mod tests {
         assert!(runs_something(Path::new("Q3 plan.command")) && runs_something(Path::new("setup.EXE")));
         assert!(runs_something(Path::new("a.exe. ")) && runs_something(Path::new("Budget.xlsm")));
         assert!(!runs_something(Path::new("Board deck.pdf")) && !runs_something(Path::new("notes")));
+        for name in
+            ["Q3.xll", "x.scf", "disk.iso", "a.vhdx", "go.appref-ms", "p.settingcontent-ms", "n.one", "Doc.fileloc"]
+        {
+            assert!(runs_something(Path::new(name)), "{name}");
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -654,6 +613,11 @@ mod tests {
             std::fs::write(&tool, "#!/bin/sh\n").unwrap();
             std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
             assert!(runs_something(&tool));
+            // A document marked executable (every file on a USB stick is) still opens.
+            let board = dir.join("Board.pdf");
+            std::fs::write(&board, "%PDF").unwrap();
+            std::fs::set_permissions(&board, std::fs::Permissions::from_mode(0o700)).unwrap();
+            assert!(!runs_something(&board));
             let run = dir.join("run.command");
             std::fs::write(&run, "x").unwrap();
             let link = dir.join("Invoice.pdf");

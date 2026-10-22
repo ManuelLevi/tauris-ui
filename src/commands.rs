@@ -21,7 +21,16 @@ pub fn window_state<R: Runtime>(window: WebviewWindow<R>) -> Result<WindowTabs, 
 #[tauri::command]
 pub fn new_tab<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>) -> Result<u64, String> {
     let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
-    windows::add_tab(&app, window.label(), windows::default_tab(&app), false)
+                                              // The app's new_tab panicking must not unwind through Tauri's lock.
+    let tab = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| windows::default_tab(&app))) {
+        Ok(tab) => tab,
+        Err(payload) => {
+            // Not dropped: a payload whose drop panics would panic here.
+            std::mem::forget(payload);
+            return Err("the app's new_tab panicked".into());
+        }
+    };
+    windows::add_tab(&app, window.label(), tab, false)
         .ok_or_else(|| format!("window {} is not a window of tabs", window.label()))
 }
 

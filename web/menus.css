@@ -23,7 +23,8 @@
     --tmn-font-size: 13px;
     --tmn-fg: var(--tauris-fg, #1e1f22);
     --tmn-disabled: var(--tauris-faint, #a3a6ad);
-    --tmn-focus: var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) 32%, transparent));    /* the soft halo around a focus line */
+    /* --tmn-focus: unset, the soft halo around a focus line: --tmn-focus-line at --tmn-focus-mix */
+    --tmn-focus-mix: 32%;
     --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #2675bf));
     /* the bar */
     --tmn-bar-h: 24px;
@@ -63,7 +64,7 @@
       --tmn-scheme: dark;
       --tmn-fg: var(--tauris-fg, #dfe1e5);
       --tmn-disabled: var(--tauris-faint, #6f737a);
-      --tmn-focus: var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) 45%, transparent));
+      --tmn-focus-mix: 45%;
       --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
       --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
       --tmn-bar-line: var(--tauris-line, #515356);
@@ -85,7 +86,7 @@
     --tmn-scheme: dark;
     --tmn-fg: var(--tauris-fg, #dfe1e5);
     --tmn-disabled: var(--tauris-faint, #6f737a);
-    --tmn-focus: var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) 45%, transparent));
+    --tmn-focus-mix: 45%;
     --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
     --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
     --tmn-bar-line: var(--tauris-line, #515356);
@@ -293,7 +294,7 @@
 
   .tmn-tool:hover { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
   .tmn-tool:focus { outline: none; }
-  .tmn-tool:focus-visible { box-shadow: 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus); }
+  .tmn-tool:focus-visible { box-shadow: 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus, var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) var(--tmn-focus-mix), transparent))); }
   .tmn-tool:active { transform: translateY(0.5px); }
 
   .tmn-tool[aria-expanded="true"],
@@ -366,11 +367,13 @@ button:where(.tmn-tool) {
 
 button:where(.tmn-tool):hover { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
 button:where(.tmn-tool):active { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
-button:where(.tmn-tool):focus-visible { box-shadow: 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus); }
+button:where(.tmn-tool):focus-visible { box-shadow: 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus, var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) var(--tmn-focus-mix), transparent))); }
 button:where(.tmn-tool)[aria-expanded="true"],
 button:where(.tmn-tool)[aria-pressed="true"] { background: var(--tmn-tool-on-bg); border-color: var(--tmn-tool-border); }
 button:where(.tmn-tool):disabled,
 button:where(.tmn-tool)[aria-disabled="true"] { color: var(--tmn-disabled); background: transparent; border-color: transparent; }
+/* A starter template's `button:focus { outline: ... }` (Vite's has one) would add a second ring. */
+button:where(.tmn-tool):is(:focus, :focus-visible) { outline: none; }
 
 @media (forced-colors: active) {
   button:where(.tmn-tool):focus-visible { outline: 2px solid Highlight; }

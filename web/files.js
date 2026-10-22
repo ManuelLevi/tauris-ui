@@ -299,7 +299,9 @@
     if (!(root instanceof HTMLElement)) throw new Error("TaurisFiles.mount needs the element to draw the files in");
     if (root.__taurisFiles) throw new Error("TaurisFiles.mount: this element already has files; call destroy() first");
     root.__taurisFiles = true;
-    const opt = { ...DEFAULTS, ...options };
+    // An option given as undefined keeps its default.
+    const given = changes => Object.fromEntries(Object.entries(changes ?? {}).filter(([, v]) => v !== undefined));
+    const opt = { ...DEFAULTS, ...given(options) };
     if (opt.styles) addStyles();
     const id = `tf-${++uid}`;
     const life = new AbortController();
@@ -330,6 +332,16 @@
     let rowMenuHandle = null;
     const deleting = new Set();
     let unlisten = null;
+    // Goes up when the files are another place's (a new list keeping none of
+    // the old files, another title or place): what was started for the old
+    // ones (a delete, a rename, an add) never acts on the new ones.
+    let era = 0;
+    let removingMany = 0; // while several files are deleted, the list is drawn once a frame
+    let drawFrame = 0;
+    // Rows as drawn, kept to be used again when their file and the options are
+    // the same (a search, a sort or a new list redraws only what changed).
+    let rowCache = new Map();
+    let optionsDrawn = 0;
 
     const keyOf = v => String(v);
     let byKey = new Map();
@@ -368,7 +380,7 @@
     const emptyText = el("div", "tf-empty-text");
     const emptyAdd = pressable(el("span", "tf-btn tf-primary", { role: "button", tabindex: "0" }), () => add());
     const empty = el("div", "tf-empty", { hidden: "" }, emptyTitle, emptyText, emptyAdd);
-    const noMatchText = el("span", "tf-nomatch-text", { role: "status" });
+    const noMatchText = el("span", "tf-nomatch-text");
     const clearSearch = pressable(el("span", "tf-btn tf-clear", { role: "button", tabindex: "0" }), () => {
       query = "";
       searchInput.value = "";
@@ -386,7 +398,10 @@
       seg.append(s);
     }
     const busyLabel = el("span");
-    const busy = el("div", "tf-busy", { role: "status", hidden: "" }, seg, busyLabel);
+    const busy = el("div", "tf-busy", { hidden: "" }, seg, busyLabel);
+    // Always there, and only its text changes: a screen reader hears a region
+    // that was in the page before its text, not one shown with its text.
+    const live = el("div", "tf-live", { role: "status", "aria-live": "polite" });
     const askText = el("div", "tf-ask-text", { id: `${id}-ask` });
     const askNo = el("span", "tf-btn", { role: "button", tabindex: "0" });
     const askYes = el("span", "tf-btn tf-danger", { role: "button", tabindex: "0" });
@@ -396,7 +411,7 @@
     const veil = el("div", "tf-veil", { hidden: "" }, askCard);
     pressable(askYes, () => asking?.finish(true));
     pressable(askNo, () => asking?.finish(false));
-    const panel = el("div", "tf-panel", {}, grid, empty, noMatch, drop, busy, veil);
+    const panel = el("div", "tf-panel", {}, grid, empty, noMatch, drop, busy, veil, live);
     const status = el("div", "tf-status", { role: "status", "aria-live": "polite" });
 
     root.replaceChildren(head, panel, status);
@@ -523,6 +538,9 @@
         row.append(el("div", "tf-cell tf-c-acts", { "aria-hidden": "true" }, box));
       }
       if (fresh.has(key)) row.classList.add("tf-fresh");
+      // Named by what it shows (Chrome would add the hidden buttons' names).
+      const said = [...row.querySelectorAll(".tf-c-name, .tf-c-size, .tf-c-added, .tf-c-by")].map(c => c.textContent).filter(t => t && t !== "—");
+      row.setAttribute("aria-label", said.join(", "));
       return row;
     }
 
@@ -530,15 +548,29 @@
     const signature = files => JSON.stringify(files.map(f => FIELDS.map(k => (f[k] instanceof Date ? f[k].getTime() : f[k] ?? null))));
     let drawn = null;
 
-    // "Documents · 3 files · 2.1 MB"
+    // "Documents · 3 files · 2.1 MB"; while a search hides some, "2 of 5 files"
+    // and the size of the two.
     function drawCount() {
-      const total = list.reduce((n, f) => n + (Number.isFinite(Number(f.size)) ? Number(f.size) : 0), 0);
+      const filtered = query.trim() !== "" && shown.length !== list.length;
+      const counted = filtered ? shown : list;
+      const total = counted.reduce((n, f) => n + (Number.isFinite(Number(f.size)) ? Number(f.size) : 0), 0);
       const subtitle = opt.subtitle ? `${opt.subtitle} · ` : "";
-      sub.textContent = subtitle + say(L().count, list.length) + (list.length ? ` · ${formatSize(total)}` : "");
+      const words = L();
+      const count = !filtered ? say(words.count, list.length)
+        : typeof words.countShown === "function" ? words.countShown(shown.length, list.length)
+          : `${shown.length.toLocaleString()} of ${say(words.count, list.length)}`;
+      sub.textContent = subtitle + count + (counted.length ? ` · ${formatSize(total)}` : "");
+    }
+
+    // Draws once at the next frame (many changes in a row, as while deleting several files).
+    function drawSoon() {
+      if (!drawFrame) drawFrame = requestAnimationFrame(() => { drawFrame = 0; draw(); });
     }
 
     function draw() {
       if (renaming || signal.aborted) return;
+      cancelAnimationFrame(drawFrame);
+      drawFrame = 0;
       drawn = signature(list);
       const words = L();
       title.textContent = String(opt.title ?? "");
@@ -548,7 +580,6 @@
       } else {
         chip.hidden = true;
       }
-      drawCount();
       addText.textContent = String(words.add);
       emptyAdd.textContent = String(words.add);
       const canAdd = typeof opt.onAdd === "function";
@@ -593,15 +624,28 @@
       }
       drawHead();
       shown = visible();
+      drawCount();
       const cols = columns();
       const acts = actions();
       rows = new Map();
       const frag = document.createDocumentFragment();
+      // A row drawn before from the same file, with the same options, is used again.
+      const cache = new Map();
+      const look = `${optionsDrawn}|${cols}|${acts}|${new Date().toDateString()}`; // "Today" changes at midnight
       shown.forEach((file, i) => {
-        const row = drawRow(file, i, cols, acts, words);
-        rows.set(row.__tfKey, row);
+        const key = keyOf(file.id);
+        const sig = `${look}|${fresh.has(key)}|${signature([file])}`;
+        const kept = rowCache.get(key);
+        const row = kept && kept.sig === sig ? kept.row : drawRow(file, i, cols, acts, words);
+        row.id = `${id}-r${i}`;
+        cache.set(key, { sig, row });
+        rows.set(key, row);
         frag.append(row);
       });
+      // Rows a search hides are kept too, for when it is cleared.
+      const inList = new Set(list.map(f => keyOf(f.id)));
+      for (const [k, kept] of rowCache) if (!cache.has(k) && inList.has(k)) cache.set(k, kept);
+      rowCache = cache;
       tbody.replaceChildren(frag);
       root.classList.toggle("tf-has-acts", acts.length > 0);
       root.style.setProperty("--tf-acts-n", String(acts.length));
@@ -610,6 +654,7 @@
       empty.hidden = list.length !== 0;
       noMatch.hidden = !(list.length && !shown.length);
       noMatchText.textContent = noMatch.hidden ? "" : say(words.noMatch, query.trim());
+      if (live.textContent !== noMatchText.textContent && !busyText) live.textContent = noMatchText.textContent;
       clearSearch.textContent = String(words.clearSearch ?? "");
       clearSearch.hidden = !clearSearch.textContent;
       // The only selected file is gone from the app's list: the file now in its
@@ -675,14 +720,18 @@
     // onSelect hears what the person can act on (the file with the focus and the
     // selected files shown) each time that changes, whatever changed it.
     let reported = `${signature([])}|${signature([])}`; // nothing selected: not reported at mount
+    let reportedObjects = [null];
     function report() {
       if (signal.aborted || typeof opt.onSelect !== "function") return;
       const file = primary();
       const files = selection();
-      // A change of name or size counts, not only of which files.
+      // A change of name or size counts, not only of which files; so does a new
+      // object for a file (the app's own fields may have changed).
       const now = `${signature(file ? [file] : [])}|${signature(files)}`;
-      if (now === reported) return;
+      const objects = [file, ...files];
+      if (now === reported && objects.length === reportedObjects.length && objects.every((o, i) => o === reportedObjects[i])) return;
       reported = now;
+      reportedObjects = objects;
       opt.onSelect(file, files);
     }
 
@@ -742,16 +791,27 @@
       busyText = text || null;
       busy.hidden = !busyText;
       busyLabel.textContent = busyText ?? "";
+      live.textContent = busyText ?? noMatchText.textContent;
       for (const b of [addBtn, emptyAdd]) b.setAttribute("aria-disabled", busyText ? "true" : "false");
     }
 
     async function addPaths(paths) {
       const items = (Array.isArray(paths) ? paths : []).map(String).filter(Boolean);
       if (!items.length || typeof opt.onAdd !== "function" || signal.aborted) return [];
+      // What was dropped goes where it was dropped: the app's onAdd and place as
+      // they were then, though the app shows another place by the time its turn comes.
+      const onAdd = opt.onAdd;
+      const where = place();
+      const mine = era;
       try {
-        const out = await run(say(L().adding, items.length), () => opt.onAdd(items.slice()));
+        const out = await run(say(L().adding, items.length), () => (signal.aborted ? [] : onAdd(items.slice())));
         const added = (Array.isArray(out) ? out : []).filter(f => f && f.id != null);
         if (!added.length || signal.aborted) return added;
+        // Another place is shown now: its list does not get these files.
+        if (era !== mine) {
+          message(say(L().addedFiles, added, where), "ok");
+          return added;
+        }
         // The app may send its new list before or after this; until it does, the
         // new files show (in the list given while renaming, if there is one).
         const next = held ?? list;
@@ -776,7 +836,7 @@
           const shownKeys = added.map(f => keyOf(f.id)).filter(k => rows.has(k));
           anchor = shownKeys[0] ?? keyOf(added[0].id);
           setSelection(several() ? shownKeys : shownKeys.slice(0, 1), anchor);
-          message(say(L().addedFiles, added, place()), "ok");
+          message(say(L().addedFiles, added, where), "ok");
         };
         // While a name is being edited the list is not drawn: the new files show when it ends.
         if (renaming) renaming.after.push(show);
@@ -849,11 +909,13 @@
     async function remove(file) {
       if (!file || typeof opt.onDelete !== "function" || signal.aborted) return;
       const key = keyOf(file.id);
-      if (deleting.has(key)) return;
+      if (deleting.has(key) || !fileById(key)) return;
+      const mine = era;
       const question = opt.confirmDelete === false ? null
         : typeof opt.confirmDelete === "function" ? opt.confirmDelete(file) : say(L().confirmDelete, file);
       if (question && !(await ask(String(question)))) return;
-      if (deleting.has(key) || signal.aborted) return;
+      // Another place is shown now: its file of that id is not this one.
+      if (deleting.has(key) || signal.aborted || era !== mine) return;
       // The app may have sent a new list while the question was open.
       file = fileById(key);
       if (!file) return;
@@ -871,6 +933,7 @@
         deleting.delete(key);
       }
       if (signal.aborted) return;
+      if (era !== mine) return message(say(L().deleted, file), "ok");
       list = list.filter(f => keyOf(f.id) !== key);
       if (held) held = held.filter(f => keyOf(f.id) !== key);
       // While another file's name is being edited the list is not drawn again: the row goes now.
@@ -892,46 +955,65 @@
         draw();
       }
       message(say(L().deleted, file), "ok");
-      if (!root.contains(document.activeElement) || document.activeElement === document.body) focusList();
+      refocus();
+    }
+
+    // The focus fell to nothing (its row went): back to the list. Not when the
+    // person has gone to a field of their own meanwhile.
+    function refocus() {
+      if (!document.activeElement || document.activeElement === document.body) focusList();
     }
 
     // Several files: one question, then onDelete for each, one after the other.
     // The first refusal stops the rest; the ones already gone stay gone.
     async function removeMany(files) {
-      files = files.filter(f => !deleting.has(keyOf(f.id)));
+      // Not the files on their way out, nor the ones already gone.
+      files = files.filter(f => !deleting.has(keyOf(f.id)) && fileById(keyOf(f.id)));
       if (files.length < 2) return remove(files[0]);
       if (typeof opt.onDelete !== "function" || signal.aborted) return;
+      const mine = era;
       // Several files are asked about with labels.confirmDeleteMany, never with the
       // app's confirmDelete function: one written for a single file would name one
       // while several go.
       const question = opt.confirmDelete === false ? null : say(L().confirmDeleteMany, files);
       if (question && !(await ask(String(question)))) return;
-      if (signal.aborted) return;
+      if (signal.aborted || era !== mine) return;
       // The app may have sent a new list while the question was open.
       files = fresh_(files.map(f => keyOf(f.id)));
       if (!files.length) return;
       const before = shown.slice();
       const keys = new Set(files.map(f => keyOf(f.id)));
-      const last = Math.max(...before.map((f, i) => (keys.has(keyOf(f.id)) ? i : -1)));
+      let last = -1;
+      before.forEach((f, i) => { if (keys.has(keyOf(f.id))) last = i; });
       const gone = new Set();
       let failed = false;
-      for (const k of files.map(f => keyOf(f.id))) {
-        // The app's current object, read again before each: its list may change meanwhile.
-        const f = fileById(k);
-        if (!f || deleting.has(k)) continue;
-        deleting.add(k);
-        try {
-          await opt.onDelete(f);
-          gone.add(k);
-        } catch (e) {
-          message(textOf(e), "error");
-          failed = true;
-        } finally {
-          deleting.delete(k);
+      const onDelete = opt.onDelete;
+      removingMany++;
+      try {
+        for (const k of files.map(f => keyOf(f.id))) {
+          // The app's current object, read again before each: its list may change meanwhile.
+          const f = fileById(k);
+          if (!f || deleting.has(k)) continue;
+          deleting.add(k);
+          try {
+            await onDelete(f);
+            gone.add(k);
+          } catch (e) {
+            message(textOf(e), "error");
+            failed = true;
+          } finally {
+            deleting.delete(k);
+          }
+          if (failed || signal.aborted || era !== mine) break;
+          // Gone at once (a second Delete meanwhile does not ask about it), drawn at the next frame.
+          list = list.filter(x => keyOf(x.id) !== k);
+          if (held) held = held.filter(x => keyOf(x.id) !== k);
+          drawSoon();
         }
-        if (failed || signal.aborted) break;
+      } finally {
+        removingMany--;
       }
-      if (signal.aborted || !gone.size) return;
+      if (signal.aborted || !gone.size || era !== mine) return;
       list = list.filter(f => !gone.has(keyOf(f.id)));
       if (held) held = held.filter(f => !gone.has(keyOf(f.id)));
       if (renaming && gone.has(keyOf(renaming.file.id))) renaming.end();
@@ -951,7 +1033,7 @@
       draw();
       paintSelection(true);
       if (!failed) message(say(L().deletedMany, files.filter(f => gone.has(keyOf(f.id)))), "ok");
-      if (!root.contains(document.activeElement) || document.activeElement === document.body) focusList();
+      refocus();
     }
 
     // The delete question: a small card over the list, Cancel focused. The red
@@ -1031,8 +1113,9 @@
       input.value = name;
       cell.classList.add("tf-renaming");
       cell.replaceChildren(input);
-      const state = { file, input, busy: false, after: [] };
+      const state = { file, input, busy: false, after: [], era };
       renaming = state;
+      rowCache.delete(keyOf(file.id)); // its row now holds the field
       input.focus({ preventScroll: true });
       // The name without its extension is selected, as in a file manager.
       const dot = name.lastIndexOf(".");
@@ -1063,13 +1146,13 @@
           return;
         }
         // The app's current object; a file it has removed meanwhile is not renamed.
-        const target = (held ?? list).find(f => keyOf(f.id) === keyOf(file.id));
+        const target = era === state.era ? (held ?? list).find(f => keyOf(f.id) === keyOf(file.id)) : null;
         if (!target) return end();
         state.busy = true;
         input.readOnly = true;
         try {
           await opt.onRename(target, next);
-          if (signal.aborted) return;
+          if (signal.aborted || renaming !== state) return;
         } catch (e) {
           state.busy = false;
           input.readOnly = false;
@@ -1125,7 +1208,8 @@
         items.push({ label: words.delete, shortcut: MAC ? "⌘⌫" : "Del", danger: true, action: () => removeMany(now()) });
       }
       if (!items.length) return false;
-      const label = String(file.name ?? "");
+      // Named for what it acts on: the file, or "3 files".
+      const label = one ? String(file.name ?? "") : String(say(words.count, keys.length));
       rowMenuHandle = window.TaurisMenu.open(items, at, {
         keyboard,
         label,
@@ -1227,10 +1311,11 @@
     };
     let typed = "";
     let typedAt = 0;
+    const KEEP_TYPED = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Dead", "AltGraph", "Compose", "Process", "Unidentified"]);
     grid.addEventListener("keydown", e => {
       const selectAll = cmdKey(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
       if (selectAll && e.target !== grid && !(e.target instanceof HTMLInputElement)) e.preventDefault();
-      if (e.target !== grid || e.isComposing || asking) return;
+      if (e.target !== grid || e.isComposing || e.keyCode === 229 || asking) return;
       const file = current();
       const i = file ? shown.indexOf(file) : -1;
       const page = Math.max(1, Math.floor(grid.clientHeight / (rows.values().next().value?.offsetHeight || 25)) - 1);
@@ -1245,8 +1330,9 @@
         else select(k);
       };
       const all = cmdKey(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
-      // Any key but a letter (or Shift and the like) ends what was being typed.
-      if (e.key.length !== 1 && !["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) typed = "";
+      // Any key but a letter (or Shift and the like, or the first key of an
+      // accent: "Dead", AltGr) ends what was being typed.
+      if (e.key.length !== 1 && !KEEP_TYPED.has(e.key)) typed = "";
       // A space in the middle of typing a name is part of it ("Launch p").
       const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < 700;
       if (e.key === " ") e.preventDefault(); // the list never scrolls a page on Space
@@ -1441,6 +1527,17 @@
       }
     }
 
+    // A new list keeping none of the files there were, or another place: what
+    // was started for the old files is dropped (the delete question, a rename).
+    function elsewhere(next, moved) {
+      const before = held ?? list;
+      const have = new Set(before.map(f => keyOf(f.id)));
+      if (!moved && (!before.length || next.some(f => have.has(keyOf(f.id))))) return;
+      era++;
+      if (asking) asking.finish(false);
+      if (renaming && !renaming.busy) renaming.end();
+    }
+
     // ---------- start ----------
 
     list = Array.isArray(opt.files) ? opt.files.slice() : [];
@@ -1452,6 +1549,7 @@
       /** Replaces the files (the app's list is the truth). */
       setFiles(files) {
         const next = Array.isArray(files) ? files.slice() : [];
+        elsewhere(next, false);
         if (renaming) {
           held = next;
           return;
@@ -1459,16 +1557,31 @@
         const same = signature(next) === drawn;
         list = next;
         // Nothing shown changed, but the objects are new: callbacks get the new ones.
-        if (same) shown = shown.map(f => fileById(keyOf(f.id)) ?? f);
-        else draw();
+        if (same) {
+          shown = shown.map(f => fileById(keyOf(f.id)) ?? f);
+          report();
+        } else if (removingMany) {
+          drawSoon(); // the app sends its list after each file: drawn once a frame
+        } else {
+          draw();
+        }
       },
       /** The files as the component has them now. */
       files() { return list.slice(); },
       /** Changes options: title, place, subtitle, color, labels, columns, the on… functions, files. */
       update(changes = {}) {
+        changes = given(changes);
+        const wasPlace = place();
         Object.assign(opt, changes);
-        // Turning off `multiple` keeps the file with the focus only.
-        if (!several() && sel.size > 1) setSelection(selId == null ? [] : [selId], selId, false);
+        optionsDrawn++; // labels, columns, formatDate...: the rows are drawn again
+        const moved = place() !== wasPlace;
+        if (moved || Array.isArray(changes.files)) elsewhere(Array.isArray(changes.files) ? changes.files : list, moved);
+        // Turning off `multiple` keeps one selected file: the one with the focus
+        // if it is selected (a file that only has the focus never is).
+        if (!several() && sel.size > 1) {
+          const keep = selId != null && sel.has(selId) ? selId : selection()[0] ? keyOf(selection()[0].id) : null;
+          setSelection(keep == null ? [] : [keep], keep ?? selId, false);
+        }
         if (changes.sort && SORTABLE.has(changes.sort.key)) sort = { key: changes.sort.key, up: changes.sort.up !== false };
         if (Array.isArray(changes.files)) {
           if (renaming) held = changes.files.slice();
@@ -1478,11 +1591,22 @@
       },
       /** Selects one file by id (null: none), or several: an array of ids (the first gets the focus). */
       select(fileId) {
+        // A file the search hides is shown: the search is cleared, as for a rename.
+        const reveal = keys => {
+          if (query && keys.some(k => !rows.has(k) && fileById(k))) {
+            query = "";
+            searchInput.value = "";
+            draw();
+          }
+        };
         if (Array.isArray(fileId)) {
-          const keys = fileId.map(keyOf).filter(k => list.some(f => keyOf(f.id) === k)).slice(0, several() ? undefined : 1);
+          const have = new Set(list.map(f => keyOf(f.id)));
+          const keys = fileId.map(keyOf).filter(k => have.has(k)).slice(0, several() ? undefined : 1);
+          reveal(keys);
           anchor = keys[0] ?? null;
           setSelection(keys, keys[0] ?? null);
         } else {
+          if (fileId != null) reveal([keyOf(fileId)]);
           select(fileId == null ? null : fileId);
         }
       },
@@ -1532,6 +1656,7 @@
         if (asking) asking.finish(false);
         clearTimeout(freshTimer);
         clearTimeout(messageTimer);
+        cancelAnimationFrame(drawFrame);
         root.replaceChildren();
         if (addedClass) root.classList.remove("tf");
         root.classList.remove("tf-dropping", "tf-has-acts", "tf-no-head", "tf-no-status");

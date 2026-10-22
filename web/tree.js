@@ -104,6 +104,8 @@
 
   const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
   const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+  // Keys that do not end a name being typed: Shift and the like, and an accent's first key.
+  const KEEP_TYPED = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Dead", "AltGraph", "Compose", "Process", "Unidentified"]);
   const has = (obj, k) => obj != null && Object.prototype.hasOwnProperty.call(obj, k);
   const hasKids = n => Array.isArray(n.children) && n.children.length > 0;
   const keyOf = id => String(id);
@@ -129,7 +131,8 @@
   function mount(root, options = {}) {
     if (!(root instanceof HTMLElement)) throw new Error("TaurisTree.mount needs the element to draw the tree in");
     if (root.__taurisTree) throw new Error("TaurisTree.mount: this element already has a tree; call destroy() first");
-    const opt = { ...DEFAULTS, ...options };
+    // An option given as undefined keeps its default.
+    const opt = { ...DEFAULTS, ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)) };
     if (opt.styles) addStyles();
     const icons = { ...ICONS, ...(opt.icons || {}) };
     const cols = Array.isArray(opt.columns) && opt.columns.length
@@ -141,6 +144,7 @@
         editable: Boolean(c.editable) && i > 0,
         align: c.align ?? null,
         className: c.className ?? "",
+        editor: c.editor ?? null,
         // what sorting calls the column, and how it sorts
         id: c.key ?? (i === 0 ? "label" : typeof c.sortValue === "function" || typeof c.compare === "function" ? `column${i}` : null),
         sortable: c.sortable !== false,
@@ -246,10 +250,21 @@
       // event the app may answer with setData itself: then that list stands).
       const call = ++dataCalls;
       if (editing) {
-        const key = editing.key;
-        const there = items => (Array.isArray(items) ? items : []).some(n => keyOf(n.id) === key || (hasKids(n) && there(n.children)));
-        finishEdit(there(list), false);
+        const ed = editing;
+        const find = items => {
+          for (const n of Array.isArray(items) ? items : []) {
+            if (keyOf(n.id) === ed.key) return n;
+            const deeper = hasKids(n) ? find(n.children) : null;
+            if (deeper) return deeper;
+          }
+          return null;
+        };
+        const incoming = find(list);
+        const typed = incoming ? editedValue(ed) : { ok: false };
+        finishEdit(Boolean(incoming), false);
         if (call !== dataCalls) return;
+        // The new list's node is the one drawn from now on: it shows what was typed.
+        if (typed.ok && ed.col.key != null) (incoming.values ??= {})[ed.col.key] = typed.value;
       }
       const hadFocus = body.contains(document.activeElement);
       const hadKey = selectedKey;
@@ -387,8 +402,11 @@
     }
 
     // A new order: rows are drawn again; selection and focus stay on their nodes.
-    function applySort(next, announce = true) {
-      if (next === sortBy || (next && sortBy && next.ci === sortBy.ci && next.up === sortBy.up)) return;
+    // `again`: sorts even when the order is the one in place (rows edited since stay where they were until then).
+    function applySort(next, announce = true, again = false) {
+      const same = next === sortBy || (next && sortBy && next.ci === sortBy.ci && next.up === sortBy.up);
+      if (same && !again) return;
+      if (same) announce = false;
       finishEdit(true, false);
       const hadFocus = body.contains(document.activeElement);
       sortBy = next;
@@ -571,11 +589,18 @@
 
     // ---------- value cells and editors ----------
 
+    // A cell's editor: the node's for that column (editor: { level: ... }),
+    // else the column's, else the node's one editor; one that does not fit the
+    // value (a checkbox for text, a choice for a boolean) is not used.
     function editorOf(n, c) {
-      let spec = n.editor;
-      if (typeof spec === "string") spec = { type: spec };
-      if (spec && typeof spec === "object" && typeof spec.type === "string") return spec;
+      const asSpec = spec => (typeof spec === "string" ? { type: spec }
+        : spec && typeof spec === "object" && typeof spec.type === "string" ? spec : null);
       const v = n.values?.[c.key];
+      const byColumn = n.editor && typeof n.editor === "object" && typeof n.editor.type !== "string" && c.key != null
+        ? asSpec(n.editor[c.key]) : null;
+      const fits = spec => spec && (typeof v === "boolean") === (spec.type === "checkbox");
+      const spec = [byColumn, asSpec(c.editor), asSpec(n.editor)].find(fits);
+      if (spec) return spec;
       if (typeof v === "boolean") return { type: "checkbox" };
       if (typeof v === "number") return { type: "number" };
       return { type: "text" };
@@ -601,6 +626,30 @@
       return ci > 0 && editorOf(row.node, cols[ci]).type === "checkbox" ? ci : -1;
     }
 
+    // The row's next (step 1) or previous (-1) editable value after column ci; -1 past the end.
+    function nextEditable(row, ci, step) {
+      for (let next = ci + step; next > 0 && next < cols.length; next += step) if (canEdit(row, next)) return next;
+      return -1;
+    }
+
+    const isCheck = (row, ci) => editorOf(row.node, cols[ci]).type === "checkbox";
+
+    // Goes to an editable value: a field opens; a checkbox takes the focus,
+    // for Space to flip it (and Tab to go on).
+    function goToCell(k, ci) {
+      const row = rows[index.get(k)];
+      if (!canEdit(row, ci)) return false;
+      if (!isCheck(row, ci)) return beginEdit(k, ci);
+      finishEdit(true, false);
+      reveal(index.get(k));
+      render();
+      const cell = cellOf(k, ci);
+      if (!cell) return false;
+      cell.tabIndex = -1;
+      cell.focus({ preventScroll: true });
+      return true;
+    }
+
     function valueCell(n, c, ci) {
       const cell = el("div", `tv-cell${c.className ? " " + c.className : ""}${c.align === "right" ? " tv-right" : c.align === "center" ? " tv-center" : ""}`);
       cell.dataset.col = String(ci);
@@ -615,6 +664,10 @@
       const spec = editorOf(n, c);
       cell.classList.add("tv-editable", `tv-kind-${spec.type}`);
       if (spec.type === "checkbox") {
+        // Reached with Tab from the row's other values; Space flips it.
+        cell.setAttribute("role", "checkbox");
+        cell.setAttribute("aria-checked", String(Boolean(v)));
+        cell.setAttribute("aria-label", `${labelOf(n)}, ${c.label}`);
         cell.append(el("span", `tv-check${v ? " tv-on" : ""}`, { "aria-hidden": "true" }));
       } else if (spec.type === "color") {
         const swatch = el("span", "tv-swatch", { "aria-hidden": "true" });
@@ -694,16 +747,9 @@
           // Tab and Shift+Tab save and go to the row's next (or previous)
           // editable value; past the last one, back to the row.
           e.preventDefault();
-          const step = e.shiftKey ? -1 : 1;
           finishEdit(true, false);
-          const here = rows[index.get(k)];
-          for (let next = ci + step; next > 0 && next < cols.length; next += step) {
-            if (canEdit(here, next) && editorOf(here.node, cols[next]).type !== "checkbox") {
-              beginEdit(k, next);
-              return;
-            }
-          }
-          focusRow();
+          const next = nextEditable(rows[index.get(k)], ci, e.shiftKey ? -1 : 1);
+          if (next < 0 || !goToCell(k, next)) focusRow();
         } else if (e.key === "Enter") {
           e.preventDefault();
           finishEdit(true);
@@ -793,7 +839,12 @@
     // ---------- focus, selection, expansion ----------
 
     function focusRow() {
-      pool.get(focusKey)?.focus({ preventScroll: true });
+      const node = pool.get(focusKey);
+      node?.focus({ preventScroll: true });
+      // Taking the focus from an editor saved it, and the app's answer to that
+      // "change" may have drawn the rows again: the row as it is now.
+      const now = pool.get(focusKey);
+      if (now && now !== node) now.focus({ preventScroll: true });
     }
 
     function reveal(i) {
@@ -909,8 +960,36 @@
 
     body.addEventListener("keydown", e => {
       if (e.target.closest(".tv-editor, .tv-picker")) return;
-      // Any key but a letter (or Shift and the like) ends what was being typed.
-      if (e.key.length !== 1 && !["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) typed = "";
+      // A checkbox reached with Tab: Space flips it, Tab goes on, Enter or Escape back to the row.
+      const check = e.target.closest?.(".tv-cell[role=checkbox]");
+      if (check && check === document.activeElement && [" ", "Tab", "Enter", "Escape"].includes(e.key)) {
+        const k = check.closest(".tv-row")?.dataset.key;
+        const ci = Number(check.dataset.col);
+        const row = k == null ? null : rows[index.get(k)];
+        if (!row) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === " ") {
+          if (!e.repeat && canEdit(row, ci)) {
+            commit(row.node, cols[ci], !row.node.values[cols[ci].key]);
+            const again = cellOf(k, ci);
+            if (again) {
+              again.tabIndex = -1;
+              again.focus({ preventScroll: true });
+            }
+          }
+        } else if (e.key === "Tab") {
+          const next = nextEditable(row, ci, e.shiftKey ? -1 : 1);
+          if (next < 0 || !goToCell(k, next)) focusRow();
+        } else {
+          focusRow();
+        }
+        return;
+      }
+      // Any other key there is the row's (the arrows move on from it).
+      if (check && check === document.activeElement) focusRow();
+      // Any key but a letter (or Shift and the like, or an accent's first key) ends what was being typed.
+      if (e.key.length !== 1 && !KEEP_TYPED.has(e.key)) typed = "";
       const at = index.get(focusKey);
       if (at === undefined) return;
       const toggleKey = MAC ? e.metaKey : e.ctrlKey;
@@ -970,14 +1049,14 @@
         case "Enter": {
           handled();
           const ci = firstEditable(row);
-          if (ci > 0) beginEdit(row.key, ci);
+          if (ci > 0) goToCell(row.key, ci);
           else emit("activate", { node: row.node });
           break;
         }
         case "F2": {
           handled();
           const ci = firstEditable(row);
-          if (ci > 0) beginEdit(row.key, ci);
+          if (ci > 0) goToCell(row.key, ci);
           break;
         }
         case " ": {
@@ -1012,7 +1091,12 @@
       // A right click (Control-click on a Mac) leaves the selection to the app's own menu.
       if (e.button !== 0 || (MAC && e.ctrlKey)) return;
       if (e.target.closest(".tv-editor, .tv-picker")) return;
-      const rowEl = e.target.closest(".tv-row");
+      // An edit open elsewhere is saved first: the app's answer to its "change"
+      // may draw the rows again, and the press then acts on them as they are
+      // (the row pressed is found again by its key).
+      const pressed = e.target.closest(".tv-row");
+      if (editing) finishEdit(true, false);
+      const rowEl = pressed ? pool.get(pressed.dataset.key) ?? pressed : null;
       if (!rowEl) {
         if (e.target === body) {
           e.preventDefault();
@@ -1312,19 +1396,19 @@
        * own order. Fires "sort". Returns false for a column that cannot sort. */
       sort(key, up = true) {
         if (key === null || key === undefined) {
-          applySort(null);
+          applySort(null, true, true);
           return true;
         }
         const ci = sortCols.findIndex(c => c.id === key && canSort(c));
         if (ci < 0) return false;
-        applySort({ ci, up: up !== false });
+        applySort({ ci, up: up !== false }, true, true);
         return true;
       },
       /** The order now: { key, up }, or null for the data's own order. */
       sorting,
       on,
       destroy() {
-        finishEdit(false, false);
+        finishEdit(true, false); // what is being typed is kept, as setData keeps it
         life.abort();
         resized.disconnect();
         cancelAnimationFrame(frame);

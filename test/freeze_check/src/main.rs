@@ -1,7 +1,8 @@
 // The plugin's event handler must never open a window itself: Tauri holds its
 // plugin lock while the handler runs, and opening a window takes that lock, so
 // the app freezes (a Dock click with no window open, File › New Window). Only
-// the real event loop shows it, so this is checked by hand, on macOS:
+// the real event loop shows it, so this runs a real app, on macOS (CI runs it
+// on every push; here):
 //
 //   cd test/freeze_check && cargo run
 //
@@ -9,7 +10,9 @@
 // New Window pressed through the real menu, for the app's own on_change hook
 // opening a window when the last one closes, and for that hook opening one
 // after the page's + button (a page command). It ends with "OK" four times and
-// exit code 0, or "FROZEN" and exit code 1. Both actions are
+// exit code 0, or exit code 1 and what went wrong: "STUCK: ..." for a window
+// that did not open or close, "FROZEN" for a main thread that no longer
+// answers. Both actions are
 // sent from the main dispatch queue, as macOS delivers them; sent from inside
 // one of the event loop's own callbacks, they would freeze tao instead.
 

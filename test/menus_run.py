@@ -6,6 +6,7 @@ Exits non-zero when a check fails. With a folder, it saves screenshots at 2x:
 a menu of the bar and a toolbar menu, in light and dark.
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -31,6 +32,7 @@ TEMPLATE_CSS = """
   button:hover { border-color: #396cd8; }
   button:active { border-color: #396cd8; background-color: #e8e8e8; }
   :root { font-family: Inter, Avenir, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 24px; font-weight: 400; }
+  button:focus, button:focus-visible { outline: 4px auto -webkit-focus-ring-color; }
 """
 
 # A bar and a real <button> toolbar menu, built with DOM calls only.
@@ -103,7 +105,8 @@ def shot(page, name):
 
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(channel="chrome")
+    # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
+    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
 
     # ---------- the bar, the look ----------
     page = fresh(browser)
@@ -683,6 +686,12 @@ with sync_playwright() as p:
     check("a real <button> opens its menu", page.is_visible(".tmn-menu") and page.get_attribute("#tool", "aria-expanded") == "true")
     page.click(".tmn-item")
     check("and runs the item", page.evaluate("chosen") == ["health"])
+    page.focus("#tool")
+    page.keyboard.press("Shift+Tab")
+    page.keyboard.press("Tab")
+    check("a template's button:focus outline adds no second ring to it (the library's ring alone)",
+          css(page, "#tool", "outline-style") == "none" and "0px 0px 0px 1px" in css(page, "#tool", "box-shadow"),
+          (css(page, "#tool", "outline-style"), css(page, "#tool", "box-shadow")))
     page.close()
 
     # ---------- under a strict content policy ----------
@@ -701,6 +710,96 @@ with sync_playwright() as p:
           page.evaluate("chosen") == ["new"] and css(page, ".tmn-chip", "background-color") == "rgb(27, 175, 122)"
           and abs(rect(page, ".tmn-menu")["y"] - (rect(page, "#tool")["y"] + rect(page, "#tool")["h"] + 3)) <= 1)  # the pressed button sits 0.5px lower
     check("strict policy: no console errors and nothing refused", not errors and page.evaluate("__csp") == [], (errors, page.evaluate("__csp")))
+    page.close()
+
+    # ---------- an eighth review ----------
+    OWN = """menus => { document.querySelectorAll('#own, #field').forEach(n => n.remove());
+      const nav = document.createElement('nav'); nav.id = 'own'; document.body.prepend(nav);
+      const f = document.createElement('input'); f.id = 'field'; document.body.append(f);
+      const p = document.createElement('p'); p.id = 'plain'; p.textContent = 'Plain text to press on'; p.style.cssText = 'position:fixed;left:420px;bottom:8px;margin:0'; document.body.append(p);
+      f.style.cssText = 'position:fixed;left:420px;bottom:40px';
+      window.ran = []; window.said = [];
+      window.own = TaurisMenu.bar(nav, { menus: menus(), onOpen: e => said.push('open ' + e.label), onClose: e => said.push('close ' + e.label) }); return 0; }"""
+    def own(page, menus):
+        page.evaluate("bar.destroy(); 0")
+        page.evaluate("(" + OWN + ")(" + menus + ")")
+    TITLE = lambda name: f"#own .tmn-title:text-is('{name}')"
+
+    page = fresh(browser)
+    own(page, "() => [{ label: 'Long', items: Array.from({ length: 40 }, (_, i) => ({ label: 'Item ' + i, action: () => ran.push(i) })) }, { label: 'Other', items: [{ label: 'X' }] }]")
+    page.click(TITLE("Long"))
+    page.wait_for_timeout(250)  # the menu has come in
+    top, bottom = page.evaluate("document.querySelector('.tmn-menu').getBoundingClientRect().top"), page.evaluate("document.querySelector('#own .tmn-title').getBoundingClientRect().bottom")
+    page.hover(TITLE("Other"))
+    check("a menu taller than the window stays below the bar (it scrolls), so the next title can still be reached",
+          top >= bottom - 1 and page.evaluate("ran") == [] and page.evaluate("document.querySelector('.tmn-menu .tmn-label').textContent") == "X",
+          (top, bottom, page.evaluate("ran")))
+    page.close()
+
+    page = fresh(browser)
+    own(page, "() => [{ label: 'File', items: [{ label: 'One', action: () => ran.push('one') }, { label: 'Two', action: () => ran.push('two') }] },"
+              " { label: 'Edit', items: [{ label: 'Copy' }] }, { label: 'Window', items: [] }]")
+    page.focus(TITLE("File"))
+    page.keyboard.press("Enter")
+    page.evaluate("document.getElementById('field').focus(); 0")
+    page.wait_for_timeout(50)
+    check("the app moving the focus to a field closes the open menu, and the focus stays there",
+          page.locator(".tmn-menu").count() == 0 and page.evaluate("document.activeElement.id") == "field")
+    page.evaluate("own.open(0); 0")
+    page.click("#plain")
+    page.wait_for_timeout(50)
+    check("a press on plain text closes the menu and puts the focus back where it was",
+          page.locator(".tmn-menu").count() == 0 and page.evaluate("document.activeElement.id") == "field", page.evaluate("document.activeElement.tagName"))
+    box = rect(page, TITLE("File"))
+    page.mouse.move(box["x"] + 8, box["y"] + 8)
+    page.mouse.down()
+    page.wait_for_timeout(250)
+    two = rect(page, ".tmn-menu .tmn-item:nth-child(2)")
+    page.mouse.move(two["x"] + 20, two["y"] + two["h"] / 2, steps=6)
+    page.mouse.up()
+    check("press on a title, drag to an item, release: it is chosen", page.evaluate("ran") == ["two"] and page.locator(".tmn-menu").count() == 0,
+          page.evaluate("ran"))
+    page.focus(TITLE("File"))
+    page.keyboard.press("Enter")
+    page.evaluate("said.length = 0")
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("ArrowRight")
+    check("the keys go past an empty menu, and the bar stays open (no onClose)",
+          page.locator(".tmn-menu").count() == 1 and not any(x.startswith("close") for x in page.evaluate("said")), page.evaluate("said"))
+    page.keyboard.press("Escape")
+    page.focus(TITLE("File"))
+    page.keyboard.press("Enter")
+    page.hover(TITLE("Edit"))
+    page.keyboard.press("Escape")
+    check("Escape after the pointer went on to another menu: the focus is on that menu's title",
+          page.evaluate("document.activeElement.textContent") == "Edit", page.evaluate("document.activeElement.textContent"))
+    page.close()
+
+    page = fresh(browser)
+    own(page, "() => [{ label: 'File', items: [{ label: 'Open Recent', items: ['Recent 1', 'Recent 2', 'Recent 3', 'Recent 4'].map(l => ({ label: l, action: () => ran.push(l) })) },"
+              " { label: 'Plain 1' }, { label: 'Plain 2' }, { label: 'Plain 3' }] }]")
+    page.click(TITLE("File"))
+    recent = rect(page, ".tmn-menu .tmn-item:nth-child(1)")
+    page.mouse.move(recent["x"] + 10, recent["y"] + recent["h"] / 2)
+    page.wait_for_timeout(300)
+    target = page.evaluate("(() => { const m = document.querySelectorAll('.tmn-menu')[1]; const r = m.querySelectorAll('.tmn-item')[2].getBoundingClientRect(); return { x: r.left + 30, y: r.top + r.height / 2 }; })()")
+    start = (recent["x"] + 10, recent["y"] + recent["h"] / 2)
+    for n in range(1, 21):
+        page.mouse.move(start[0] + (target["x"] - start[0]) * n / 20, start[1] + (target["y"] - start[1]) * n / 20)
+        page.wait_for_timeout(40)
+    check("the pointer crossing other items on its way to an open sub-menu keeps it open",
+          page.locator(".tmn-menu").count() == 2 and focused(page) == "Recent 3", (page.locator(".tmn-menu").count(), focused(page)))
+    page.close()
+
+    page = fresh(browser)
+    own(page, "() => [{ label: 'Zoo', items: [{ label: 'Aardvark' }, { label: 'Apple' }, { label: 'Avocado' }] }]")
+    page.focus(TITLE("Zoo"))
+    page.keyboard.press("Enter")
+    seen = []
+    for _ in range(3):
+        page.keyboard.press("a")
+        seen.append(focused(page))
+    check("one letter again and again steps through the items starting with it, past a doubled letter", seen == ["Apple", "Avocado", "Aardvark"], seen)
     page.close()
 
     browser.close()

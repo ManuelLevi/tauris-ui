@@ -144,6 +144,9 @@ fn send_hover<R: Runtime>(app: &AppHandle<R>, label: &str, index: Option<usize>,
 // While the cursor is over another window's strip, the dragged window turns
 // invisible and that strip shows where the tab will land.
 fn follow_mouse<R: Runtime>(app: AppHandle<R>) {
+    // The app's hook hears of the drop on its own worker: a slow one must not
+    // hold the dragged window up, nor the target's focus.
+    let _later = crate::windows::DeferHook::enter();
     let state = inner(&app);
     let rest_alpha = state.config.drag_opacity;
     let mut started = false;

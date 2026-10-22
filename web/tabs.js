@@ -196,11 +196,18 @@
         pending--;
       }
       if (signal.aborted || mine !== loads) return;
-      if (drag?.handedOff) drag = null; // Rust finished that drag
+      // Rust finished that drag: the tab it left behind loses its drag look.
+      if (drag?.handedOff) {
+        resetDragStyles();
+        drag = null;
+      }
+      const was = active;
       tabs = state.tabs;
       active = state.active;
       render();
       emit("change", { tabs, active });
+      // Another tab is active (the +, a tab closed, ⌘T, a drop, Rust): said too.
+      if (active !== was) emit("activate", activeTab());
     }
 
     // A change made here: answers already on their way are now out of date,
@@ -288,7 +295,11 @@
         items.push("-",
           { label: L.closeTab, shortcut: L.closeTabShortcut, action: () => quiet(close(tab.id)) },
           { label: L.closeOthers, disabled: tabs.length < 2, action: () => quiet(closeAll(tabs.filter(t => t.id !== tab.id))) },
-          { label: L.closeRight, disabled: at >= tabs.length - 1, action: () => quiet(closeAll(tabs.slice(at + 1))) },
+          // Where the tab is when chosen: tabs may have come or gone since the menu opened.
+          { label: L.closeRight, disabled: at >= tabs.length - 1, action: () => {
+            const now = tabs.findIndex(t => t.id === tab.id);
+            if (now >= 0) quiet(closeAll(tabs.slice(now + 1)));
+          } },
           "-",
           { label: L.moveToWindow, disabled: tabs.length < 2, action: () => quiet(call("move_to_new_window", { tab: tab.id })) });
       }
@@ -364,12 +375,16 @@
         // element it was (a click, then a second one for a double-click, still
         // reach what was pressed), unless it now draws differently.
         shown.forEach((node, i) => {
-          if (node.classList.contains("tt-active") === (tabs[i].id === active)) return;
+          if (!node.__ttStale && node.classList.contains("tt-active") === (tabs[i].id === active)) return;
           const next = tabElement(tabs[i]);
-          // What renderTab returns is the app's (its handlers, its references): it is used.
-          if (opt.renderTab || next.innerHTML !== node.innerHTML) return node.replaceWith(next);
+          // What renderTab returns is the app's (its handlers, its references): it
+          // is used. But the tab being pressed stays the element pressed until its
+          // click is done (the click is the app's), and is drawn again after.
+          const held = opt.renderTab && tabs[i].id === pressed;
+          if (!held && (opt.renderTab || next.innerHTML !== node.innerHTML)) return node.replaceWith(next);
           node.className = next.className;
           node.setAttribute("aria-selected", next.getAttribute("aria-selected"));
+          if (held) node.__ttStale = true;
         });
         const now = [...tabsEl.children];
         now.forEach(n => n.setAttribute("tabindex", Number(n.dataset.id) === active ? "0" : "-1"));
@@ -480,7 +495,8 @@
       else if (e.key === "Home") go(0);
       else if (e.key === "End") go(tabs.length - 1);
       else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(tabs[at].id); }
-      else if (e.key === "Delete") { e.preventDefault(); quiet(close(tabs[at].id)); }
+      // Held down, Delete closes one tab, not one per repeat.
+      else if (e.key === "Delete") { e.preventDefault(); if (!e.repeat) quiet(close(tabs[at].id)); }
       else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
         e.preventDefault();
         const r = node.getBoundingClientRect();
@@ -500,10 +516,12 @@
     // dragged tab follows the cursor and its neighbours slide aside. The order
     // is committed on release.
 
+    let pressed = null; // the tab under a press, until its click is done
     function startDrag(e, id) {
       // A control-click is a right click on a Mac: it opens the menu, not a drag.
       if (e.button !== 0 || e.ctrlKey || e.target.closest(OWN_CLICKS)) return;
       closeMenu();
+      pressed = id;
       activate(id);
       const els = [...tabsEl.querySelectorAll(".tt-tab")];
       const from = els.findIndex(node => Number(node.dataset.id) === id);
@@ -552,10 +570,16 @@
       if (!drag.moved) {
         if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < opt.moveThreshold) return;
         drag.moved = true;
-        // The strip may have been drawn again since the press: its elements as they are now.
+        // The strip may have been drawn again since the press: its elements, and
+        // where they sit, as they are now.
         drag.els = [...tabsEl.querySelectorAll(".tt-tab:not(.tt-ghost)")];
         drag.from = Math.max(0, drag.els.findIndex(n => Number(n.dataset.id) === drag.id));
         drag.to = drag.from;
+        const rects = drag.els.map(n => n.getBoundingClientRect());
+        const origin = tabsEl.getBoundingClientRect().left - tabsEl.scrollLeft;
+        drag.lefts = rects.map(r => r.left - origin);
+        drag.firstLeft = rects[0].left;
+        drag.width = rects[drag.from].width;
         // The pointer is held by the strip only once the drag begins, so a plain
         // click or double-click still reaches what was pressed (a renderTab's span).
         try { strip.setPointerCapture(drag.pointer); } catch { /* the pointer is gone */ }
@@ -567,8 +591,12 @@
         drag.frame = requestAnimationFrame(edgeScroll);
       }
       drag.x = e.clientX;
-      // A lone tab carries its window, exactly like dragging the title bar.
-      if (opt.dragOut && tabs.length === 1) return handOff(drag.x0, drag.y0);
+      // A lone tab carries its window, exactly like dragging the title bar; it
+      // stays drawn as it was (Rust's answer changes nothing in the strip).
+      if (opt.dragOut && tabs.length === 1) {
+        resetDragStyles();
+        return handOff(drag.x0, drag.y0);
+      }
 
       const r = strip.getBoundingClientRect();
       const outside = e.clientY > r.bottom + opt.detachDistance || e.clientY < r.top - opt.detachDistance ||
@@ -640,6 +668,12 @@
     }
 
     function endDrag() {
+      // The click that follows the release reaches the pressed tab first; then
+      // a tab the app draws is drawn as it now is.
+      if (pressed != null) {
+        pressed = null;
+        setTimeout(() => { if (!signal.aborted) render(); });
+      }
       if (!drag) return;
       const finished = drag;
       if (finished.moved && !finished.handedOff) resetDragStyles(); // the tabs drawn in place keep no drag look
@@ -661,9 +695,14 @@
       // Let the dropped tab glide from where it was released into its slot.
       const was = finished.els[finished.from];
       const releasedAt = was.isConnected ? was.getBoundingClientRect().left : null;
+      // The slot is the place of a tab as the strip was drawn; Rust may have
+      // changed the tabs since (one closed elsewhere): it is found by its id.
+      const beside = finished.to !== finished.from ? Number(finished.els[finished.to]?.dataset.id) : null;
       const [tab] = tabs.splice(at, 1);
-      finished.to = Math.min(finished.to, tabs.length);
-      tabs.splice(finished.to, 0, tab);
+      const near = tabs.findIndex(t => t.id === beside);
+      let to = finished.to === finished.from ? at : near >= 0 ? near + (finished.to > finished.from ? 1 : 0) : finished.to;
+      to = Math.min(to, tabs.length);
+      tabs.splice(to, 0, tab);
       render();
       const dropped = tabEl(finished.id);
       if (dropped && releasedAt !== null) {
@@ -679,9 +718,9 @@
         dropped.addEventListener("transitionend", settled, { once: true });
         setTimeout(settled, 300); // no transition (reduced motion, no move): still cleared
       }
-      emit("drop", { tab, index: finished.to });
+      emit("drop", { tab, index: to });
 
-      if (finished.to !== at) local(call("move_tab", { tab: finished.id, index: finished.to }));
+      if (to !== at) local(call("move_tab", { tab: finished.id, index: to }));
     }
 
     strip.addEventListener("pointerup", endDrag, { signal });

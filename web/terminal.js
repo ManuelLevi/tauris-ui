@@ -254,8 +254,12 @@
     function place() {
       frame = 0;
       const at = input.selectionDirection === "backward" ? input.selectionStart : input.selectionEnd;
-      entry.style.setProperty("--tm-caret-x", `${widthOf(input.value.slice(0, at ?? input.value.length))}px`);
-      entry.style.setProperty("--tm-scroll", `${input.scrollLeft}px`);
+      // Kept inside the field: at the end of a line that scrolls, the block
+      // would start at its right edge and hang out.
+      const x = widthOf(input.value.slice(0, at ?? input.value.length)) - input.scrollLeft;
+      const room = Math.max(0, input.clientWidth - cursor.getBoundingClientRect().width);
+      entry.style.setProperty("--tm-caret-x", `${Math.min(Math.max(x, 0), room)}px`);
+      entry.style.setProperty("--tm-scroll", "0px");
       // Solid while typing; it blinks again once the typing stops.
       if (typeof cursor.getAnimations === "function") for (const a of cursor.getAnimations()) a.currentTime = 0;
     }
@@ -263,6 +267,12 @@
       if (!frame) frame = requestAnimationFrame(place);
     };
     for (const type of ["input", "keydown", "pointerup", "focus", "select", "scroll"]) input.addEventListener(type, later, { signal });
+    // A field that grows or shrinks (the window resized) scrolls its text: the block follows.
+    if (typeof ResizeObserver === "function") {
+      const resized = new ResizeObserver(later);
+      resized.observe(input);
+      signal.addEventListener("abort", () => resized.disconnect());
+    }
     document.addEventListener("selectionchange", () => {
       if (document.activeElement === input) later();
     }, { signal });

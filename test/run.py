@@ -4,6 +4,8 @@ Run:  python test/run.py [screenshot-folder]
 Needs Python playwright and Google Chrome. Exits non-zero when a check fails.
 """
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -57,8 +59,30 @@ def tab_box(page, n):
     return page.locator(".tt-tabs .tt-tab:not(.tt-ghost)").nth(n).bounding_box()
 
 
+# ---------- the README's colours: every pair of text and what it sits on reads ----------
+def _lum(h):
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+
+
+def _ratio(a, b):
+    hi, lo = sorted((_lum(a), _lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+_block = (HERE.parent / "README.md").read_text().split("```css", 1)[1].split("```", 1)[0]
+_light = dict(re.findall(r"--tauris-([\w-]+): (#[0-9a-f]{6})", _block.split("@media")[0]))
+_dark = dict(re.findall(r"--tauris-([\w-]+): (#[0-9a-f]{6})", _block.split(":root[data-tauris-theme=\"dark\"]")[1]))
+_pairs = [("fg", "bg"), ("fg", "chrome"), ("fg", "hover"), ("fg", "sel-inactive"), ("dim", "bg"), ("dim", "chrome"), ("dim", "hover"),
+          ("accent-ink", "bg"), ("accent-ink", "chrome"), ("on-accent", "accent"), ("sel-fg", "sel-bg")]
+for _name, _set in (("light", _light), ("dark", _dark)):
+    _low = [(a, b, round(_ratio(_set[a], _set[b]), 2)) for a, b in _pairs if _ratio(_set[a], _set[b]) < 4.5]
+    check(f"the README's {_name} colours: text reads on what it sits on (4.5:1)", len(_set) >= 13 and not _low, (_low, len(_set)))
+
 with sync_playwright() as p:
-    browser = p.chromium.launch(channel="chrome")
+    # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
+    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
 
     # --- rendering ---
     page = fresh(browser)
@@ -693,6 +717,131 @@ with sync_playwright() as p:
     page.click(".tt-menu-sep") if page.locator(".tt-menu-sep").count() else page.click(".tt-menu", position={"x": 2, "y": 2})
     page.keyboard.press("Escape")
     check("a click on the menu's padding or a line keeps its keys (Escape still closes it)", page.locator(".tt-menu").count() == 0)
+    page.close()
+
+    # --- an eighth review ---
+    page = fresh(browser, before="window.__tabCount = 6")
+    page.locator(".tt-tab").first.focus()
+    page.keyboard.press("Delete")
+    page.evaluate("""for (let i = 0; i < 4; i++) document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', repeat: true, bubbles: true }))""")
+    page.wait_for_timeout(200)
+    check("Delete held down closes one tab, not one per repeat", len(titles(page)) == 5, titles(page))
+    page.close()
+
+    page = fresh(browser, "{ dragPreview: 'ghost' }", before="window.__tabCount = 1")
+    box = tab_box(page, 0)
+    page.mouse.move(box["x"] + 30, box["y"] + 16)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 90, box["y"] + 30, steps=6)
+    page.evaluate("__emit('tauris-ui:state-changed', 'tabs-1')")
+    page.wait_for_timeout(200)
+    page.mouse.up()
+    left = page.evaluate("document.querySelector('.tt-tab').className")
+    check("a lone tab that carried its window keeps no drag look", left.split() == ["tt-tab", "tt-active"], left)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("window.got = []; for (const e of ['activate', 'close', 'update', 'drop']) tabs.on(e, v => got.push([e, v && (v.tab ? v.tab.title : v.title)]))")
+    page.locator(".tt-tab").nth(1).click(button="right")
+    page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|open_tab', { title: 'Inserted', fields: {} })")
+    page.wait_for_function("document.querySelectorAll('.tt-tab').length === 4")
+    page.get_by_text("Close tabs to the right", exact=True).click()
+    page.wait_for_function("document.querySelectorAll('.tt-tab').length === 3")
+    check("Close tabs to the right closes those right of the tab as it is now (tabs came since the menu opened)",
+          titles(page) == ["Tab 1", "Inserted", "Tab 2"], titles(page))
+    got = page.evaluate("got")
+    check("a tab made active by Rust (one opened) says activate", ["activate", "Inserted"] in got, got)
+    check("a tab the page closes says close", ["close", "Tab 3"] in got, got)
+    page.evaluate("tabs.update(tabs.tabs[0], { title: 'Renamed' })")
+    check("update() says update", ["update", "Renamed"] in page.evaluate("got"), page.evaluate("got"))
+    page.evaluate("got.length = 0")
+    page.locator(".tt-new").click()
+    page.wait_for_function("document.querySelectorAll('.tt-tab').length === 4")
+    check("the + says activate for the new tab", page.evaluate("got").count(["activate", "Tab 5"]) == 1, page.evaluate("got"))
+    page.close()
+
+    page = fresh(browser, before="window.__tabCount = 4")
+    page.evaluate("window.drops = []; tabs.on('drop', d => drops.push(d.index)); 0")
+    c, d = tab_box(page, 2), tab_box(page, 3)
+    page.mouse.move(d["x"] + d["width"] / 2, d["y"] + 16)
+    page.mouse.down()
+    page.mouse.move(d["x"] + d["width"] / 2 - 20, d["y"] + 16, steps=4)
+    page.mouse.move(c["x"] + c["width"] / 2 - 10, c["y"] + 16, steps=8)
+    page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|close_tab', { tab: 1 })")
+    page.wait_for_timeout(100)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    check("a drop lands by the tab it was dropped by, though Rust closed a tab meanwhile",
+          titles(page) == ["Tab 2", "Tab 4", "Tab 3"], titles(page))
+    check("and says where it landed", page.evaluate("drops") == [1], page.evaluate("drops"))
+    page.close()
+
+    page = fresh(browser, """{ renderTab: tab => { const t = document.createElement('span'); t.className = 'my-title'; t.textContent = tab.title;
+      t.addEventListener('click', () => { window.clicks = (window.clicks || 0) + 1; }); return [t]; } }""")
+    page.locator(".tt-tab").nth(2).locator(".my-title").click()
+    check("the first click on a tab the app draws reaches what it drew", page.evaluate("window.clicks") == 1, page.evaluate("window.clicks"))
+    page.wait_for_timeout(50)
+    check("and the tab is drawn as active after", page.locator(".tt-tab.tt-active .my-title").text_content() == "Tab 3")
+    page.close()
+
+    page = fresh(browser)
+    steps = []
+    for keys in ["Control+Tab", "Control+Tab", "Control+Shift+Tab", "Meta+Shift+BracketLeft", "Meta+Shift+BracketRight"]:
+        page.keyboard.press(keys)
+        steps.append(page.evaluate("tabs.activeTab().title"))
+    check("^Tab, ^⇧Tab, ⌘⇧[ and ⌘⇧] step through the tabs", steps == ["Tab 2", "Tab 3", "Tab 2", "Tab 1", "Tab 2"], steps)
+    page.close()
+    page = fresh(browser, "{ shortcuts: false, middleClickClose: false, appear: false, documentTitle: t => 'App: ' + t?.title }")
+    page.keyboard.press("Control+Tab")
+    check("shortcuts: false leaves ^Tab alone", page.evaluate("tabs.activeTab().title") == "Tab 1")
+    page.locator(".tt-tab").nth(1).click(button="middle")
+    page.wait_for_timeout(100)
+    check("middleClickClose: false keeps the tab", len(titles(page)) == 3, titles(page))
+    check("documentTitle names the window", page.title() == "App: Tab 1", page.title())
+    page.locator(".tt-new").click()
+    page.wait_for_function("document.querySelectorAll('.tt-tab').length === 4")
+    check("appear: false: a new tab does not pop in", page.locator(".tt-appear").count() == 0)
+    page.close()
+    page = fresh(browser)
+    page.locator(".tt-new").click()
+    page.wait_for_function("document.querySelectorAll('.tt-tab').length === 4")
+    check("a new tab pops in", page.evaluate("document.querySelectorAll('.tt-tab')[3].classList.contains('tt-appear')"))
+    page.close()
+
+    page = fresh(browser, color_scheme="light")
+    page.emulate_media(forced_colors="active")
+    page.wait_for_timeout(50)
+    look = page.evaluate("""(() => { const [a, b] = document.querySelectorAll('.tt-tab'); const ca = getComputedStyle(a), cb = getComputedStyle(b);
+      return [ca.boxShadow, ca.borderTopColor, cb.borderTopColor, cb.backgroundColor]; })()""")
+    check("Windows high contrast: the active tab is framed, with its bar on top; idle tabs draw no frame",
+          "inset" in look[0] and look[1] != look[2], look)
+    page.close()
+
+    # --- the example app's page (examples/basic/ui), as a new app starts from it ---
+    page = browser.new_page(viewport={"width": 760, "height": 400})
+    page.on("pageerror", lambda e: failures.append(f"page error: {e}") or print("PAGEERROR", e))
+    page.add_init_script((HERE / "mock_tauri.js").read_text())
+    page.add_init_script(library_script())
+    page.goto((HERE.parent / "examples" / "basic" / "ui" / "index.html").as_uri())
+    page.wait_for_selector(".tt-tab")
+    page.fill("#note", "milk")
+    page.locator(".tt-tab").nth(1).click()
+    page.fill("#note", "eggs")
+    page.wait_for_timeout(50)
+    page.evaluate("window.__emit('tauris-ui:close-window-request', 'tabs-1')")
+    page.wait_for_timeout(100)
+    first = page.evaluate("window.__windowClosed")
+    page.evaluate("window.__emit('tauris-ui:close-window-request', 'tabs-1')")
+    page.wait_for_timeout(100)
+    check("example: a window with two noted tabs closes on the second try", first is None and page.evaluate("window.__windowClosed") == 1,
+          (first, page.evaluate("window.__windowClosed")))
+    page.click("#title")
+    page.keyboard.press("ControlOrMeta+a")
+    page.keyboard.press("Backspace")
+    page.keyboard.type("Groceries")
+    page.wait_for_timeout(50)
+    check("example: emptying the title and typing a new one gives that title", page.input_value("#title") == "Groceries"
+          and page.locator(".tt-tab.tt-active .tt-title").text_content() == "Groceries", page.input_value("#title"))
     page.close()
 
     # --- the terminal as the plugin delivers it: no stylesheet until it is used ---

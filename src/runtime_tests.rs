@@ -610,6 +610,42 @@ struct Command {
     name: String,
     is_async: bool,
     body: String,
+    // What the page passes (Tauri fills in the window, the app and state).
+    params: Vec<String>,
+}
+
+// The text between the bracket at the start of `text` and the one closing it.
+fn inside(text: &str, open: char, close: char) -> &str {
+    let mut depth = 0;
+    for (i, c) in text.char_indices() {
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                return &text[1..i];
+            }
+        }
+    }
+    &text[1..]
+}
+
+// Splits at the commas of this level, not those inside brackets.
+fn top_level(text: &str) -> Vec<String> {
+    let (mut out, mut depth, mut start) = (Vec::new(), 0, 0);
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' | '[' | '{' | '<' => depth += 1,
+            ')' | ']' | '}' | '>' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(text[start..i].trim().to_string());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(text[start..].trim().to_string());
+    out.into_iter().filter(|p| !p.is_empty()).collect()
 }
 
 // Reads every #[tauri::command ...] item, whatever its visibility or attribute arguments.
@@ -640,14 +676,73 @@ fn commands() -> Vec<Command> {
                 _ => {}
             }
         }
+        let signature = &item[fn_at..open];
+        let args = signature.find('(').map_or("", |at| inside(&signature[at..], '(', ')'));
+        let params = top_level(args)
+            .into_iter()
+            .filter_map(|p| {
+                let (name, ty) = p.split_once(':')?;
+                let given = ["WebviewWindow", "AppHandle", "Window<", "Webview<", "State<"];
+                (!given.iter().any(|g| ty.contains(g))).then(|| name.trim().to_string())
+            })
+            .collect();
         out.push(Command {
             name,
             is_async: head.split_whitespace().any(|w| w == "async"),
             body: item[open..close].to_string(),
+            params,
         });
         rest = &item[close..];
     }
     out
+}
+
+// What the pages call is a command Rust has, with the arguments it takes
+// (the page's camelCase is Rust's snake_case). A renamed command or argument
+// would pass every page test, whose stand-in for Rust answers anything.
+#[test]
+fn the_pages_call_the_commands_rust_has() {
+    let all = commands();
+    let mut seen = 0;
+    for (page, source) in [("tabs.js", include_str!("../web/tabs.js")), ("files.js", include_str!("../web/files.js"))] {
+        let code: String = source.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+        for start in ["call(\"", "invoke(\""] {
+            let mut rest = code.as_str();
+            while let Some(at) = rest.find(start) {
+                let after = &rest[at + start.len()..];
+                let name = &after[..after.find('"').expect("the command's name ends")];
+                let tail = after[name.len() + 1..].trim_start();
+                let keys: Vec<String> = match tail.strip_prefix(',').map(str::trim_start) {
+                    Some(obj) if obj.starts_with('{') => top_level(inside(obj, '{', '}'))
+                        .iter()
+                        .map(|k| k.split(':').next().unwrap().trim().to_string())
+                        .map(|k| {
+                            k.chars()
+                                .flat_map(|c| {
+                                    if c.is_ascii_uppercase() {
+                                        vec!['_', c.to_ascii_lowercase()]
+                                    } else {
+                                        vec![c]
+                                    }
+                                })
+                                .collect()
+                        })
+                        .collect(),
+                    _ => vec![],
+                };
+                let command = all.iter().find(|c| c.name == name);
+                assert!(command.is_some(), "{page} calls {name}, which Rust does not have");
+                let mut want = command.unwrap().params.clone();
+                let mut got = keys.clone();
+                want.sort();
+                got.sort();
+                assert_eq!(got, want, "{page} calls {name} with other arguments than Rust takes");
+                seen += 1;
+                rest = &after[name.len()..];
+            }
+        }
+    }
+    assert!(seen >= 15, "only {seen} calls found");
 }
 
 // Every plain (not async) page command runs inside Tauri's plugin lock and must say so.
@@ -660,6 +755,24 @@ fn every_plain_command_marks_the_lock() {
         assert!(
             c.body[1..].trim_start().starts_with("let _locked = windows::InPlugin::enter();"),
             "the command {} does not start by marking Tauri's lock",
+            c.name
+        );
+    }
+}
+
+// An async command that changes tabs (dragging one out, moving one to a new
+// window) sends the app's hook to its worker, like a plain command.
+#[test]
+fn every_async_command_that_moves_tabs_defers_the_hook() {
+    let moving: Vec<_> = commands()
+        .into_iter()
+        .filter(|c| c.is_async && (c.body.contains("drag::") || c.body.contains("windows::move_to_new_window")))
+        .collect();
+    assert!(moving.len() >= 2, "only {} such commands found", moving.len());
+    for c in moving {
+        assert!(
+            c.body[1..].trim_start().starts_with("let _later = windows::DeferHook::enter();"),
+            "the command {} does not start by deferring the hook",
             c.name
         );
     }
@@ -744,7 +857,8 @@ fn quitting_waits_for_the_last_hook_calls() {
         app.handle(),
         windows::Kind::Hook,
         Box::new(move |_| {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            // A little work, well inside the half second a quit waits (a busy machine has room).
+            std::thread::sleep(std::time::Duration::from_millis(20));
             d.fetch_add(1, Ordering::SeqCst);
         }),
     );
@@ -770,7 +884,8 @@ fn quitting_waits_half_a_second_at_most() {
     windows::after_event(app.handle(), |app| {
         let _ = app.tabs().new_window();
     });
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Every job done (or dropped) before looking: no window opened.
+    windows::settle(app.handle(), std::time::Duration::from_secs(3));
     assert_eq!(app.tabs().window_count(), 1, "a window opened while quitting");
 }
 
@@ -977,8 +1092,8 @@ fn a_window_still_opening_takes_no_tab() {
     assert_eq!(windows::add_tab(app.handle(), &label, NewTab::new("Late"), false), None);
 }
 
-// A tab opened while another thread restores the windows waits for the first
-// of them, rather than opening a window of its own.
+// A tab opened while another thread restores the windows waits for all of
+// them and goes in the front one, rather than opening a window of its own.
 #[test]
 fn a_tab_opened_during_a_restore_goes_to_the_restored_window() {
     let app = app(quiet());
@@ -986,12 +1101,128 @@ fn a_tab_opened_during_a_restore_goes_to_the_restored_window() {
     let handle = app.handle().clone();
     let restorer = std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(100));
-        windows::create_window(&handle, vec![NewTab::new("Restored")], None, true).unwrap();
+        windows::create_window(&handle, vec![NewTab::new("Behind")], None, false).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        windows::create_window(&handle, vec![NewTab::new("Front")], None, true).unwrap();
         windows::inner(&handle).restoring.store(false, Ordering::SeqCst);
     });
     app.tabs().open(NewTab::new("Late")).unwrap();
     restorer.join().unwrap();
-    assert_eq!(titles(&app), [["Restored", "Late"]]);
+    assert_eq!(titles(&app), [vec!["Behind"], vec!["Front", "Late"]]);
+}
+
+// ⌘N with no window open: the remembered windows come back behind the new
+// one, so the next save does not remember the new window alone.
+#[test]
+fn a_new_window_with_none_open_brings_back_the_remembered_ones() {
+    let file = temp_file("new-window");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    app.tabs().open(NewTab::new("Users")).unwrap();
+    windows::forget_window(app.handle(), "tabs-1"); // the last window closed
+    assert_eq!(app.tabs().window_count(), 0);
+    let label = app.tabs().new_window().unwrap();
+    assert_eq!(titles(&app), [vec!["Home", "Users"], vec!["Home"]]);
+    assert_eq!(app.tabs().frontmost(), Some(label));
+}
+
+// A window whose close went ahead takes no new tab: it would go with it.
+#[test]
+fn a_window_about_to_close_takes_no_new_tab() {
+    let app = app(quiet());
+    app.tabs().start().unwrap();
+    let second = app.tabs().new_window().unwrap();
+    assert!(!windows::ask_before_window_closes(app.handle(), &second));
+    assert_eq!(app.tabs().frontmost().as_deref(), Some("tabs-1"));
+    assert_eq!(app.tabs().open_in(&second, NewTab::new("Late")), None);
+    app.tabs().open(NewTab::new("Late")).unwrap();
+    assert_eq!(titles(&app), [vec!["Home", "Late"], vec!["Home"]]);
+    // Focused again: the app kept it open after all.
+    windows::bring_to_front(app.handle(), &second);
+    assert_eq!(app.tabs().frontmost(), Some(second));
+}
+
+// The save made when the last window closes failed: it is tried again as
+// one, with that window still in it.
+#[test]
+fn a_failed_save_of_the_last_window_is_tried_again_with_it() {
+    let file = temp_file("retry-now");
+    std::fs::create_dir_all(&file).unwrap(); // writing the file fails
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    app.tabs().open(NewTab::new("Users")).unwrap();
+    windows::forget_window(app.handle(), "tabs-1");
+    assert!(file.is_dir());
+    std::fs::remove_dir(&file).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(700)); // longer than a quit takes
+    persist::save(app.handle(), false);
+    let text = std::fs::read_to_string(&file).expect("the save was not tried again");
+    assert!(text.contains("Users"), "{text}");
+}
+
+// Closing the last tab forgets the copies kept aside too: they hold titles.
+#[test]
+fn forgetting_the_layout_removes_the_copies_kept_aside() {
+    let file = temp_file("forget-aside");
+    for aside in ["unopened", "unreadable"] {
+        std::fs::write(file.with_extension(aside), "[]").unwrap();
+    }
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    persist::save(app.handle(), true);
+    let only = app.tabs().windows()[0].tabs[0].id;
+    app.tabs().close_tab(only);
+    assert!(!file.exists());
+    assert!(!file.with_extension("unopened").exists() && !file.with_extension("unreadable").exists());
+}
+
+// Where each window sits is saved with it (the test runtime knows no
+// screens, so only the saving is checked here).
+#[test]
+fn a_frame_is_saved_with_its_window() {
+    let file = temp_file("frame");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    let frame = crate::model::Frame { x: 40.0, y: 60.0, width: 900.0, height: 700.0, maximized: true };
+    if let Some(w) = windows::inner(app.handle()).model().win("tabs-1") {
+        w.frame = Some(frame);
+    }
+    app.tabs().open(NewTab::new("More")).unwrap();
+    persist::save(app.handle(), true);
+    let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(saved[0]["frame"]["width"], 900.0);
+    assert_eq!(saved[0]["frame"]["maximized"], true);
+}
+
+// A window the hook closes (by closing its last tab) is reported to the hook
+// once it is done.
+#[test]
+fn a_window_the_hook_closes_is_reported_to_it() {
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let close = Arc::new(std::sync::Mutex::new(None::<u64>));
+    let (c, x) = (calls.clone(), close.clone());
+    let app = app(quiet().on_change(move |app, label| {
+        let count = app.tabs().windows().iter().find(|w| w.label == label).map_or(0, |w| w.tabs.len());
+        c.lock().unwrap().push((label.to_string(), count));
+        let take = x.lock().unwrap().take();
+        if let Some(id) = take {
+            app.tabs().close_tab(id);
+        }
+    }));
+    app.tabs().start().unwrap();
+    let second = app.tabs().new_window().unwrap();
+    windows::settle(app.handle(), std::time::Duration::from_secs(2));
+    let lone = app.tabs().windows().iter().find(|w| w.label == second).unwrap().tabs[0].id;
+    *close.lock().unwrap() = Some(lone);
+    let home = app.tabs().windows()[0].tabs[0].id;
+    calls.lock().unwrap().clear();
+    app.tabs().update_tab(home, "Home 2", Fields::new());
+    windows::settle(app.handle(), std::time::Duration::from_secs(2));
+    assert_eq!(*calls.lock().unwrap(), [("tabs-1".to_string(), 1), (second, 0)]);
 }
 
 // Debug builds stop a window opened inside Tauri's plugin lock at once.

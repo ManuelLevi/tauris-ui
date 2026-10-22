@@ -137,7 +137,10 @@ impl<R: Runtime> Config<R> {
     /// worker); several changes to one window while its call waits make one
     /// call, at the place of the newest. It may use `app.tabs()`.
     /// Changes it makes directly do not call it again; a window it closes is
-    /// reported once that window is gone.
+    /// reported once the hook is done. Other plugins' callbacks (deep-link's
+    /// `on_open_url`, for one) can run inside that same lock: call
+    /// `app.tabs()` from a thread of your own there, or a window that opens
+    /// freezes the app.
     pub fn on_change(mut self, hook: impl Fn(&AppHandle<R>, &str) + Send + Sync + 'static) -> Self {
         self.on_change = Some(Arc::new(hook));
         self

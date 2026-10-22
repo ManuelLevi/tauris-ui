@@ -229,13 +229,19 @@ impl<R: Runtime> Tabs<R> {
         persist::restore(&self.0)
     }
 
-    /// A new window with the app's starting tab. Returns its label.
+    /// A new window with the app's starting tab (⌘N). Returns its label.
+    /// With no window open, the remembered ones come back first, behind it.
     pub fn new_window(&self) -> tauri::Result<String> {
         self.new_window_with(windows::default_tab(&self.0))
     }
 
-    /// A new window with this tab. Returns its label.
+    /// A new window with this tab. Returns its label. With no window open, the
+    /// remembered ones come back first, behind it (else the next save would
+    /// remember this window alone).
     pub fn new_window_with(&self, tab: NewTab) -> tauri::Result<String> {
+        if windows::window_count(&self.0) == 0 {
+            persist::restore_saved(&self.0);
+        }
         let (label, _) = windows::create_window(&self.0, vec![tab], None, true)?;
         Ok(label)
     }
@@ -246,7 +252,9 @@ impl<R: Runtime> Tabs<R> {
         windows::open_or_focus(&self.0, windows::default_tab(&self.0), &|_| false)
     }
 
-    /// A new tab at the end of the frontmost window (a window opens if none is).
+    /// A new tab at the end of the frontmost window. With no window open, the
+    /// remembered ones come back first and it goes in the front one (or in a
+    /// new window, when none is remembered).
     pub fn open(&self, tab: NewTab) -> tauri::Result<u64> {
         windows::open_or_focus(&self.0, tab, &|_| false)
     }
@@ -277,7 +285,8 @@ impl<R: Runtime> Tabs<R> {
     }
 
     /// Closes a tab at once, wherever it is, without asking the page. A window
-    /// left with no tabs closes.
+    /// left with no tabs closes; when it was the last tab of all, the
+    /// remembered layout is forgotten too, as when the user closes it.
     pub fn close_tab(&self, tab: u64) {
         if let Some(label) = windows::label_of_tab(&self.0, tab) {
             windows::remove_tab(&self.0, &label, tab);
@@ -303,19 +312,20 @@ impl<R: Runtime> Tabs<R> {
     }
 
     /// A new tab at the end of window `label`, made active. None when there
-    /// is no such window of tabs.
+    /// is no such window of tabs, or it is still opening or about to close.
     pub fn open_in(&self, label: &str, tab: NewTab) -> Option<u64> {
         windows::add_tab(&self.0, label, tab, false)
     }
 
     /// Every window of tabs, the most recently focused last (it may be one still
-    /// opening, or the one a tab is being dragged in; [`frontmost`](Self::frontmost) skips those).
+    /// opening, about to close, or the one a tab is being dragged in;
+    /// [`frontmost`](Self::frontmost) skips those).
     pub fn windows(&self) -> Vec<WindowTabs> {
         windows::all_windows(&self.0)
     }
 
-    /// The label of the most recently focused window of tabs (never the one a
-    /// tab is being dragged in).
+    /// The label of the most recently focused window of tabs (never one still
+    /// opening, about to close, or the one a tab is being dragged in).
     pub fn frontmost(&self) -> Option<String> {
         windows::frontmost(&self.0)
     }
@@ -327,7 +337,8 @@ impl<R: Runtime> Tabs<R> {
 
     /// Takes a tab out of its window into a new window of its own (the menu's
     /// "Move to new window"; works on every system). Returns the new window's
-    /// label, or None when there is no such tab.
+    /// label (the tab's own window's, when it is alone there), or None when
+    /// there is no such tab.
     pub fn move_to_new_window(&self, tab: u64) -> tauri::Result<Option<String>> {
         windows::move_to_new_window(&self.0, tab)
     }

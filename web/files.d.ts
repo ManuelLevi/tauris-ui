@@ -3,7 +3,8 @@
 
 declare global {
   /** A file as the component shows it. Keep your own fields on it too: every
-   * callback gets your object back. */
+   * callback gets your object back (after a rename, until you give the list
+   * again, a copy of it with the new name). */
   interface TaurisFile {
     id: string | number;
     name: string;
@@ -39,6 +40,8 @@ declare global {
     delete: string;
     cancel: string;
     count: (n: number) => string;
+    /** While a search hides some files: "2 of 5 files" by default (made with `count`). */
+    countShown?: (shown: number, total: number) => string;
     list: (place: string) => string;
     pickTitle: (place: string) => string;
     emptyTitle: string | ((place: string) => string);

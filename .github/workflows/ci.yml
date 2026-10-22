@@ -66,22 +66,29 @@ jobs:
         working-directory: test/freeze_check
         run: cargo run
 
+  # Without a lockfile, the newest dependencies that still build on 1.90 (a
+  # dependency raising its own minimum does not break this check).
   minimum-rust:
     runs-on: macos-latest
+    env:
+      CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.90
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build
+      - run: cargo build && cargo build --features files
 
   page:
     runs-on: ubuntu-latest
+    env:
+      TAURIS_TEST_CHROMIUM: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install playwright==1.48.0 pillow && python -m playwright install --with-deps chrome
+      # The Chromium that comes with this Playwright: the same browser every day.
+      - run: pip install playwright==1.48.0 pillow && python -m playwright install --with-deps chromium
       - run: python test/run.py
       - run: python test/tree_run.py
       - run: python test/terminal_run.py

@@ -6,6 +6,8 @@ Exits non-zero when a check fails. With a folder, it saves screenshots at 2x:
 the demo in dark and light mode, and close-ups of the connectors and boxes.
 """
 import io
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -97,7 +99,8 @@ def shot(page, name, clip=None, enlarge=0):
 
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(channel="chrome")
+    # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
+    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
 
     # ---------- screenshots ----------
     for scheme in ["dark", "light"]:
@@ -786,6 +789,116 @@ with sync_playwright() as p:
     page.evaluate("again.focus()")
     page.keyboard.press("ArrowDown")
     check("mount after destroy works, with number ids", page.evaluate("window.__picked") == "Archive")
+    page.close()
+
+    # ---------- an eighth review ----------
+    MINE = """(o) => { const host = document.createElement('div'); host.id = 'mine'; host.style.cssText = 'height:300px;width:640px'; document.body.prepend(host);
+      window.got = []; window.t = TaurisTree.mount(host, o); t.on('change', c => got.push([c.node.id, c.column, c.value])); return 0; }"""
+    ORDER = "[...document.querySelectorAll('#mine .tv-row')].sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top)).map(r => r.dataset.key)"
+    COLS = "[{ label: 'Name' }, { label: 'V', key: 'v', editable: true }]"
+    page = fresh(browser)
+    page.evaluate("window.build = () => ['a', 'b', 'c'].map(k => ({ id: k, label: k.toUpperCase(), values: { v: k } })); 0")
+    page.evaluate(f"(" + MINE + f")({{ columns: {COLS}, data: build() }}); t.on('change', () => t.setData(build())); 0")
+    page.click("#mine .tv-row[data-key=a] .tv-label")
+    page.keyboard.press("Enter")
+    page.keyboard.type("NEW")
+    page.click("#mine .tv-row[data-key=b] .tv-label")
+    on = page.evaluate("document.activeElement.dataset.key")
+    page.keyboard.press("ArrowDown")
+    check("a click on another row while editing, with the app redrawing on the save: the keys still work on the tree",
+          on == "b" and page.evaluate("t.selected()?.id") == "c", (on, page.evaluate("t.selected()?.id")))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("window.model = { a: 'x' }; window.build = () => [{ id: 'a', label: 'A', values: { v: model.a } }]; 0")
+    page.evaluate(f"(" + MINE + f")({{ columns: {COLS}, data: build() }}); t.on('change', c => {{ model[c.node.id] = c.value; }}); 0")
+    page.click("#mine .tv-row[data-key=a] .tv-label")
+    page.keyboard.press("Enter")
+    page.keyboard.type("NEW")
+    page.evaluate("t.setData(build()); 0")
+    check("setData during an edit: the value typed is saved and shown, in the new list's node",
+          page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']") == "NEW" and page.evaluate("model.a") == "NEW",
+          page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("(" + MINE + ")({ columns: [{ label: 'Name' }, { label: 'Title', key: 'title', editable: true }, { label: 'On', key: 'on', editable: true }],"
+                  " data: [{ id: 'a', label: 'A', values: { title: 'x', on: false } }] }); 0")
+    page.click("#mine .tv-row[data-key=a] .tv-label")
+    page.keyboard.press("Enter")
+    page.keyboard.press("Tab")
+    at = page.evaluate("[document.activeElement.getAttribute('role'), document.activeElement.getAttribute('aria-checked')]")
+    page.keyboard.press(" ")
+    after = page.evaluate("[document.activeElement.getAttribute('role'), document.activeElement.getAttribute('aria-checked')]")
+    page.keyboard.press("Tab")
+    check("Tab reaches a checkbox in a later column; Space flips it; Tab past it goes back to the row",
+          at == ["checkbox", "false"] and after == ["checkbox", "true"] and page.evaluate("got") == [["a", "on", True]]
+          and page.evaluate("document.activeElement.dataset.key") == "a", (at, after, page.evaluate("got")))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("(" + MINE + ")({ columns: [{ label: 'Name' }, { label: 'Level', key: 'level', editable: true }, { label: 'Enabled', key: 'enabled', editable: true },"
+                  " { label: 'Color', key: 'color', editable: true, editor: 'color' }],"
+                  " data: [{ id: 'a', label: 'A', values: { level: 'Info', enabled: true, color: '#ff0000' }, editor: { type: 'select', options: ['Info', 'Debug'] } },"
+                  " { id: 'b', label: 'B', values: { level: 'Info', enabled: false, color: '#00ff00' }, editor: { level: { type: 'select', options: ['Info', 'Debug'] } } }] }); 0")
+    kinds = page.evaluate("[...document.querySelectorAll('#mine .tv-row')].map(r => [...r.querySelectorAll('.tv-editable')].map(c => c.className.match(/tv-kind-(\\w+)/)[1]))")
+    check("a node's editor goes to the values it fits, or to the column it names; a column can have its own",
+          kinds == [["select", "checkbox", "color"], ["select", "checkbox", "color"]], kinds)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("(" + MINE + ")({ overscan: undefined, lines: undefined, label: undefined, styles: undefined, data: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] }); 0")
+    check("options given as undefined keep their defaults", page.locator("#mine .tv-row").count() == 2
+          and not page.evaluate("document.getElementById('mine').classList.contains('tv-nolines')")
+          and bool(page.evaluate("document.querySelector('#mine .tv-body').getAttribute('aria-label')")))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("(" + MINE + ")({ sortable: true, columns: [{ label: 'Name' }, { label: 'N', key: 'n', editable: true }],"
+                  " data: [{ id: 'a', label: 'A', values: { n: 1 } }, { id: 'b', label: 'B', values: { n: 2 } }, { id: 'c', label: 'C', values: { n: 3 } }] }); t.sort('n', true); 0")
+    page.click("#mine .tv-row[data-key=a] .tv-label")
+    page.keyboard.press("F2")
+    page.keyboard.type("9")
+    page.keyboard.press("Enter")
+    stayed = page.evaluate(ORDER)
+    page.evaluate("t.sort('n', true); 0")
+    check("an edit leaves its row in place; sort() in the same order sorts again", stayed == ["a", "b", "c"] and page.evaluate(ORDER) == ["b", "c", "a"],
+          (stayed, page.evaluate(ORDER)))
+    page.click("#mine .tv-row[data-key=b] .tv-label")
+    page.keyboard.press("F2")
+    page.keyboard.type("5")
+    page.evaluate("t.destroy(); 0")
+    check("destroy() keeps a value being typed (a change, as setData does)", ["b", "n", 5] in page.evaluate("got"), page.evaluate("got"))
+    page.close()
+
+    # As the plugin delivers it: the stylesheet adopted, after the app's own.
+    page = browser.new_page(viewport=SIZE, device_scale_factor=SCALE, color_scheme="dark")
+    page.on("pageerror", lambda e: failures.append(f"page error: {e}") or print("PAGEERROR", e))
+    page.add_init_script((HERE.parent / "web" / "tree.js").read_text().replace('"__TAURIS_TREE_CSS__"', json.dumps((HERE.parent / "web" / "tree.css").read_text())))
+    page.goto((HERE / "page.html").as_uri())
+    page.add_style_tag(content="input:focus, select:focus { border-color: #396cd8; box-shadow: 0 0 0 3px rgb(57 108 216 / 0.4); outline: 4px auto blue; }")
+    page.evaluate(f"(" + MINE + f")({{ columns: {COLS}, data: [{{ id: 'a', label: 'A', values: {{ v: 'x' }} }}] }}); 0")
+    page.click("#mine .tv-row[data-key=a] .tv-label")
+    page.keyboard.press("Enter")
+    look = page.evaluate("(() => { const c = getComputedStyle(document.querySelector('#mine .tv-editor')); return [c.boxShadow, c.outlineStyle, c.borderTopColor]; })()")
+    focus_line = page.evaluate("getComputedStyle(document.getElementById('mine')).getPropertyValue('--tv-focus').trim()")
+    check("an app's input:focus rule does not reach the tree's editor", look[0] == "none" and look[1] == "none" and look[2] != "rgb(57, 108, 216)", (look, focus_line))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("(" + MINE + ")({ data: [{ id: 'a', label: 'A', children: [{ id: 'b', label: 'B' }] }] }); t.select('a'); 0")
+    page.evaluate("document.getElementById('mine').style.cssText += ';--tv-sel-bg:#ffd84d;--tv-sel-fg:#111111'; 0")
+    page.click("#mine .tv-row[data-key=a] .tv-label")
+    line = page.evaluate("getComputedStyle(document.querySelector('#mine .tv-row[data-key=a]')).getPropertyValue('--tv-line')")
+    check("colours set on the tree's element reach the lines on a selected row", "0.0666" in line or "17 17 17" in line or "#111111" in line, line)
+    page.evaluate("document.getElementById('mine').style.removeProperty('--tv-sel-bg'); document.getElementById('mine').style.removeProperty('--tv-sel-fg'); document.activeElement.blur(); 0")
+    bar = page.evaluate("getComputedStyle(document.querySelector('#mine .tv-row[data-key=a]')).boxShadow")
+    check("dark: a selection without the focus has a bar that shows (3:1 on its row)", bar.startswith("rgb(91, 140, 255)"), bar)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("(" + MINE + ")({ lines: false, data: [{ id: 'a', label: 'A', children: [{ id: 'b', label: 'B' }] }] }); 0")
+    check("lines: false draws no connector lines", page.evaluate("document.getElementById('mine').classList.contains('tv-nolines')"))
     page.close()
 
     # ---------- light mode ----------

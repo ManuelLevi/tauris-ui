@@ -6,6 +6,7 @@ Exits non-zero when a check fails. With a folder, it saves screenshots at 2x:
 the demo in light and dark, files hovering, adding, and the delete question.
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -118,7 +119,8 @@ def shot(page, name):
 
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(channel="chrome")
+    # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
+    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
 
     # ---------- the look ----------
     page = fresh(browser)
@@ -218,7 +220,8 @@ with sync_playwright() as p:
           names(page)[0] == "Brand assets.zip" and page.evaluate("document.activeElement.closest('.tf-th')?.dataset.col") == "name")
     page.fill(".tf-q", "PL")
     check("search: only the names that contain it, any case", names(page) == ["Launch plan.pptx"], names(page))
-    check("search: the count still tells the whole place", page.inner_text(".tf-sub") == "Documents · 8 files · 187.6 MB")
+    check("search: the count says how many of the place's files show, and their size",
+          page.inner_text(".tf-sub").startswith("Documents · 1 of 8 files · ") and "187.6 MB" not in page.inner_text(".tf-sub"), page.inner_text(".tf-sub"))
     page.fill(".tf-q", "zzz")
     check("search: no match says so", page.inner_text(".tf-nomatch-text") == "No files match “zzz”." and page.locator(".tf-file").count() == 0)
     page.click(".tf-nomatch .tf-clear")
@@ -763,11 +766,12 @@ with sync_playwright() as p:
     page.wait_for_timeout(100)
     check("holding Enter in the rename field asks the app once", page.evaluate("tries") == 1, page.evaluate("tries"))
     page.keyboard.press("Escape")
-    page.fill(".tf-q", "report")
-    page.evaluate("demo.files.setFiles([{ id: 'r', name: 'report.pdf' }]); demo.files.update({ multiple: true }); demo.files.addPaths(['/x/b.txt', '/x/report2.pdf']); 0")
-    page.wait_for_timeout(500)
+    page.fill(".tf-q", "plan")
+    page.evaluate("demo.files.update({ multiple: true }); demo.files.addPaths(['/x/b.txt', '/x/plan2.pdf']); 0")
+    page.wait_for_timeout(700)
     check("files added while a search is on: the focus is on one that is shown",
-          page.evaluate("document.querySelector('.tf-file.tf-focused .tf-c-name')?.textContent") == "report2.pdf")
+          page.evaluate("document.querySelector('.tf-file.tf-focused .tf-c-name')?.textContent") == "plan2.pdf",
+          page.evaluate("document.querySelector('.tf-file.tf-focused .tf-c-name')?.textContent"))
     page.close()
 
     page = fresh(browser)
@@ -1147,6 +1151,136 @@ with sync_playwright() as p:
           and page.locator(".tf-file").count() == 3 and page.is_visible(".tmn-menu")
           and page.evaluate("getComputedStyle(document.querySelector('.tf-seg i:nth-child(3)')).animationDelay") == "0.12s")
     check("strict policy: no console errors and nothing refused", not errors and page.evaluate("__csp") == [], (errors, page.evaluate("__csp")))
+    page.close()
+
+    # ---------- an eighth review: a place switched while something is under way ----------
+    MOUNT = """(opts) => { const host = document.createElement('div'); host.style.height = '400px'; document.body.prepend(host);
+      const files = w => ['Plan.docx', 'Budget.xlsx', 'Notes.md'].map(n => ({ id: n, name: n, where: w, size: 1000 }));
+      window.A = files('A'); window.B = files('B'); window.log = [];
+      window.wait = ms => new Promise(r => setTimeout(r, ms));
+      window.v = TaurisFiles.mount(host, { title: 'A', files: A, multiple: true, ...opts }); return 0; }"""
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.update({ confirmDelete: false, onDelete: async f => { log.push(f.where + '/' + f.name); await wait(60); } }); v.selectAll(); v.focus(); 0")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(20)
+    page.evaluate("v.update({ title: 'B', files: B }); 0")
+    page.wait_for_timeout(400)
+    got = page.evaluate("log")
+    check("several files being deleted, then another place shown: none of its files is deleted",
+          got and all(g.startswith("A/") for g in got) and len(page.evaluate("v.files()")) == 3, got)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.update({ onRename: async (f, n) => { log.push(f.where + '/' + f.name); } }); v.rename('Plan.docx'); 0")
+    page.keyboard.type("Plan 2")
+    page.evaluate("v.update({ title: 'B', files: B }); 0")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(100)
+    check("a rename open when another place is shown ends, and renames nothing", page.evaluate("log") == [] and page.locator(".tf-rename").count() == 0,
+          page.evaluate("log"))
+    page.evaluate("v.update({ title: 'A', files: A, onDelete: async f => { log.push(f.where + '/' + f.name); } }); v.remove('Plan.docx'); 0")
+    page.wait_for_selector(".tf-veil:not([hidden])")
+    page.evaluate("v.update({ title: 'B', files: B }); 0")
+    check("the delete question closes when another place is shown", page.is_hidden(".tf-veil"))
+    page.wait_for_timeout(50)
+    check("and deletes nothing", page.evaluate("log") == [], page.evaluate("log"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("""v.update({ onAdd: async p => { log.push('A:' + p.map(x => x.split('/').pop())); await wait(150); return p.map(x => ({ id: 'n-' + x, name: x.split('/').pop() })); } });
+      v.addPaths(['/x/one.pdf']); v.addPaths(['/x/two.pdf']);
+      setTimeout(() => v.update({ title: 'B', files: B, onAdd: async p => { log.push('B:' + p); return []; } }), 40); 0""")
+    page.wait_for_timeout(700)
+    check("drops wait their turn, but go where they were dropped, and do not join the next place's list",
+          page.evaluate("log") == ["A:one.pdf", "A:two.pdf"] and page.evaluate("v.files().map(f => f.where)") == ["B", "B", "B"],
+          (page.evaluate("log"), page.evaluate("v.files().map(f => f.name)")))
+    page.evaluate("v.update({ onAdd: async p => { log.push('C:' + p); await wait(100); return []; } }); log.length = 0; v.addPaths(['/x/a.pdf']); v.addPaths(['/x/b.pdf']); v.destroy(); 0")
+    page.wait_for_timeout(400)
+    check("a drop still waiting when the component is removed is not sent", len(page.evaluate("log")) <= 1, page.evaluate("log"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.update({ confirmDelete: false, onDelete: async f => { log.push(f.name); await wait(60); } }); v.selectAll(); v.focus(); 0")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(90)
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(500)
+    got = page.evaluate("log")
+    check("Delete again while several files go deletes each of them once", sorted(got) == ["Budget.xlsx", "Notes.md", "Plan.docx"], got)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("const n = document.createElement('input'); n.id = 'notes'; document.body.append(n); v.update({ onDelete: async () => { await wait(150); } }); v.select('Plan.docx'); v.focus(); 0")
+    page.keyboard.press("Delete")
+    page.keyboard.press("Tab")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(30)
+    page.focus("#notes")
+    page.wait_for_timeout(300)
+    check("a delete that ends after the person went to a field of the app's leaves the focus there",
+          page.evaluate("document.activeElement.id") == "notes", page.evaluate("document.activeElement.className"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.select('Plan.docx'); const h = document.querySelector('.tf'); h.style.setProperty('--tf-sel-fg', '#111111'); h.style.setProperty('--tf-accent-ink', '#b34700'); v.focus(); 0")
+    edge = page.evaluate("getComputedStyle(document.querySelector('.tf .tf-file[aria-selected=true] .tf-kind')).borderTopColor")
+    halo = page.evaluate("getComputedStyle(document.querySelector('.tf .tf-panel')).boxShadow")
+    check("colours set on the component's element reach the edges and the focus halo worked out from them",
+          ("17, 17, 17" in edge or "0.0666" in edge) and ("179, 71, 0" in halo or "0.70" in halo), (edge, halo))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.select(['Plan.docx', 'Budget.xlsx']); v.focus(); 0")
+    page.keyboard.press("ControlOrMeta+ArrowDown")
+    page.evaluate("v.update({ multiple: false }); 0")
+    sel = page.evaluate("v.selection().map(f => f.name)")
+    check("turning multiple off keeps a selected file, not one that only had the focus", len(sel) == 1 and sel[0] in ("Plan.docx", "Budget.xlsx"), sel)
+    page.evaluate("v.search('Plan'); v.select('Notes.md'); 0")
+    check("select() of a file the search hides shows it (the search is cleared)",
+          page.evaluate("v.selected()?.name") == "Notes.md" and page.input_value(".tf-q") == "", page.evaluate("v.selected()?.name"))
+    page.evaluate("window.seen = []; v.update({ onSelect: f => seen.push(f && f.note) }); v.setFiles(A.map(f => ({ ...f, note: 'new' }))); 0")
+    check("new objects for the selected file reach onSelect (the app's own fields may have changed)", page.evaluate("seen").count("new") == 1,
+          page.evaluate("seen"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.update({ onOpen: async () => {}, onRename: async () => {}, onDelete: async () => {}, onSaveAs: async () => {} }); 0")
+    cdp = page.context.new_cdp_session(page)
+    tree = cdp.send("Accessibility.getFullAXTree")["nodes"]
+    row_names = [n["name"]["value"] for n in tree if n.get("role", {}).get("value") == "row" and n.get("name", {}).get("value", "").startswith("Budget")]
+    check("a row is named by what it shows, not by its buttons too", row_names and all("Open" not in r and "Rename" not in r for r in row_names), row_names)
+    live = page.evaluate("[document.querySelector('.tf-live')].map(n => [n.getAttribute('role'), n.hidden, n.textContent])")
+    page.evaluate("v.search('zzz'); 0")
+    check("the region a screen reader hears is there before it speaks, then says the search found nothing",
+          live == [["status", False, ""]] and page.evaluate("document.querySelector('.tf-live').textContent") == "No files match “zzz”.",
+          (live, page.evaluate("document.querySelector('.tf-live').textContent")))
+    page.evaluate("v.search(''); v.select(['Plan.docx', 'Budget.xlsx', 'Notes.md']); v.focus(); 0")
+    page.keyboard.press("Shift+F10")
+    check("the row menu for several files is named for all of them",
+          page.evaluate("document.querySelector('.tmn-menu')?.getAttribute('aria-label')") == "3 files",
+          page.evaluate("document.querySelector('.tmn-menu')?.getAttribute('aria-label')"))
+    page.keyboard.press("Escape")
+    page.evaluate("v.setFiles([{ id: 1, name: 'Anexo.pdf' }, { id: 2, name: 'João notes.pdf' }, { id: 3, name: 'Łódź.pdf' }, { id: 4, name: 'Mało.pdf' }]); v.focus(); 0")
+    typed = page.evaluate("""() => { const g = document.querySelector('.tf-list'); const k = key => g.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      k('j'); k('o'); k('Dead'); k('ã'); const one = v.selected()?.name; k('Escape');
+      return new Promise(r => setTimeout(() => { k('m'); k('a'); k('AltGraph'); k('ł'); r([one, v.selected()?.name]); }, 800)); }""")
+    check("typing a name with an accent key or AltGr on the way still finds it", typed == ["João notes.pdf", "Mało.pdf"], typed)
+    # Hidden, so only the component's own work is timed (not the browser drawing 20,000 rows).
+    many = page.evaluate("""() => { const all = Array.from({ length: 20000 }, (_, i) => ({ id: i, name: 'File ' + i + '.pdf', size: i }));
+      const host = document.createElement('div'); host.style.display = 'none'; document.body.append(host);
+      const w = TaurisFiles.mount(host, { multiple: true, files: all });
+      const t = performance.now(); w.select(all.map(f => f.id)); const took = performance.now() - t; w.destroy(); return took; }""")
+    check("selecting 20,000 files by id takes one pass, not one per file", many < 300, many)
+    again = page.evaluate("""() => { const first = document.querySelector('.tf-file'); v.search('File 1'); v.search(''); return document.querySelector('.tf-file') === first; }""")
+    check("a search keeps the rows that were drawn (only what changed is drawn again)", again)
     page.close()
 
     # ---------- a delete question and the light look, side by side with dark ----------

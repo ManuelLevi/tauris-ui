@@ -63,7 +63,9 @@
         const command = name.replace("plugin:tauris-ui|", "");
         window.__calls.push([command, args]);
         if (window.__deny) throw `${name} not allowed. Plugin not found or not allowed by ACL`;
-        const result = commands[command]?.(args);
+        // Like Tauri: a command the plugin does not have fails.
+        if (!commands[command]) throw `command ${command} not found`;
+        const result = commands[command](args);
         // window.__slow[command] = ms delays that command's answer (to test answers arriving out of order).
         const wait = window.__slow?.[command];
         if (wait) await new Promise(r => setTimeout(r, wait));

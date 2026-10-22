@@ -21,7 +21,8 @@ declare global {
     /** folder, file, code, doc, data, image, package, lock, or a name from `icons`. */
     icon?: string;
     values?: Partial<V>;
-    editor?: TaurisTreeEditor;
+    /** One editor for every value it fits, or one per column, by key. */
+    editor?: TaurisTreeEditor | { [K in keyof V & string]?: TaurisTreeEditor };
     readOnly?: boolean;
     /** Open when the node first comes (in mount or setData); after that the person opens and closes it. */
     expanded?: boolean;
@@ -34,6 +35,8 @@ declare global {
     key?: keyof V & string;
     minWidth?: number;
     editable?: boolean;
+    /** How this column's values are edited (a node's own editor comes first). */
+    editor?: TaurisTreeEditor;
     align?: "left" | "right" | "center";
     className?: string;
     /** false: a click on this header never sorts (when the tree sorts). */
@@ -112,13 +115,14 @@ declare global {
     widths(): number[];
     /** Sets the columns' widths (pixels, in column order; null keeps one as it is). */
     setWidths(widths: (number | null)[]): void;
-    /** Sorts by a column (up: true for A to Z); null goes back to the data's own order. False for a column that cannot sort. */
+    /** Sorts by a column (up: true for A to Z); null goes back to the data's own order. In the order already in place it
+     * sorts again (rows edited since move). False for a column that cannot sort. */
     sort(key: string | null, up?: boolean): boolean;
     /** The order now, or null for the data's own order. */
     sorting(): TaurisTreeSort | null;
     /** Returns a function that stops listening. */
     on<K extends keyof TaurisTreeEvents<V>>(event: K, fn: (payload: TaurisTreeEvents<V>[K]) => void): () => void;
-    /** Removes the tree and every listener; mount can then be called again. */
+    /** Removes the tree and every listener (a value being typed is kept first: a "change"); mount can then be called again. */
     destroy(): void;
   }
 

@@ -96,6 +96,8 @@ pub(crate) struct Win {
     pub close_seen: bool,
     // Recorded, but its window is not open yet: nothing else is put in it.
     pub opening: bool,
+    // Its close went ahead and it is about to go: nothing new is put in it.
+    pub leaving: bool,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -192,6 +194,7 @@ impl Model {
             close_asked_at: None,
             close_seen: false,
             opening: true,
+            leaving: false,
         });
         self.changed();
         label
@@ -267,11 +270,16 @@ impl Model {
     }
 
     // The most recently focused window, leaving out the one a tab is being
-    // dragged in (what opens meanwhile must not ride away with the drag) and
-    // one still opening (it may fail, and take what was put in it along).
+    // dragged in (what opens meanwhile must not ride away with the drag), one
+    // still opening (it may fail, and take what was put in it along) and one
+    // about to close.
     pub fn frontmost(&self) -> Option<String> {
         let dragged = self.drag.as_ref().map(|d| d.window.as_str());
-        self.wins.iter().rev().find(|w| !w.opening && Some(w.label.as_str()) != dragged).map(|w| w.label.clone())
+        self.wins
+            .iter()
+            .rev()
+            .find(|w| !w.opening && !w.leaving && Some(w.label.as_str()) != dragged)
+            .map(|w| w.label.clone())
     }
 
     // Takes a window out of the open windows (it is going away), returning the

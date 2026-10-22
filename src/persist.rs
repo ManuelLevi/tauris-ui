@@ -139,6 +139,11 @@ fn open_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
             Err(_) => inner(app).model().remove_win(&label),
         }
     }
+    // The file's windows are back: a save at once still to be tried again
+    // would add the ones that closed to them a second time.
+    if opened > 0 {
+        inner(app).retry_now.store(false, Ordering::SeqCst);
+    }
     // Remembered windows that could not open are kept aside, not lost when the
     // windows that did open are saved.
     if opened == 0 && count > 0 {
@@ -150,7 +155,11 @@ fn open_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
 }
 
 fn on_screen<R: Runtime>(app: &AppHandle<R>, f: &Frame) -> bool {
+    // No screens known (some systems report none): nothing is off one.
     let Ok(monitors) = app.available_monitors() else { return true };
+    if monitors.is_empty() {
+        return true;
+    }
     monitors.iter().any(|m| {
         let (p, s) = (m.position().to_logical::<f64>(m.scale_factor()), m.size().to_logical::<f64>(m.scale_factor()));
         f.x + 40.0 >= p.x && f.x + 40.0 <= p.x + s.width && f.y + 10.0 >= p.y && f.y + 10.0 <= p.y + s.height
@@ -170,9 +179,13 @@ pub(crate) fn forget<R: Runtime>(app: &AppHandle<R>) {
         }
         m.saved();
         m.closing.clear();
+        state.retry_now.store(false, Ordering::SeqCst);
     }
+    // The copies kept aside go too: they hold tab titles as well.
     if let Some(file) = layout_file(app) {
-        let _ = fs::remove_file(file);
+        for f in [file.with_extension("unopened"), file.with_extension("unreadable"), file] {
+            let _ = fs::remove_file(f);
+        }
     }
 }
 
@@ -182,10 +195,16 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
     let state = inner(app);
     // One save at a time, from deciding what to write to the file being in place.
     let _writing = state.save_lock();
+    // A save at once that failed is tried again as one, windows closed then included.
+    let retry = state.retry_now.load(Ordering::SeqCst);
+    let now = now || retry;
     let saved: Vec<SavedWin> = {
         let mut m = state.model();
-        // Windows closed longer ago than a quit takes are of no use to any save.
-        m.closing.retain(|c| c.at.elapsed() < QUIT_BURST);
+        // Windows closed longer ago than a quit takes are of no use to any
+        // save (but to the retry of the one that was due when they closed).
+        if !retry {
+            m.closing.retain(|c| c.at.elapsed() < QUIT_BURST);
+        }
         let due = match (m.changed_at, m.unsaved_since) {
             (Some(last), Some(first)) => now || last.elapsed() >= state.config.settle || first.elapsed() >= MAX_WAIT,
             _ => false,
@@ -195,6 +214,7 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
             return;
         }
         m.saved();
+        state.retry_now.store(false, Ordering::SeqCst);
         // Windows closed a moment ago are kept only by a save at once (the app
         // quitting closes them one by one); a save after a pause leaves them out.
         let just_closed = m.closing.iter().filter(|_| now).map(|c| SavedWin {
@@ -217,9 +237,11 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
     if let Some(dir) = file.parent() {
         let _ = fs::create_dir_all(dir);
     }
-    // Written aside then moved over, so a crash never leaves half a file.
-    // Readable by the owner only: tab titles can be people's names.
-    let tmp = file.with_extension("json.tmp");
+    // Written aside then moved over, so a crash never leaves half a file, and
+    // on the disk before the move, so a power cut never leaves an empty one.
+    // Readable by the owner only: tab titles can be people's names. The name
+    // aside is this process's own: two copies of the app never write one file.
+    let tmp = file.with_extension(format!("json.{}.tmp", std::process::id()));
     let written = {
         use std::io::Write;
         let mut options = fs::OpenOptions::new();
@@ -229,13 +251,26 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        options.open(&tmp).and_then(|mut f| f.write_all(text.as_bytes()))
+        options.open(&tmp).and_then(|mut f| {
+            f.write_all(text.as_bytes())?;
+            f.sync_all()
+        })
     };
-    // Not written: the changes stay unsaved, so the next round tries again,
-    // with the windows that closed a moment ago still in it.
-    if written.is_err() || fs::rename(&tmp, &file).is_err() {
-        state.model().changed();
+    if written.is_ok() && fs::rename(&tmp, &file).is_ok() {
+        // The move is on the disk too.
+        #[cfg(unix)]
+        if let Some(dir) = file.parent() {
+            let _ = fs::File::open(dir).and_then(|d| d.sync_all());
+        }
+        return;
     }
+    // Not written: the changes stay unsaved, so the next round tries again,
+    // and a save at once is tried again as one.
+    let _ = fs::remove_file(&tmp);
+    if now {
+        state.retry_now.store(true, Ordering::SeqCst);
+    }
+    state.model().changed();
 }
 
 #[cfg(test)]

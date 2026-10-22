@@ -27,18 +27,32 @@ Set a few `--tauris-*` colours once, and the tabs, the tree, the files table and
   --tauris-line: #c4c6cc;                 /* borders and separators */
   --tauris-hover: #dcdfe5;                /* a step from --tauris-chrome, so a hovered title shows */
   --tauris-accent: #2675bf;
-  --tauris-accent-ink: #2675bf;           /* the accent as text and focus lines; keep it readable on --tauris-bg */
+  --tauris-accent-ink: #1f64a6;           /* the accent as text and focus lines: 4.5:1 on --tauris-bg and --tauris-chrome */
   --tauris-on-accent: #ffffff;            /* text on the accent (the files' Add button, the tree's ticks) */
   --tauris-sel-bg: #2675bf;               /* the selected row, the chosen menu item */
   --tauris-sel-fg: #ffffff;
   --tauris-sel-inactive: #c9d6ea;         /* a selection without the focus; an open menu's title, a pressed button */
   --tauris-faint: #a3a6ad;                /* faint and disabled text */
-  --tauris-focus: rgb(38 117 191 / 0.32); /* the soft halo around a focus line */
+  --tauris-focus: rgb(31 100 166 / 0.32); /* the soft halo around a focus line */
 }
-@media (prefers-color-scheme: dark) {     /* an app that follows the system: the dark ones */
-  :root { --tauris-bg: #2f3234; --tauris-chrome: #34373a; --tauris-fg: #dfe1e5; /* ... */ }
+/* Dark: on a dark system unless the app picks light, and whenever it picks dark. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tauris-theme="light"]) {
+    --tauris-bg: #2f3234; --tauris-chrome: #3c3f41; --tauris-fg: #dfe1e5; --tauris-dim: #bfc2c8;
+    --tauris-line: #5e6165; --tauris-hover: #46494c; --tauris-accent: #3570b0; --tauris-accent-ink: #7ab0e6;
+    --tauris-on-accent: #ffffff; --tauris-sel-bg: #3570b0; --tauris-sel-fg: #ffffff; --tauris-sel-inactive: #3d5a8f;
+    --tauris-faint: #7d8188; --tauris-focus: rgb(122 176 230 / 0.45);
+  }
+}
+:root[data-tauris-theme="dark"] {
+  --tauris-bg: #2f3234; --tauris-chrome: #3c3f41; --tauris-fg: #dfe1e5; --tauris-dim: #bfc2c8;
+  --tauris-line: #5e6165; --tauris-hover: #46494c; --tauris-accent: #3570b0; --tauris-accent-ink: #7ab0e6;
+  --tauris-on-accent: #ffffff; --tauris-sel-bg: #3570b0; --tauris-sel-fg: #ffffff; --tauris-sel-inactive: #3d5a8f;
+  --tauris-faint: #7d8188; --tauris-focus: rgb(122 176 230 / 0.45);
 }
 ```
+
+Set every colour for dark, not a few: the library's own dark colours of the others are made for its own dark background, not yours.
 
 An app that is always light (or always dark) also sets `data-tauris-theme` on `<html>` (below). Without it, a dark system still gives the components dark scrollbars and the dark colours of everything you did not set.
 
@@ -64,7 +78,7 @@ Set them on `:root` (on another element they do not reach the components). Which
 document.documentElement.dataset.taurisTheme = theme; // "light" or "dark"; remove it to follow the system again
 ```
 
-Set the `--tauris-*` colours for each mode the same way: `:root[data-tauris-theme="dark"] { --tauris-bg: #2f3234; ... }`.
+The example above sets its colours for both: the dark ones on a dark system unless the app picks light, and whenever it picks dark.
 
 ## Tabs
 
@@ -430,7 +444,7 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 
 **A node** is `{ id, label, children?, icon?, values?, editor?, readOnly?, expanded? }`. Every node needs its own `id`; the console warns about repeats.
 - `icon` is one of the built-in names (`folder`, `file`, `code`, `doc`, `data`, `image`, `package`, `lock`) or a name you add with the `icons` option. A folder icon opens when its row does.
-- `editor` is `"text"`, `{ type: "number", min, max, step }`, `"checkbox"`, `{ type: "select", options }` or `"color"`. Without one, the value's own type decides: booleans get a checkbox, numbers a number field, everything else text.
+- `editor` is `"text"`, `{ type: "number", min, max, step }`, `"checkbox"`, `{ type: "select", options }` or `"color"`, for every value of the node it fits (a checkbox only for true or false, and they only for a checkbox). `{ level: { type: "select", options } }` gives one per column, by key, and a column's own `editor` is the default for its values. Without one, the value's own type decides: booleans get a checkbox, numbers a number field, everything else text.
 
 **Options:**
 
@@ -454,9 +468,9 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 - Home, End, PageUp and PageDown jump.
 - `*` opens everything below.
 - `+` and `-` open and close.
-- Enter edits the row's first editable value; on a row without one, it activates the row.
+- Enter edits the row's first editable value (a checkbox takes the focus, for Space to flip it); on a row without one, it activates the row.
 - F2 always edits.
-- While editing: Tab and Shift+Tab save and go to the row's next or previous editable value. Enter saves, and Escape cancels.
+- While editing: Tab and Shift+Tab save and go to the row's next or previous editable value (a checkbox takes the focus, and Space flips it); past the last one, back to the row. Enter saves, and Escape cancels.
 - Typing a letter jumps to the next row starting with it.
 
 **Events:** `select` (`{ node, nodes }`: the row with the focus, and every selected row), `toggle`, `change` (`{ node, column, value }`, already written into `node.values`), `activate`, `sort` (`{ key, up }`, or `null`), and `resize` (`{ column, index, width, widths }`: a column the person made wider or narrower).
@@ -466,8 +480,8 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 - `expand(id)`, `collapse(id)`, `toggle(id)`, `expandAll()`, `collapseAll()`
 - `select(id)` (an array selects several, with `multiple`), `selected()`, `selection()`, `selectAll()`, `get(id)`, `isExpanded(id)`, `widths()`, `setWidths(widths)`
 - `edit(id, column?)`, `focus()`
-- `sort(key, up?)` (`null`: the data's own order), `sorting()`
-- `destroy()`
+- `sort(key, up?)` (`null`: the data's own order; in the order already in place it sorts again, moving rows edited since), `sorting()`
+- `destroy()` (a value being typed is kept first: a `change`, as with `setData`)
 
 Types are in `web/tree.d.ts`: copy it into a TypeScript app. `mount<{ ...your values }>` types your values.
 
@@ -513,7 +527,7 @@ type Doc = TaurisFile & { project: string };
 
 export default function Docs({ project, docs, say }: { project: { id: string; name: string; color: string }; docs: Doc[]; say: (text: string) => void }) {
   const el = useRef<HTMLDivElement>(null);
-  const view = useRef<TaurisFilesView<Doc>>();
+  const view = useRef<TaurisFilesView<Doc> | null>(null);
 
   useEffect(() => {
     view.current = TaurisFiles.mount<Doc>(el.current!, {
@@ -588,7 +602,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 | `files` | `[]` | `[{ id, name, size?, added?, by?, type?, kind? }]`; your own fields stay on them |
 | `title` | `"Files"` | The heading |
 | `place` | the title | The place in "Drop to add to …" and "No files in … yet" |
-| `subtitle` | none | A word before the count: "Documents · 3 files · 2.1 MB" |
+| `subtitle` | none | A word before the count: "Documents · 3 files · 2.1 MB" (while a search hides some files, "Documents · 2 of 3 files" and their size; `labels.countShown` words it otherwise) |
 | `color` | none | A colour chip before the heading |
 | `columns` | all | Any of `kind`, `name`, `size`, `added`, `by`, in order |
 | `sort` | `{ key: "name", up: true }` | The first order. A new column starts A to Z for names, biggest and newest first for sizes and dates. Names sort as in Finder: the name before its extension ("Q3 plan.md" before "Q3 plan 2.md"), numbers as numbers ("Item 2" before "Item 10") |
@@ -691,7 +705,7 @@ export default function Desk() {
   const line = useRef<HTMLDivElement>(null);
   const messages = useRef<HTMLOListElement>(null);
   const pane = useRef<HTMLElement>(null);
-  const log = useRef<TaurisTerminalLog>();
+  const log = useRef<TaurisTerminalLog | null>(null);
 
   useEffect(() => {
     const term = TaurisTerminal.mount(root.current!);
@@ -749,10 +763,10 @@ cargo +1.90 build                          # the oldest Rust the library builds 
 
 - Dragging a tab out of its window, and between windows, follows the real mouse. That needs macOS, and it is checked by hand, not by tests. On every system, "Move to new window" in a tab's menu does the same without dragging.
 - The close button sits inside its tab, as in browsers. Screen readers reach it through the tab's menu (Shift+F10) and Delete.
-- The page tests run in Chrome. Tauri on macOS uses WebKit, and on Windows WebView2 (Chromium).
+- The page tests run in Chrome (CI runs them in the Chromium that comes with its pinned Playwright, the same browser every day; `TAURIS_TEST_CHROMIUM=1` does that here too). Tauri on macOS uses WebKit, and on Windows WebView2 (Chromium).
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
 - The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
-- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once; one made inside that lock, by an async page command, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows (and must not need the main thread). A quitting app waits for it (half a second at most; it cannot open windows then).
+- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once; one made inside that lock, by an async page command, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows (and must not need the main thread). A quitting app waits for it (half a second at most; it cannot open windows then). Other plugins' callbacks (deep-link's `on_open_url`, for one) can run inside that same lock: there, call `app.tabs()` from a thread of your own (`std::thread::spawn`), or a window that opens freezes the app.
 - A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing

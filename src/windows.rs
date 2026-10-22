@@ -60,6 +60,9 @@ pub(crate) struct Inner<R: Runtime> {
     exiting: AtomicBool,
     // Remembered windows are being opened (see persist::restore_saved).
     pub restoring: AtomicBool,
+    // A save at once (the last window closing, a quit) could not be written:
+    // the next save is one at once too, with the windows that closed.
+    pub retry_now: AtomicBool,
     pub config: Config<R>,
     pub started: AtomicBool,
 }
@@ -77,6 +80,7 @@ impl<R: Runtime> Inner<R> {
             hook_seq: AtomicUsize::new(0),
             exiting: AtomicBool::new(false),
             restoring: AtomicBool::new(false),
+            retry_now: AtomicBool::new(false),
             config,
             started: AtomicBool::new(false),
         }
@@ -348,6 +352,21 @@ pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     drop(gate);
 }
 
+// A window left the layout. When the hook itself closed it (its last tab),
+// it still hears of it, once it is done.
+fn window_gone<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    if !IN_HOOK.with(|h| h.get()) {
+        changed(app, label);
+        return;
+    }
+    IN_HOOK.with(|h| h.set(false));
+    {
+        let _later = DeferHook::enter();
+        changed(app, label);
+    }
+    IN_HOOK.with(|h| h.set(true));
+}
+
 fn run_hook<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let Some(hook) = &inner(app).config.on_change else { return };
     if IN_HOOK.with(|h| h.replace(true)) {
@@ -501,8 +520,10 @@ pub(crate) fn owns<R: Runtime>(app: &AppHandle<R>, label: &str, tab: u64) -> boo
 pub(crate) fn add_tab<R: Runtime>(app: &AppHandle<R>, label: &str, tab: NewTab, after_active: bool) -> Option<u64> {
     let id = {
         let mut m = inner(app).model();
-        // A window still opening takes nothing: if it fails, what it held goes with it.
-        if m.win(label)?.opening {
+        // A window still opening takes nothing: if it fails, what it held goes
+        // with it. Nor does one about to close.
+        let win = m.win(label)?;
+        if win.opening || win.leaving {
             return None;
         }
         let id = m.create_tab(tab);
@@ -541,7 +562,7 @@ pub(crate) fn remove_tab<R: Runtime>(app: &AppHandle<R>, label: &str, tab: u64) 
     match closed {
         None => notify(app, label),
         Some(last) => {
-            changed(app, label);
+            window_gone(app, label);
             // The user closed the last tab there was: the next launch starts fresh.
             if last {
                 crate::persist::forget(app);
@@ -686,6 +707,9 @@ pub(crate) fn ask_before_window_closes<R: Runtime>(app: &AppHandle<R>, label: &s
         if ask {
             win.close_asked_at = Some(std::time::Instant::now());
             win.close_seen = false;
+        } else {
+            // It closes: a tab opened before it is gone goes elsewhere.
+            win.leaving = true;
         }
         ask
     };
@@ -785,7 +809,9 @@ pub(crate) fn forget_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
 pub(crate) fn bring_to_front<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let mut m = inner(app).model();
     if let Some(pos) = m.wins.iter().position(|w| w.label == label) {
-        let win = m.wins.remove(pos);
+        let mut win = m.wins.remove(pos);
+        // Focused again: it did not close after all (the app kept it open).
+        win.leaving = false;
         m.wins.push(win);
         m.changed();
     }
@@ -816,12 +842,13 @@ pub(crate) fn window_count<R: Runtime>(app: &AppHandle<R>) -> usize {
 // The frontmost window; with none open, the remembered ones come back first.
 fn front_or_restored<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
     if frontmost(app).is_none() && crate::persist::restore_saved(app) {
-        // Another thread is opening the windows: the first one to open takes
-        // the tab, not a window of its own. Not on the main thread, which may
-        // be the one they need to open.
+        // Another thread is opening the windows: the tab waits for them and
+        // goes in the front one, not a window of its own. Not on the main
+        // thread, which may be the one they need to open.
         let main = std::thread::current().name() == Some("main");
         let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        while !main && frontmost(app).is_none() && inner(app).restoring.load(Ordering::SeqCst) {
+        // All of them: the last to open is the one in front.
+        while !main && inner(app).restoring.load(Ordering::SeqCst) {
             if std::time::Instant::now() >= until {
                 break;
             }
