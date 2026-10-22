@@ -43,6 +43,7 @@ pub struct Config<R: Runtime = Wry> {
     pub(crate) drag_opacity: f64,
     pub(crate) settle: Duration,
     pub(crate) components: Vec<Component>,
+    pub(crate) native_feel: bool,
 }
 
 impl<R: Runtime> Default for Config<R> {
@@ -68,6 +69,7 @@ impl<R: Runtime> Default for Config<R> {
                 Component::Menus,
                 Component::Sidebar,
             ],
+            native_feel: false,
         }
     }
 }
@@ -89,6 +91,16 @@ impl<R: Runtime> Config<R> {
         if self.components.contains(&Component::Files) && !self.components.contains(&Component::Menus) {
             self.components.push(Component::Menus);
         }
+        self
+    }
+
+    /// Makes every page behave like a desktop app's window, not a web page
+    /// (off by default): no web right-click menu (except in fields), no
+    /// dragging pictures or links out, no page zoom, ⌘A outside a field selects
+    /// no page text, and single-line fields are not autocorrected or
+    /// autocapitalised. See `web/native.js`.
+    pub fn native_feel(mut self) -> Self {
+        self.native_feel = true;
         self
     }
 

@@ -8,6 +8,12 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.27 — 2026-10-26
+
+From MLPC's components:
+- Menus: a disabled item's `reason` shows after its label and as its tooltip ("Hide Done (no done tasks)"). `TaurisMenu.openFor(element, items)` opens an element's menu (a list's selected row) at it from the keys, the focus back on the list after; `TaurisMenu.isMenuKey(event)` is the menu key or ⇧F10. A menu is at most 420px wide (`--tmn-menu-max-w`): a longer label ends in "…", whole in its tooltip.
+- `Config::native_feel()` (off by default): every page behaves like a desktop app's window, with no web right-click menu but in fields, no dragging pictures or links out, no page zoom, ⌘A outside a field selecting no page text, and single-line fields not autocorrected or capitalised (`web/native.js`).
+
 ## 0.4.26 — 2026-10-26
 
 - New: `examples/all`, an app that uses every component: tabs, a sidebar holding a tree, the files table, menus and the terminal look (`CLAUDE.md` says what it does). Its page is tested by `test/all_run.py`; CI builds it and runs the checker on it.

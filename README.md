@@ -352,7 +352,8 @@ Calls that open windows return `tauri::Result`. A page can only change the tabs 
 | `layout_file(\|app\| Some(path))` / `no_layout()` | `tabs.json` in the app's data folder. |
 | `on_change(\|app, label\| ...)` | Called after anything about a window's tabs changes, from Rust or the page. It may use `app.tabs()`; its own changes don't call it again. Several changes to one window while its call waits on the worker make one call. |
 | `drop_slack(above, below)`, `drag_opacity(0.2..1)` | 10, 16 px; 1.0 |
-| `components(&[Component::Tabs, ...])` | All five. The page components the plugin puts in every page; leave out the ones the app does not use, so its pages load less (`Component::Files` brings the menus). The checker says when a page uses one left out. |
+| `native_feel()` | Off. Every page behaves like a desktop app's window: no web right-click menu (but in fields and `.tauris-selectable` text), no dragging pictures or links out, no page zoom (⌘+ ⌘- ⌘0, the pinch), ⌘A outside a field selects no page text, single-line fields are not autocorrected or capitalised (`web/native.js`). |
+| `components(&[Component::Tabs, ...])` | All six. The page components the plugin puts in every page; leave out the ones the app does not use, so its pages load less (`Component::Files` brings the menus). The checker says when a page uses one left out. |
 
 Set `TAURIS_UI_LOG=1` to print every window's tabs after each change.
 
@@ -655,14 +656,14 @@ An in-window menu bar, toolbar buttons with a ▾ that open a menu, and menus at
 - Up, Down, Home and End move; a letter (or a few, quickly) jumps to an item
 - Left and Right go from one menu of the bar to the next
 - Enter or Space chooses; Escape closes and puts the focus back where it was
-- shortcut hints, items that are off, ✓ items, colour chips and red items
+- shortcut hints, items that are off (with `reason`, they say why: "Hide Done (no done tasks)", also as the tooltip), ✓ items, colour chips and red items; a label longer than the menu's 420px ends in "…", whole in its tooltip
 - sub-menus: an item with `items` opens one to its right (Right, Enter, or the mouse resting on it); Left or Escape goes back
 
 ```js
 const bar = TaurisMenu.bar(document.getElementById("menubar"), { menus: [
   { label: "File", items: () => [                       // a function: made each time the menu opens
     { label: "New project…", shortcut: "⌘N", action: newProject },
-    { label: "Add files…", disabled: !current, action: () => files.add() },
+    { label: "Add files…", disabled: !current, reason: "no project open", action: () => files.add() },
     "-",
     { label: "Sign out", action: signOut },
   ] },
@@ -690,6 +691,8 @@ In React, make the bar once (`useEffect(() => { const b = TaurisMenu.bar(nav.cur
 ```js
 TaurisMenu.bar(nav, { menus, onOpen: () => sound.open(), onClose: ({ chosen }) => { if (!chosen) sound.close(); } });
 ```
+
+**A row's menu from the keys:** `TaurisMenu.isMenuKey(event)` is the menu key or ⇧F10; `TaurisMenu.openFor(row, items)` opens it at the row, the focus in the menu and back on the list after (as a right click on the row, which opens `TaurisMenu.open(items, { x: e.clientX, y: e.clientY })`).
 
 **Options:** `bar(nav, { menus, label?, onOpen?, onClose? })` (`label`: the bar's name for screen readers, "Menu" by default); `button(element, { items, label?, caret?, gap?, onOpen?, onClose? })` (`caret: false` for no ▾, `gap`: pixels between the button and its menu); `TaurisMenu.open(items, { x, y }, { label?, keyboard?, returnTo?, onClose? })` (`keyboard: true` starts on the first item; `returnTo`: where the focus goes after).
 

@@ -1092,6 +1092,33 @@ with sync_playwright() as p:
           and page.locator(".tt-tab.tt-active .tt-title").text_content() == "Groceries", page.input_value("#title"))
     page.close()
 
+    # --- the native feel (Config::native_feel): a desktop app's window, not a web page ---
+    page = browser.new_page(viewport={"width": 600, "height": 300})
+    page.add_init_script((WEB / "native.js").read_text())
+    page.goto((HERE / "page.html").as_uri())
+    page.evaluate("""(() => { document.body.innerHTML = '<p id="t">Some text</p><input id="i"><textarea id="a"></textarea><input id="own" autocorrect="on">'
+      + '<img id="img" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="><a id="ln" href="#x">A link</a><img id="dr" draggable="true" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">'; return 0; })()""")
+    mac = page.evaluate("/mac/i.test(navigator.userAgentData?.platform || navigator.platform)")
+    mod = "metaKey" if mac else "ctrlKey"
+    prevented = page.evaluate("""mod => { const fire = (el, e) => !el.dispatchEvent(e);
+      const key = (k, el = document.body) => fire(el, new KeyboardEvent('keydown', { key: k, [mod]: true, bubbles: true, cancelable: true }));
+      const menu = id => fire(document.getElementById(id), new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      const drag = id => fire(document.getElementById(id), new DragEvent('dragstart', { bubbles: true, cancelable: true }));
+      return { menuText: menu('t'), menuField: menu('i'), zoomIn: key('='), zoomOut: key('-'), zoomBack: key('0'), allPage: key('a'),
+        allField: key('a', document.getElementById('i')), pinch: fire(document.body, new WheelEvent('wheel', { ctrlKey: true, deltaY: 5, bubbles: true, cancelable: true })),
+        wheel: fire(document.body, new WheelEvent('wheel', { deltaY: 5, bubbles: true, cancelable: true })), img: drag('img'), link: drag('ln'), ownDrag: drag('dr') }; }""", mod)
+    page.focus("#i")
+    page.focus("#a")
+    page.focus("#own")
+    fields = page.evaluate("""['i', 'a', 'own'].map(id => { const f = document.getElementById(id); return [f.spellcheck, f.getAttribute('autocorrect'), f.getAttribute('autocapitalize')]; })""")
+    check("native feel: no web right-click menu but in fields, no page zoom (keys or pinch), ⌘A selects no page text, no dragging pictures or links out",
+          # (In WebKit the test's own page stops every browser menu: see engine.py.)
+          prevented == {"menuText": True, "menuField": WEBKIT, "zoomIn": True, "zoomOut": True, "zoomBack": True, "allPage": True, "allField": False,
+                        "pinch": True, "wheel": False, "img": True, "link": True, "ownDrag": False}, prevented)
+    check("native feel: a single-line field is not corrected or capitalised; a text area, and a field that chose, keep theirs",
+          fields[0] == [False, "off", "off"] and fields[1][1] is None and fields[2][1] == "on", fields)
+    page.close()
+
     # --- the terminal as the plugin delivers it: no stylesheet until it is used ---
     term_js = (WEB / "terminal.js").read_text().replace('"__TAURIS_TERMINAL_CSS__"', json.dumps((WEB / "terminal.css").read_text()))
     page = browser.new_page(viewport={"width": 600, "height": 300})

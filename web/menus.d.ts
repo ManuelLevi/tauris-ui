@@ -7,6 +7,8 @@ declare global {
     /** Shown on the right ("⌘N"). Shown only: the app binds its own keys. */
     shortcut?: string;
     disabled?: boolean;
+    /** Why a disabled item is off ("no done tasks"): shown after its label, and as its tooltip. */
+    reason?: string;
     /** A ✓ column: true shows the tick, false leaves it empty. */
     checked?: boolean;
     /** A colour chip before the label (any CSS colour). */
@@ -79,6 +81,10 @@ declare global {
     open(items: TaurisMenuItems, at: { x: number; y: number }, options?: { keyboard?: boolean; label?: string; returnTo?: HTMLElement; onClose?: (info: TaurisMenuCloseInfo) => void }): { close(): void };
     /** Closes whichever menu is open. */
     close(): void;
+    /** An element's menu (a list's selected row) from the keys: at the element, the focus in the menu, and back where it was after. */
+    openFor(element: Element, items: TaurisMenuItems, options?: { label?: string; returnTo?: HTMLElement; onClose?: (info: TaurisMenuCloseInfo) => void }): { close(): void };
+    /** The menu key, or ⇧F10. */
+    isMenuKey(event: KeyboardEvent): boolean;
   };
 
   interface Window {

@@ -109,6 +109,7 @@ Do all of these, every time:
 | `web/files.js`, `web/files.css`, `web/files.d.ts` | The files component: script, look (`--tf-*` variables), types |
 | `web/menus.js`, `web/menus.css`, `web/menus.d.ts` | The in-window menus (not the native menu, which is `src/menu.rs`): script, look (`--tmn-*`), types |
 | `web/sidebar.js`, `web/sidebar.css`, `web/sidebar.d.ts` | The collapsible sidebar: script, look (`--tsb-*`), types |
+| `web/native.js` | `Config::native_feel()`: the page behaves like a desktop app's window (no web right-click menu, no page zoom, …) |
 | `test/` | Headless tests: tabs (`run.py`, with a stand-in for Rust), tree (`tree_run.py`, `tree_demo.html`), terminal (`terminal_run.py`, `terminal_demo.html`), files and menus (`files_run.py`, `menus_run.py`, both on `files_demo.html`), the sidebar (`sidebar_run.py`, `sidebar_demo.html`), the browser each runs in (`engine.py`); the checker (`doctor_run.py`, on small apps it writes); `mock_tauri.js`, Rust stood in for the tabs page; `freeze_check/`, a real macOS app (see below) |
 | `examples/basic/` | The smallest complete app |
 | `examples/all/` | An app that uses every component: tabs, a sidebar holding a tree, the files table, menus and the terminal look (`CLAUDE.md` says what it does; `test/all_run.py` tests its page) |

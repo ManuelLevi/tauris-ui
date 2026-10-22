@@ -1006,6 +1006,30 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.close()
 
+    # A disabled item says why; an element's menu from the keys; a long label.
+    page = fresh(browser)
+    page.evaluate("""(() => { const ul = document.createElement('ul'); ul.id = 'rows'; ul.tabIndex = 0; ul.style.cssText = 'position:fixed;left:300px;top:200px;margin:0';
+      ul.innerHTML = '<li id="r1">First row</li><li id="r2">Second row</li>'; document.body.append(ul); window.picked = []; return 0; })()""")
+    page.focus("#rows")
+    menu_key = page.evaluate("[TaurisMenu.isMenuKey({ key: 'ContextMenu' }), TaurisMenu.isMenuKey({ key: 'F10', shiftKey: true }), TaurisMenu.isMenuKey({ key: 'F10' })]")
+    page.evaluate("""TaurisMenu.openFor(document.getElementById('r2'), [{ label: 'Hide Done', disabled: true, reason: 'no done tasks' },
+      { label: 'Rename', action: () => picked.push('rename') }, { label: 'A very long name for a task that somebody typed without stopping to think about it at all' }]); 0""")
+    at = page.evaluate("""(() => { const m = document.querySelector('.tmn-menu').getBoundingClientRect(), r = document.getElementById('r2').getBoundingClientRect();
+      return [Math.round(m.top - r.bottom), m.left >= r.left]; })()""")
+    first = page.evaluate("document.activeElement.textContent")
+    off = page.evaluate("""(() => { const i = document.querySelector('.tmn-item[aria-disabled=true]'); return [i.textContent, i.title]; })()""")
+    long = page.evaluate("""(() => { const m = document.querySelector('.tmn-menu'); const i = [...m.querySelectorAll('.tmn-item')].pop();
+      return [Math.round(m.getBoundingClientRect().width), i.title.startsWith('A very long name')]; })()""")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(50)
+    check("isMenuKey: the menu key and ⇧F10; openFor opens an element's menu at it, from the keys",
+          menu_key == [True, True, False] and at[0] <= 4 and at[1] and first == "Rename", (menu_key, at, first))
+    check("a disabled item says why after its label and as its tooltip; a long label ends at 420px, whole in its tooltip",
+          off == ["Hide Done(no done tasks)", "No done tasks"] and long == [420, True], (off, long))
+    check("chosen from the keys, the item runs and the focus goes back to the list",
+          page.evaluate("picked") == ["rename"] and page.evaluate("document.activeElement.id") == "rows", page.evaluate("document.activeElement.id"))
+    page.close()
+
     page = fresh(browser)
     page.evaluate("""(() => { const b = document.createElement('button'); b.id = 'gapped'; b.textContent = 'Gap'; b.style.cssText = 'position:fixed;left:300px;top:40px';
       document.body.append(b); TaurisMenu.button(b, { items: [{ label: 'One' }], gap: 20 }); return 0; })()""")

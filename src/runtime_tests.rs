@@ -1682,3 +1682,11 @@ fn a_tab_moves_into_another_window() {
     assert_eq!(titles(&app), vec![vec!["Report".to_string(), "Notes".to_string(), "Home".to_string()]]);
     assert!(windows::other_windows(app.handle(), &b).is_empty());
 }
+
+// The native feel goes in the pages only when the app asks for it.
+#[test]
+fn the_native_feel_is_in_the_pages_only_when_asked_for() {
+    assert!(!crate::page_script(&quiet()).contains("__taurisNativeFeel"));
+    assert!(crate::page_script(&quiet().native_feel()).contains("__taurisNativeFeel"));
+    assert!(crate::page_script(&quiet().components(&[]).native_feel()).contains("__taurisNativeFeel"));
+}

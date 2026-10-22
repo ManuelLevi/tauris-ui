@@ -10,8 +10,9 @@
 //   TaurisMenu.button(toolbarButton, { items: () => [...] });   // ▾ opens a menu under it
 //   TaurisMenu.open(items, { x: e.clientX, y: e.clientY });     // a right-click menu
 //
-// An item is { label, shortcut?, disabled?, checked?, color?, danger?, action? }, or "-" for a
-// line between groups; null and false are skipped, for items that only sometimes exist.
+// An item is { label, shortcut?, disabled?, reason?, checked?, color?, danger?, action? }, or "-"
+// for a line between groups; null and false are skipped, for items that only sometimes exist.
+// A disabled item's reason ("no done tasks") shows after its label and as its tooltip.
 // An item with `items` (a list, or a function) opens a sub-menu.
 // `items` can be a function: it is called each time the menu opens, so the
 // menu always shows the app's state as it is now.
@@ -141,6 +142,12 @@
         row.append(chip);
       }
       row.append(el("span", "tmn-label", {}, String(item.label ?? "")));
+      // Why it is off, where it is: after the label, and as its tooltip.
+      const reason = item.disabled && item.reason != null && String(item.reason).trim() ? String(item.reason).trim() : "";
+      if (reason) {
+        row.append(el("span", "tmn-reason", {}, `(${reason})`));
+        row.title = reason.charAt(0).toUpperCase() + reason.slice(1);
+      }
       if (Array.isArray(item.items) || typeof item.items === "function") {
         // Made once here; an empty sub-menu is an item that is off.
         // A sub-menu whose items() fails is an item that is off; the menu still opens.
@@ -420,6 +427,11 @@
         menu.showPopover();
       }
       const leftward = place(menu, where);
+      // A label cut short ("…") is whole in its tooltip.
+      for (const row of menu.querySelectorAll(":scope > .tmn-item")) {
+        const text = row.querySelector(".tmn-label");
+        if (!row.title && text && text.scrollWidth > text.clientWidth + 1) row.title = text.textContent;
+      }
       const lv = { menu, parent, row, child: null, timer: 0, rest: 0, hover: null, opening: null, last: null, leftward };
       levels.push(lv);
       if (!handle.el) handle.el = menu;
@@ -668,6 +680,20 @@
   }
 
   // ---------- pop-up menu at a point ----------
+
+  // The menu key, or ⇧F10: what opens the selected thing's menu from the keys.
+  const isMenuKey = e => !!e && (e.key === "ContextMenu" || (e.shiftKey === true && e.key === "F10" && !e.ctrlKey && !e.metaKey && !e.altKey));
+
+  // An element's menu (a list's selected row) opened from the keys: at the
+  // element, as a right click on it would, with the focus in the menu and back
+  // where it was after (the list).
+  function openFor(element, items, options = {}) {
+    if (!(element instanceof Element)) return { close() {} };
+    element.scrollIntoView?.({ block: "nearest" });
+    const r = (element.querySelector?.("td, [role=gridcell]") ?? element).getBoundingClientRect();
+    const back = options.returnTo ?? (document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : undefined);
+    return open(items, { x: Math.round(r.left + Math.min(r.width / 2, 80)), y: Math.round(r.bottom) }, { keyboard: true, ...options, returnTo: back });
+  }
 
   function open(items, at = {}, options = {}) {
     const x = Number.isFinite(at.x) ? at.x : 0;
@@ -1055,6 +1081,8 @@
     bar,
     button,
     open,
+    openFor,
+    isMenuKey,
     /** Closes whichever menu is open. */
     close: () => closeCurrent(false),
   };

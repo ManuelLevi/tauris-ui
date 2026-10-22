@@ -84,6 +84,7 @@ const MENUS_SCRIPT: &str = include_str!("../web/menus.js");
 const MENUS_STYLE: &str = include_str!("../web/menus.css");
 const SIDEBAR_SCRIPT: &str = include_str!("../web/sidebar.js");
 const SIDEBAR_STYLE: &str = include_str!("../web/sidebar.css");
+const NATIVE_SCRIPT: &str = include_str!("../web/native.js");
 
 // The page scripts carry their stylesheets and the version, so one crate
 // delivers everything (the components the app asked for). Each component adds
@@ -119,6 +120,7 @@ pub(crate) fn page_script<R: Runtime>(config: &Config<R>) -> String {
     .into_iter()
     .filter(|(c, _)| config.components.contains(c))
     .map(|(_, script)| script)
+    .chain(config.native_feel.then(|| NATIVE_SCRIPT.to_string()))
     .collect::<Vec<_>>()
     .join("\n;\n")
 }
