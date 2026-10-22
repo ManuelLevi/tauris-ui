@@ -8,6 +8,10 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.39 — 2026-10-22
+
+- Dialogs: a form's `{ type: "row" }` field showed nothing (it has no `name` of its own, and was left out). It shows now.
+
 ## 0.4.38 — 2026-10-22
 
 - Tabs: each tab's Back/Forward. The `history` option (`restore`, `same`, `alive`), with `visit(place)`, `back()`, `forward()`, `canGo()` and a `history` event for the toolbar. The full example uses it.

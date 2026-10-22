@@ -549,7 +549,7 @@
 
   function formHere(options = {}) {
     const w = words(options.labels);
-    const fields = (Array.isArray(options.fields) ? options.fields : []).filter(f => f && f.name != null);
+    const fields = (Array.isArray(options.fields) ? options.fields : []).filter(f => f && (f.name != null || f.type === "row"));
     return new Promise(resolve => {
       let state = null;
       let busy = false;
