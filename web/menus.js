@@ -85,6 +85,16 @@
     current?.close(refocus);
   }
 
+  // The open <dialog> or popover an element is in (the top layer): a menu opened
+  // from there goes in it, or it would be drawn behind it or made inert.
+  function openLayer(node) {
+    try {
+      return node?.closest?.("dialog[open], [popover]:popover-open") ?? null;
+    } catch {
+      return node?.closest?.("dialog[open]") ?? null; // an engine without :popover-open
+    }
+  }
+
   // A place for the focus to go back to: on the page, still there, not in a menu.
   const fine = t => t instanceof HTMLElement && t.isConnected && t !== document.body && !t.closest(".tmn-menu");
   // `target`, unless it is inside a menu (one about to close) or gone: then
@@ -148,7 +158,10 @@
           row.setAttribute("aria-disabled", "true");
         }
       } else if (item.shortcut != null && item.shortcut !== "") {
-        row.append(el("span", "tmn-shortcut", {}, String(item.shortcut)));
+        // Shown, not read as part of the name: said as the item's shortcut instead.
+        row.append(el("span", "tmn-shortcut", { "aria-hidden": "true" }, String(item.shortcut)));
+        const keys = keyShortcuts(String(item.shortcut));
+        if (keys) row.setAttribute("aria-keyshortcuts", keys);
       }
       row.__tmnItem = item;
       menu.append(row);
@@ -169,7 +182,9 @@
     let x = at.x;
     let y = at.y;
     if (y + height > vh - pad && !at.below) {
-      if (at.above == null) {
+      if (at.point && at.y - height >= pad) {
+        y = at.y - height; // above the point, which stays at a corner
+      } else if (at.above == null) {
         y = Math.max(pad, vh - pad - height);
       } else if (at.above - height >= pad) {
         y = at.above - height;
@@ -188,7 +203,7 @@
       leftward = true;
     } else if (x + width > vw - pad) {
       leftward = at.flipX != null && at.flipX - width >= pad;
-      x = leftward ? at.flipX - width : Math.max(pad, vw - pad - width);
+      x = leftward ? at.flipX - width : at.point && at.x - width >= pad ? at.x - width : Math.max(pad, vw - pad - width);
     }
     menu.style.left = `${Math.round(x)}px`;
     menu.style.top = `${Math.round(y)}px`;
@@ -196,6 +211,26 @@
   }
 
   const hasSub = item => Boolean(item) && (Array.isArray(item.items) || typeof item.items === "function");
+
+  // A shortcut as shown ("⇧⌘N", "Ctrl+Shift+N", "↩", "Del") in aria-keyshortcuts' words
+  // ("Shift+Meta+N"); null when it is not one of those.
+  function keyShortcuts(text) {
+    const glyphs = { "⌘": "Meta", "⇧": "Shift", "⌥": "Alt", "⌃": "Control" };
+    const names = { "↩": "Enter", "⏎": "Enter", "⌫": "Backspace", "⌦": "Delete", "⎋": "Escape", "⇥": "Tab", "Del": "Delete",
+      "Ctrl": "Control", "Cmd": "Meta", "Esc": "Escape", "Space": "Space", "␣": "Space" };
+    const parts = [];
+    let rest = text.trim();
+    while (rest && glyphs[rest[0]]) {
+      parts.push(glyphs[rest[0]]);
+      rest = rest.slice(1);
+    }
+    for (const piece of rest.split("+").map(p => p.trim()).filter(Boolean)) {
+      const key = names[piece] ?? (glyphs[piece] || (/^(F\d{1,2}|[A-Za-z0-9]|Enter|Delete|Backspace|Escape|Tab|Shift|Alt|Meta|Control)$/.test(piece) ? piece : null));
+      if (!key) return null;
+      parts.push(key.length === 1 ? key.toUpperCase() : key);
+    }
+    return parts.length ? parts.join("+") : null;
+  }
 
   // Opens a menu. `at` is { x, y, above? } in window pixels; `how` is "mouse"
   // (nothing chosen yet), "keyboard" (first item) or "last" (last item).
@@ -212,11 +247,20 @@
     addStyles();
     const returnTo = o.returnTo || !fine(document.activeElement) ? before : document.activeElement;
     // Inside a modal <dialog> everything else is inert: the menu goes in the dialog.
-    const host = (o.owner ?? returnTo)?.closest?.("dialog[open]") ?? document.body;
+    const host = openLayer(o.owner ?? returnTo) ?? document.body;
+    // What is under a menu opened at a point: its scrolling closes the menu.
+    const under = at.point ? document.elementFromPoint(at.x, at.y) : null;
     const life = new AbortController();
     const signal = life.signal;
     const levels = []; // the open menus, the first one first
-    const openedAt = performance.now();
+    // The pointer moved since the menu came up: a release now is a choice (one
+    // right where the menu opened is not, which a right click's release is).
+    let movedSinceOpen = false;
+    let firstPoint = null;
+    document.addEventListener("pointermove", e => {
+      if (!firstPoint) firstPoint = { x: e.clientX, y: e.clientY };
+      else if (Math.hypot(e.clientX - firstPoint.x, e.clientY - firstPoint.y) > 3) movedSinceOpen = true;
+    }, { capture: true, signal });
     let pressedInside = false; // the press now began on a menu (its click chooses), not on the opener
 
     const handle = {
@@ -496,9 +540,17 @@
         if (lv.opening) {
           const item = lv.opening.getBoundingClientRect();
           const box = menu.getBoundingClientRect();
-          const vw = document.documentElement.clientWidth || window.innerWidth;
-          const opensLeft = box.right + box.width > vw - 4;
+          // Beside its item, through the side it will open on: worked out as
+          // place() will, from the sub-menu's own width (measured off screen).
           const beside = e.clientY >= item.top - 4 && e.clientY <= item.bottom + 4;
+          const probe = build(lv.opening.__tmnSub ?? [], "");
+          probe.style.visibility = "hidden";
+          host.append(probe);
+          const width = probe.getBoundingClientRect().width;
+          probe.remove();
+          const vw = document.documentElement.clientWidth || window.innerWidth;
+          const roomLeft = item.left + 3 - width >= 4;
+          const opensLeft = (lv.leftward && roomLeft) || (item.right - 3 + width > vw - 4 && roomLeft);
           const towards = opensLeft ? e.clientX <= box.left + 2 : e.clientX >= box.right - 2;
           if (!(beside && towards)) {
             clearTimeout(lv.timer);
@@ -515,13 +567,14 @@
         else choose(lv, hit);
       }, { signal });
       menu.addEventListener("contextmenu", e => e.preventDefault(), { signal });
+      menu.addEventListener("scroll", () => { if (lv.child) closeSub(lv); }, { passive: true, signal });
       // The release chooses, as in desktop menus: after a press on an item (or
       // another item, sliding over), or on the title or button that opened it
       // (press, drag, release; not a release right after the menu came up under
       // the pointer), with any button.
       menu.addEventListener("pointerdown", () => { pressedInside = true; }, { signal });
       menu.addEventListener("pointerup", e => {
-        if (!pressedInside && performance.now() - openedAt < 200) return;
+        if (!pressedInside && !movedSinceOpen) return;
         const hit = e.target instanceof Element ? e.target.closest(".tmn-item") : null;
         if (!hit || hit.parentElement !== menu || off(hit)) return;
         if (hasSub(hit.__tmnItem)) openSub(lv, hit, "mouse");
@@ -564,7 +617,10 @@
     // (Not when the focus went into a frame of this page: it stays there.)
     window.addEventListener("blur", () => handle.close(document.activeElement?.tagName !== "IFRAME"), { signal });
     // Inside a <dialog>: the dialog closing takes the menu with it.
-    if (host !== document.body) host.addEventListener("close", () => handle.close(false), { signal });
+    if (host !== document.body) {
+      host.addEventListener("close", () => handle.close(false), { signal });
+      host.addEventListener("toggle", e => { if (e.newState === "closed") handle.close(false); }, { signal });
+    }
     window.addEventListener("resize", () => handle.close(true), { signal });
     // The page scrolling under it, or whatever holds its opener, would leave it
     // hanging away from its title. A list scrolling elsewhere changes nothing.
@@ -572,8 +628,9 @@
       const t = e.target;
       if (levels.some(lv => lv.menu.contains(t))) return;
       const page = t === document || t === document.documentElement || t === document.body;
-      // A menu opened at a point (a right click) has nothing to follow: any scroll under it closes it.
-      if (page || !o.owner || (t instanceof Node && t.contains(o.owner))) handle.close(true);
+      // A menu opened at a point (a right click) closes when what it was opened on scrolls.
+      const opener = o.owner ?? (under instanceof Node ? under : returnTo);
+      if (page || (t instanceof Node && opener instanceof Node && t.contains(opener))) handle.close(true);
     }, { capture: true, signal });
     return handle;
   }
@@ -585,7 +642,7 @@
     const y = Number.isFinite(at.y) ? at.y : 0;
     const list = listOf(items);
     if (!list.length) return { close() {} }; // nothing to show
-    const handle = show(list, { x, y }, options.keyboard ? "keyboard" : "mouse", {
+    const handle = show(list, { x, y, point: true }, options.keyboard ? "keyboard" : "mouse", {
       label: options.label,
       returnTo: options.returnTo,
       onClose: info => options.onClose?.({ label: String(options.label ?? ""), chosen: info.chosen }),

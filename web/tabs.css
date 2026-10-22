@@ -36,8 +36,8 @@
     --tt-hover-bg: var(--tauris-hover, #222226);
     --tt-active-bg: var(--tauris-bg, #0f0f11);        /* make it your page's background */
     --tt-active-border: transparent;
-    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: mixed with the text colour. */
-    --tt-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #dfe1e5));
+    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: no lighter than oklch 0.5 in light mode, no darker than 0.75 in dark. */
+    --tt-ink-auto: oklch(from var(--tauris-accent) max(l, 0.75) c h);
     --tt-accent: var(--tauris-accent-ink, var(--tt-ink-auto, #5b8cff));           /* the bar along the top of the active tab */
     --tt-accent-size: 2px;
     --tt-separator: var(--tauris-line, #2c2c31);        /* the thin line between idle tabs */
@@ -46,7 +46,7 @@
     /* close and new-tab buttons */
     --tt-close-size: 18px;
     --tt-close-radius: 4px;
-    /* --tt-close-hover-bg: unset, the line colour */
+    /* --tt-close-hover-bg: unset, the text colour at 18% (it reads on any strip) */
     --tt-close-idle-opacity: 0;     /* of the close button on a tab that is not hovered or active */
     --tt-new-size: 28px;
     --tt-new-margin: 0 0 2px 4px;
@@ -83,7 +83,7 @@
       --tt-fg-active: var(--tauris-fg, #111114);
       --tt-hover-bg: var(--tauris-hover, #e1e1e6);
       --tt-active-bg: var(--tauris-bg, #ffffff);
-      --tt-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #1e1f22));
+      --tt-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
       --tt-accent: var(--tauris-accent-ink, var(--tt-ink-auto, #2f6bff));
       --tt-separator: var(--tauris-line, #d0d0d6);
       --tt-drag-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
@@ -106,7 +106,7 @@
     --tt-fg-active: var(--tauris-fg, #111114);
     --tt-hover-bg: var(--tauris-hover, #e1e1e6);
     --tt-active-bg: var(--tauris-bg, #ffffff);
-    --tt-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #1e1f22));
+    --tt-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
     --tt-accent: var(--tauris-accent-ink, var(--tt-ink-auto, #2f6bff));
     --tt-separator: var(--tauris-line, #d0d0d6);
     --tt-drag-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
@@ -314,8 +314,9 @@
   .tt-tab.tt-active .tt-close,
   .tt-tab:focus-visible .tt-close { opacity: 0.6; }
 
-  .tt-close:hover {
-    background: var(--tt-close-hover-bg, var(--tt-line));
+  /* (.tt-tab before it: it outweighs the 0.6 above, so the hovered × is fully drawn.) */
+  .tt-tab .tt-close:hover {
+    background: var(--tt-close-hover-bg, color-mix(in srgb, currentColor 18%, transparent));
     opacity: 1;
   }
 

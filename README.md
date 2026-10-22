@@ -374,6 +374,8 @@ Set variables in your own CSS:
   --tt-fg-hover: #d4d8e0;
   --tt-fg-active: #f2f4f8;
   --tt-hover-bg: #1c2030;
+  --tt-line: #2a2f3d;       /* the line under the strip */
+  --tt-separator: #2a2f3d;  /* between idle tabs */
   --tt-tab-h: 34px;
   --tt-tab-w: 140px;
 }
@@ -433,7 +435,7 @@ tree.on("change", ({ node, column, value }) => console.log(node.id, column, valu
 - Numbers sort as numbers. Text sorts as people read it ("Brian 49" before "Brian 169"). Empty values go last both ways.
 - A column with `sortable: false` never sorts. `sortValue: node => ...` sorts by something other than the text shown (an ISO date behind "21 Oct 2026"), and `compare: (a, b) => ...` replaces the comparison.
 - Selection and focus stay on their node. `setData` keeps the order. An edit does not move its row until the next sort or `setData`.
-- `setData` keeps what the person did: a folder they closed stays closed, even after it left the list for a while, as in a search (`expanded: true` opens a node only the first time it comes), and a value they are editing is saved first (a "change" event), unless its node is gone.
+- `setData` keeps what the person did: a folder they closed stays closed, even after it left the list for a while, as in a search (`expanded: true` opens a node only the first time it comes), and an edit in progress goes on, on the new list's node (it is saved when the person finishes it; a field they have not touched shows the new value), unless its node is gone.
 
 ```js
 const tree = TaurisTree.mount(el, {
@@ -616,7 +618,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 | `multiple` | `false` | ⌘-click (Ctrl-click) and Shift-click select several files. Turn it on when the app's own actions (a File › Delete) use `selection()` |
 | `dropArea` | `"window"` | Where a drop adds files: `"window"` (anywhere; with two components shown, a drop over one is that one's, and elsewhere the first mounted takes it), `"element"` (over the component only, where nothing is drawn over it) or `"none"` |
 | `typeAheadMs` | `700` | How long after a key the next one still adds to the name being typed in the list (a miss says `labels.noneStarts`, as an `"error"` message) |
-| `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no); a function `(file) => question`: its own question for one file (`null`, `false` or `""`: that file goes without a question). Several files at once are asked about with `labels.confirmDeleteMany` (`files => "Delete 3 files?"`) |
+| `confirmDelete` | `true` | The component asks; `false`: the app asks in `onDelete` (and rejects with `""` when the person says no; its second argument `{ files, index }` lets it ask once for several, at index 0); a function `(file) => question`: its own question for one file (`null`, `false` or `""`: that file goes without a question). Several files at once are asked about with `labels.confirmDeleteMany` (`files => "Delete 3 files?"`) |
 | `formatDate` | short | `(date, file) => text` for the Added column |
 | `pick` | the system's | `(title) => Promise<paths>` behind Add files… |
 | `labels` | English | Any word or sentence it shows (`web/files.d.ts` lists them), e.g. `{ add: "Ajouter…", dropHint: "Up to 50 MB per file" }` |
@@ -624,7 +626,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 
 **The app's side**, each optional, each may return a Promise. A rejection's text is shown to the person; a rejection with an empty text is a quiet "cancelled" and shows nothing:
 - `onAdd(paths)`: resolve with the new files; they are selected, flash once, and "Added 2 files to Health." is said
-- `onOpen(file)`, `onSaveAs(file)` (resolve `false` when the person cancels), `onRename(file, name)`, `onDelete(file)`
+- `onOpen(file)`, `onSaveAs(file)` (resolve `false` when the person cancels), `onRename(file, name)`, `onDelete(file, { files, index })`
 - `onSelect(file | null, files)`: the file with the focus, and every selected file. When several are deleted, `onDelete` is called for each, one after the other; the first refusal stops the rest
 - `onMenuOpen({ label, how })`, `onMenuClose({ label, chosen })`: the row's menu opened and closed, as the menus' `onOpen` and `onClose` (for a sound)
 - `onMessage(text, "info" | "ok" | "error")`: for the app's own status bar. Without it the component shows its messages under the list.
@@ -700,7 +702,7 @@ Most of it is CSS classes on your own markup. Every class is listed at the top o
 | Form | `.tm-form` > `.tm-form-line` with `.tm-label` and `input.tm-field`; `input.tm-check` draws `[X]` / `[ ]` | |
 | Function keys | `.tm-key` (`.tm-go`, `.tm-cancel`, `.tm-yellow`), as `role="button"` | Enter and Space press a focused key. `aria-keyshortcuts="F8"` makes F8 press it from anywhere, and `aria-disabled="true"` turns it off |
 | Table | `table.tm-table`, `.tm-num` for numbers, `meter.tm-bar` for a segmented bar | |
-| Message log | an empty list | `log(el)` returns `add(text, "ok" \| "warn" \| "error")` and `clear()`, with timestamps, a flash on new rows and auto-scroll. It is `role="log"`, and text is added as text only |
+| Message log | an empty list | `log(el)` returns `add(text, "ok" \| "warn" \| "error")` and `clear()`, with timestamps, a flash on new rows and auto-scroll. It keeps the newest 500 rows (`log(el, { max })`), and someone reading further up keeps their place. It is `role="log"`, and text is added as text only |
 | Legend | `.tm-legend` along the bottom | |
 | Text colours | `.tm-ok`, `.tm-warn`, `.tm-error`, `.tm-off`, `.tm-value`, `.tm-dim` | |
 
@@ -763,7 +765,7 @@ python test/menus_run.py [shots-dir]       # the menus, mouse and keyboard
 python test/doctor_run.py                  # the checker, on small apps set up right and wrong
 (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build) && python scripts/doctor.py examples/basic
 (cd test/freeze_check && cargo run)        # macOS: a real app; the Dock click and New Window must open their windows
-CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback cargo +1.90 build --features files   # the oldest Rust it builds with (as CI)
+rm -f Cargo.lock && export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback && cargo +1.90 build && cargo +1.90 build --features files   # the oldest Rust, as CI
 ```
 
 ## Limits
@@ -773,7 +775,7 @@ CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback cargo +1.90 build --features 
 - The page tests run in Chrome (CI runs them in the Chromium that comes with its pinned Playwright, the same browser every day; `TAURIS_TEST_CHROMIUM=1` does that here too). Tauri on macOS uses WebKit, and on Windows WebView2 (Chromium).
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
 - The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
-- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once (unless earlier calls are still waiting, or the hook is running on another thread: then it waits its turn, on the worker); one made inside that lock, by an async page command, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows (and must never block waiting for the main thread). A quitting app waits for it (half a second at most; it cannot open windows then). Other plugins' callbacks (deep-link's `on_open_url`, for one) can run inside that same lock: there, call `app.tabs()` from a thread of your own (`std::thread::spawn`), or a window that opens freezes the app.
+- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once (unless earlier calls are still waiting, or the hook is running on another thread: then it waits its turn, on the worker); one made inside that lock, by an async page command, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows. A quitting app waits for it (half a second at most; it cannot open windows then, and a hook that waits for the main thread then does not finish). Other plugins' callbacks (deep-link's `on_open_url`, for one) can run inside that same lock: there, call `app.tabs()` from a thread of your own (`std::thread::spawn`), or a window that opens freezes the app.
 - A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing

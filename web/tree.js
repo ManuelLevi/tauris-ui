@@ -182,7 +182,8 @@
     const scroller = el("div", "tv-scroll");
     // Hidden from screen readers only when nothing in it can be used (no sorting, one column).
     const head = cols ? el("div", "tv-head", { "aria-hidden": cols.some(clickable) || cols.length > 1 ? null : "true" }, cols.map(headCell)) : null;
-    const body = el("div", "tv-body", { role: "tree", "aria-label": opt.label, "aria-multiselectable": opt.multiple ? "true" : null });
+    // tabindex -1: it holds the focus while it shows no rows (a filter that matches nothing).
+    const body = el("div", "tv-body", { role: "tree", tabindex: "-1", "aria-label": opt.label, "aria-multiselectable": opt.multiple ? "true" : null });
     if (head) scroller.append(head);
     scroller.append(body);
     root.append(scroller);
@@ -246,9 +247,11 @@
 
     let dataCalls = 0;
     function setData(list) {
-      // An edit in progress is saved when its node is still there (a "change"
-      // event the app may answer with setData itself: then that list stands).
+      // An edit in progress goes on, on the new list's node, when that node is
+      // still there and editable (an app that refreshes its data while the
+      // person types does not end their edit); otherwise it ends.
       const call = ++dataCalls;
+      let keepRow = null;
       if (editing) {
         const ed = editing;
         const find = items => {
@@ -260,17 +263,20 @@
           return null;
         };
         const incoming = find(list);
-        const typed = incoming ? editedValue(ed) : { ok: false };
-        // Only a value the person changed is kept (untouched, the new data stands).
-        const changed = typed.ok && !Object.is(typed.value, ed.start) && ed.col.key != null;
-        finishEdit(false, false);
-        if (changed) {
-          // The new list's node is the one drawn from now on: it shows what was
-          // typed, and the app hears it for that node (once the new list is in).
-          (incoming.values ??= {})[ed.col.key] = typed.value;
-          queueMicrotask(() => { if (!signal.aborted) emit("change", { node: incoming, column: ed.col.key, value: typed.value }); });
+        if (incoming && !incoming.readOnly && ed.col.key != null && has(incoming.values, ed.col.key)) {
+          // A field still as it was opened shows the new value; what was typed stays.
+          const fresh = incoming.values[ed.col.key];
+          const untouched = editedValue(ed).ok && Object.is(editedValue(ed).value, ed.start);
+          if (untouched && !Object.is(fresh, ed.start)) {
+            showValue(ed, fresh);
+            ed.start = fresh;
+          }
+          ed.node = incoming;
+          keepRow = pool.get(ed.key) ?? null;
+        } else {
+          finishEdit(false, false);
+          if (call !== dataCalls) return;
         }
-        if (call !== dataCalls) return;
       }
       const hadFocus = body.contains(document.activeElement);
       const hadKey = selectedKey;
@@ -302,9 +308,14 @@
       for (const k of [...picked]) if (!nodes.has(k)) picked.delete(k);
       const dropped = selectedKey !== hadKey || picked.size !== hadPicked;
       if (focusKey !== null && !nodes.has(focusKey)) focusKey = selectedKey;
-      // The rows may be in a new order: draw them all again.
-      for (const node of pool.values()) node.remove();
+      // The rows may be in a new order: draw them all again (but the row being
+      // edited, which keeps its field and the focus).
+      for (const [k, node] of pool) if (!(keepRow && k === editing?.key)) node.remove();
       pool.clear();
+      if (keepRow && editing) {
+        pool.set(editing.key, keepRow);
+        keepRow.__gen = -1; // its other cells are drawn again once the edit ends
+      }
       measure();
       let moved = rebuild();
       // The only selected row is gone: the row now in its place takes the
@@ -319,7 +330,19 @@
         emitSelect();
       }
       if (dropped && !moved) emitSelect();
-      if (hadFocus) focusRow();
+      // The focus stays in the tree: on the tree itself while it shows nothing,
+      // then on the first row when rows come back.
+      if (hadFocus && !editing) {
+        if (!rows.length) {
+          body.focus({ preventScroll: true });
+        } else {
+          if (focusKey === null || !index.has(focusKey)) {
+            focusKey = rows[0].key;
+            render();
+          }
+          focusRow();
+        }
+      }
       requestAnimationFrame(checkHeight);
     }
 
@@ -761,6 +784,8 @@
       }
       input.addEventListener("keydown", e => {
         e.stopPropagation();
+        // Enter and Escape confirm or cancel an input method's text then, not the value.
+        if (e.isComposing || e.keyCode === 229) return;
         if (e.key === "Tab") {
           // Tab and Shift+Tab save and go to the row's next (or previous)
           // editable value; past the last one, back to the row.
@@ -776,7 +801,8 @@
           finishEdit(false);
         }
       }, { signal });
-      input.addEventListener("blur", () => finishEdit(true, false), { signal });
+      // Clicking elsewhere saves; switching to another app does not (the field is there on coming back).
+      input.addEventListener("blur", () => { if (document.hasFocus()) finishEdit(true, false); }, { signal });
       cell.classList.add("tv-editing");
       cell.append(input);
       editing = { key: k, ci, input, spec, node: n, col: c, start: v };
@@ -794,12 +820,18 @@
       return true;
     }
 
+    // Puts a value in an open editor.
+    function showValue(ed, value) {
+      if (ed.spec.type === "select") ed.input.selectedIndex = choices(ed.spec).findIndex(o => o.value === value);
+      else ed.input.value = value == null ? "" : String(value);
+    }
+
     // What the editor holds, as the type the value has: { ok, value }.
     function editedValue(ed) {
       const { input, spec } = ed;
       // Nothing changed in the field: the value stays what it was (a number shown
       // in a text field stays a number, "#5B8CFF" is not rewritten).
-      if (spec.type !== "select" && ed.start != null && input.value === String(ed.start)) return { ok: true, value: ed.start };
+      if (spec.type !== "select" && input.value === (ed.start == null ? "" : String(ed.start))) return { ok: true, value: ed.start };
       if (spec.type === "select") {
         const list = choices(spec);
         const j = input.selectedIndex;
@@ -810,6 +842,11 @@
         const num = Number(text);
         if (text === "" || !Number.isFinite(num)) return { ok: false };
         let value = num;
+        // On a step from min (or 0): 12.5 is 13 for a step of 1.
+        if (typeof spec.step === "number" && spec.step > 0) {
+          const base = typeof spec.min === "number" ? spec.min : 0;
+          value = Number((base + Math.round((value - base) / spec.step) * spec.step).toFixed(10));
+        }
         if (typeof spec.min === "number" && value < spec.min) value = spec.min;
         if (typeof spec.max === "number" && value > spec.max) value = spec.max;
         return { ok: true, value };
@@ -831,7 +868,8 @@
       const hadFocus = document.activeElement === ed.input;
       ed.input.parentElement?.classList.remove("tv-editing");
       ed.input.remove();
-      if (result.ok) commit(ed.node, ed.col, result.value);
+      // Drawn again either way: a row kept through setData shows its new data.
+      if (result.ok && !Object.is(ed.node.values?.[ed.col.key], result.value)) commit(ed.node, ed.col, result.value);
       else render();
       // The editor had the focus: it goes back to the row (whatever closed the
       // editor: Enter, setData, a sort, a folder closing), never to the page.
@@ -978,6 +1016,18 @@
         if (labelOf(rows[i].node).toLowerCase().startsWith(needle)) return go(i);
       }
     }
+
+    // The focus put on a row by something else (VoiceOver's cursor, the app's own
+    // row.focus()): that row is the one the keys act on, selected as a key would.
+    let pressedAt = -Infinity; // a press focuses its row itself (or, a right click, leaves it alone)
+    body.addEventListener("pointerdown", () => { pressedAt = performance.now(); }, { capture: true, signal });
+    body.addEventListener("focusin", e => {
+      if (performance.now() - pressedAt < 500) return;
+      const rowEl = e.target instanceof Element && e.target.classList.contains("tv-row") ? e.target : null;
+      const k = rowEl?.dataset.key;
+      if (k == null || k === focusKey || !index.has(k) || editing) return;
+      go(index.get(k));
+    }, { signal });
 
     body.addEventListener("keydown", e => {
       if (e.target.closest(".tv-editor, .tv-picker")) return;

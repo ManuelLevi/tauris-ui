@@ -518,6 +518,16 @@ with sync_playwright() as p:
     page.close()
 
     page = fresh(browser)
+    page.evaluate("document.getElementById('cmd').setAttribute('dir', 'rtl'); demo.cmd.clear(); demo.cmd.focus()")
+    page.keyboard.insert_text("שלום עולם")
+    page.evaluate(TWO_FRAMES)
+    rtl = page.evaluate("""(() => { const i = document.querySelector('.tm-cmd-input').getBoundingClientRect(); const c = document.querySelector('.tm-cmd .tm-cursor').getBoundingClientRect();
+      return [Math.round(c.left - i.left), Math.round(i.width)]; })()""")
+    check("a right-to-left command line: the block cursor sits where the caret is (at the line's left end), not at the field's start",
+          rtl[0] < rtl[1] - 20 and rtl[0] > 0, rtl)
+    page.close()
+
+    page = fresh(browser)
     rows = page.evaluate("""(() => { const ol = document.createElement('ol'); ol.style.cssText = 'height:120px;overflow:auto;overflow-anchor:none'; /* as WebKit: no scroll anchoring */ document.body.prepend(ol);
       const log = TaurisTerminal.log(ol, { max: 20 }); for (let i = 1; i <= 20; i++) log.add(`ROW ${i}`);
       const r9 = [...ol.children][8]; ol.scrollTop = r9.offsetTop - ol.firstElementChild.offsetTop;

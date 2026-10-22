@@ -126,6 +126,9 @@ pub(crate) struct Closed {
     pub win: Win,
     pub tabs: Vec<Tab>,
     pub at: Instant,
+    // Its place in the focus order when it closed (0 the back): windows that
+    // closed together come back in front of each other as they were.
+    pub order: usize,
 }
 
 pub(crate) struct Model {
@@ -225,7 +228,7 @@ impl Model {
         let Some(pos) = self.wins.iter().position(|w| w.label == label) else { return };
         let win = self.wins.remove(pos);
         let tabs = win.tabs.iter().filter_map(|id| self.tabs.remove(id)).collect();
-        self.closing.push(Closed { win, tabs, at: Instant::now() });
+        self.closing.push(Closed { win, tabs, at: Instant::now(), order: pos });
         self.changed();
     }
 

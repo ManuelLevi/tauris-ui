@@ -52,12 +52,34 @@ pub(crate) fn start<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         inner(app).started.store(false, Ordering::SeqCst);
         return Err(e);
     }
+    // Writes a crash left half done, a minute old or more: of no use, and they hold tab titles.
+    if let Some(file) = layout_file(app) {
+        for f in half_written(&file, Some(Duration::from_secs(60))) {
+            let _ = fs::remove_file(f);
+        }
+    }
     let app = app.clone();
-    thread::spawn(move || loop {
+    // No thread to be had: the layout is still saved at quit and when the last window closes.
+    let saving = thread::Builder::new().name("tauris-ui save".into()).spawn(move || loop {
         thread::sleep(Duration::from_millis(500));
         save(&app, false);
     });
+    if saving.is_err() {
+        eprintln!("tauris-ui: no thread to save the layout as it changes; it is saved at quit");
+    }
     Ok(())
+}
+
+// The Dock icon was clicked with no window open: the remembered windows come
+// back (only in an app that uses tabs, i.e. called start()), on the windows'
+// worker (this runs inside Tauri's lock).
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn reopened<R: Runtime>(app: &AppHandle<R>) {
+    if inner(app).started.load(Ordering::SeqCst) {
+        crate::windows::after_event(app, |app| {
+            let _ = restore(app);
+        });
+    }
 }
 
 // Opens the remembered windows, or one new window when there are none. Does
@@ -107,8 +129,12 @@ pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
     open_saved(app)
 }
 
-// The remembered windows open (the caller holds the restore).
+// The remembered windows open (the caller holds the restore). Not while
+// quitting: none could open, and the file is left as it is for the next launch.
 fn open_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
+    if crate::windows::quitting(app) {
+        return false;
+    }
     let Some(file) = layout_file(app).filter(|f| f.is_file()) else { return false };
     let saved: Vec<SavedWin> = match fs::read_to_string(&file).map(|t| serde_json::from_str(&t)) {
         Ok(Ok(saved)) => saved,
@@ -153,6 +179,8 @@ fn open_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
     // would add the ones that closed to them a second time.
     if opened > 0 {
         inner(app).retry_now.store(false, Ordering::SeqCst);
+        // Nor would a quit a moment later add them: they are back.
+        inner(app).model().closing.clear();
     }
     // Remembered windows that could not open are kept aside, not lost when the
     // windows that did open are saved.
@@ -164,13 +192,49 @@ fn open_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
     opened > 0
 }
 
+// Files a save writes aside (`<file>.<process>.tmp`) and a crash left behind;
+// with `older`, only those not touched for that long (another copy of the app
+// may be writing its own).
+fn half_written(file: &std::path::Path, older: Option<Duration>) -> Vec<PathBuf> {
+    let (Some(dir), Some(name)) = (file.parent(), file.file_name().map(|n| n.to_string_lossy().to_string())) else {
+        return vec![];
+    };
+    let Ok(entries) = fs::read_dir(dir) else { return vec![] };
+    entries
+        .filter_map(Result::ok)
+        .filter(|e| {
+            let n = e.file_name().to_string_lossy().to_string();
+            n.starts_with(&format!("{name}.")) && n.ends_with(".tmp")
+        })
+        .filter(|e| {
+            older.is_none_or(|age| {
+                e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|t| t >= age)
+            })
+        })
+        .map(|e| e.path())
+        .collect()
+}
+
+// A screen: x, y, width and height.
+type Screen = (f64, f64, f64, f64);
+
+#[cfg(test)]
+thread_local! {
+    // The screens a test says there are (the test runtime cannot list any).
+    pub(crate) static TEST_SCREENS: std::cell::RefCell<Option<Vec<Screen>>> = const { std::cell::RefCell::new(None) };
+}
+
 fn on_screen<R: Runtime>(app: &AppHandle<R>, f: &Frame) -> bool {
+    #[cfg(test)]
+    if let Some(screens) = TEST_SCREENS.with(|s| s.borrow().clone()) {
+        return within(f, &screens);
+    }
     // A runtime that cannot list its screens (the test runtime cannot) knows none.
     let monitors = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.available_monitors()))
         .ok()
         .and_then(Result::ok)
         .unwrap_or_default();
-    let screens: Vec<(f64, f64, f64, f64)> = monitors
+    let screens: Vec<Screen> = monitors
         .iter()
         .map(|m| {
             let (p, s) =
@@ -184,7 +248,7 @@ fn on_screen<R: Runtime>(app: &AppHandle<R>, f: &Frame) -> bool {
 // Whether a window's title bar (a point just inside its top left) is on one of
 // these screens (x, y, width, height). No screens known (some systems report
 // none): nothing is off one.
-fn within(f: &Frame, screens: &[(f64, f64, f64, f64)]) -> bool {
+fn within(f: &Frame, screens: &[Screen]) -> bool {
     screens.is_empty()
         || screens
             .iter()
@@ -206,11 +270,15 @@ pub(crate) fn forget<R: Runtime>(app: &AppHandle<R>) {
         m.closing.clear();
         state.retry_now.store(false, Ordering::SeqCst);
     }
-    // The copies kept aside go too: they hold tab titles as well.
+    // The copies kept aside go too, and a write a crash left half done: they hold tab titles as well.
     if let Some(file) = layout_file(app) {
-        for f in [file.with_extension("unopened"), file.with_extension("unreadable"), file] {
+        for f in [file.with_extension("unopened"), file.with_extension("unreadable")]
+            .into_iter()
+            .chain(half_written(&file, None))
+        {
             let _ = fs::remove_file(f);
         }
+        let _ = fs::remove_file(file);
     }
 }
 
@@ -242,7 +310,9 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
         state.retry_now.store(false, Ordering::SeqCst);
         // Windows closed a moment ago are kept only by a save at once (the app
         // quitting closes them one by one); a save after a pause leaves them out.
-        let just_closed = m.closing.iter().filter(|_| now).map(|c| SavedWin {
+        let mut closed: Vec<&crate::model::Closed> = m.closing.iter().filter(|_| now).collect();
+        closed.sort_by_key(|c| c.order); // stable: the same place keeps the order they closed in
+        let just_closed = closed.into_iter().map(|c| SavedWin {
             active: c.win.active.and_then(|a| c.win.tabs.iter().position(|t| *t == a)).unwrap_or(0),
             tabs: c.tabs.clone(),
             frame: c.win.frame,

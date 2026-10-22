@@ -183,18 +183,24 @@ def keys(obj):
 
 
 def own_picker(text):
-    """Whether a TaurisFiles.mount call is given a pick option: in the object
-    it is given, or in the object its variable is declared with."""
+    """Whether the app never needs the system's dialogs: every TaurisFiles.mount
+    is given a pick option (in the object it is given, through what that object
+    spreads in, or in the object its variable is declared with), and nothing
+    calls TaurisFiles.pick or TaurisFiles.saveDialog itself."""
+    if re.search(r"TaurisFiles\s*\??\.\s*(?:pick|saveDialog)\s*\(", text):
+        return False
     # TaurisFiles.mount(, TaurisFiles?.mount(, TaurisFiles.mount<MyFile>(
-    for m in re.finditer(r"TaurisFiles\s*\??\.\s*mount\s*(?:<[^<>()]*>)?\s*\(", text):
-        given = arguments(balanced(text, m.end() - 1, "(", ")"))
-        options = given[1] if len(given) > 1 else ""
-        if options.startswith("{"):
-            if "pick" in keys(balanced(options, 0, "{", "}")):
-                return True
-        elif re.fullmatch(r"[A-Za-z_$][\w$]*", options) and has_pick(text, options):
-            return True
-    return False
+    mounts = list(re.finditer(r"TaurisFiles\s*\??\.\s*mount\s*(?:<[^<>()]*>)?\s*\(", text))
+    return bool(mounts) and all(mount_has_pick(text, m) for m in mounts)
+
+
+def mount_has_pick(text, m):
+    given = arguments(balanced(text, m.end() - 1, "(", ")"))
+    options = given[1] if len(given) > 1 else ""
+    if options.startswith("{"):
+        body = balanced(options, 0, "{", "}")
+        return "pick" in keys(body) or any(has_pick(text, base) for base in re.findall(r"\.\.\.\s*([A-Za-z_$][\w$]*)", body))
+    return bool(re.fullmatch(r"[A-Za-z_$][\w$]*", options)) and has_pick(text, options)
 
 
 def arguments(args):
@@ -216,7 +222,8 @@ def arguments(args):
 def has_pick(text, name, seen=()):
     """Whether the object variable `name` is declared with a pick key, itself
     or through an object it spreads in ({ ...base })."""
-    decl = re.search(rf"\b(?:const|let|var)\s+{re.escape(name)}\s*(?::[^=;]+)?=\s*\{{", text)
+    # const o = { ... }, or React's const o = useMemo(() => ({ ... }), [])
+    decl = re.search(rf"\b(?:const|let|var)\s+{re.escape(name)}\s*(?::[^=;]+)?=\s*(?:[\w$.]+\s*\(\s*\(\s*\)\s*=>\s*\(\s*)?\{{", text)
     if not decl or name in seen:
         return False
     body = balanced(text, decl.end() - 1, "{", "}")
@@ -256,6 +263,17 @@ def window_labels(app, rust):
 
 def permissions(capability):
     return json.dumps(capability.get("permissions", []))
+
+
+TAB_COMMANDS = ("window-state", "new-tab", "open-tab", "close-tab", "activate-tab", "move-tab", "update-tab", "report-strip",
+                "drag-out", "set-close-guard", "close-asked", "close-window", "move-to-new-window")
+
+
+def grants(capability, commands):
+    """Whether a capability lets its windows use these of the plugin's commands:
+    tauris-ui:default, or each one's own allow-… permission."""
+    given = set(capability.get("permissions", [])) if isinstance(capability.get("permissions"), list) else set()
+    return "tauris-ui:default" in given or all(f"tauris-ui:allow-{c}" in given for c in commands)
 
 
 def listens(capability):
@@ -435,12 +453,32 @@ def capabilities(tauri, app):
     return caps
 
 
+CONF_NAMES = ("tauri.conf.json", "tauri.conf.json5", "Tauri.toml")
+
+
 def find_src_tauri(root):
-    if (root / "tauri.conf.json").is_file():
-        return root
-    if (root / "src-tauri" / "tauri.conf.json").is_file():
-        return root / "src-tauri"
+    for folder in (root, root / "src-tauri"):
+        if any((folder / name).is_file() for name in CONF_NAMES):
+            return folder
     return None
+
+
+def read_conf(tauri):
+    """tauri.conf.json, tauri.conf.json5 (comments and trailing commas) or Tauri.toml."""
+    for name in CONF_NAMES:
+        path = tauri / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if name.endswith(".toml"):
+            return tomllib.loads(text)
+        if name.endswith(".json5"):
+            text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+            text = re.sub(r"(?m)^\s*//.*$", "", text)
+            text = re.sub(r",(\s*[}\]])", r"\1", text)
+            text = re.sub(r"(?m)([{,]\s*|^\s*)([A-Za-z_$][\w$]*)\s*:", r'\1"\2":', text)  # bare keys
+        return json.loads(text)
+    return {}
 
 
 def main():
@@ -450,14 +488,14 @@ def main():
     root = Path(sys.argv[1]).expanduser().resolve()
     tauri = find_src_tauri(root)
     if tauri is None:
-        print(f"No tauri.conf.json in {root} or {root / 'src-tauri'}.")
+        print(f"No tauri.conf.json (nor .json5, nor Tauri.toml) in {root} or {root / 'src-tauri'}.")
         return 2
     print(f"tauris-ui {library_version()}: checking {tauri}\n")
 
     # 1. dependency: where it points, and which versions it accepts
     try:
         manifest_data = tomllib.loads((tauri / "Cargo.toml").read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as e:
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as e:  # ValueError: not UTF-8 (a file saved as cp1252)
         print(f"  FIX   {tauri / 'Cargo.toml'} cannot be read: {e}")
         return 1
     current = library_version()
@@ -470,7 +508,7 @@ def main():
     spec = found[1] if found else None
     if spec is None:
         bad("Cargo.toml has no tauris-ui dependency",
-            f'add under [dependencies]: tauris-ui = {{ path = "{LIBRARY}", version = "{series(current)}" }}')
+            f'add under [dependencies]: tauris-ui = {{ path = "{LIBRARY.as_posix()}", version = "{series(current)}" }}')
     else:
         spec = {"version": spec} if isinstance(spec, str) else spec
         if spec.get("workspace") is True:
@@ -481,7 +519,7 @@ def main():
             target = (tauri / spec["path"]).resolve()
             manifest = target / "Cargo.toml"
             if not manifest.is_file() or 'name = "tauris-ui"' not in manifest.read_text(encoding="utf-8"):
-                bad(f"the dependency path {spec['path']} does not lead to tauris-ui", f'set path = "{LIBRARY}"')
+                bad(f"the dependency path {spec['path']} does not lead to tauris-ui", f'set path = "{LIBRARY.as_posix()}"')
             elif target != LIBRARY:
                 note(f"the app uses the copy of tauris-ui at {target}, not {LIBRARY}")
             else:
@@ -511,16 +549,18 @@ def main():
     # Which components the app uses: tabs need the Rust side wired; the tree
     # view lives in the page and only needs the plugin to deliver it.
     try:
-        conf = json.loads((tauri / "tauri.conf.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        print(f"  FIX   {tauri / 'tauri.conf.json'} cannot be read: {e}")
+        conf = read_conf(tauri)
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
+        conf_file = next((tauri / n for n in CONF_NAMES if (tauri / n).is_file()), tauri / "tauri.conf.json")
+        print(f"  FIX   {conf_file} cannot be read: {e}")
         return 1
     app = conf.get("app", {})
     rust = "\n".join(rust_code(read(p)) for p in (tauri / "src").rglob("*.rs"))
     files = page_files(tauri, conf)
     # Copied typings (tabs.d.ts...) name every component: they are not the app using them.
     text = "\n".join(page_code(p) for p in files if not p.name.endswith(".d.ts"))
-    uses_tabs = "TaurisTabs" in text or bool(re.search(r"\.tabs\(\)", rust))
+    # app.tabs() is the library's when its trait is in scope (TabsExt, or tauris_ui::*), not an app's own tabs().
+    uses_tabs = "TaurisTabs" in text or bool(re.search(r"\.tabs\(\)", rust) and re.search(r"\bTabsExt\b|\buse\s+\w+::\*", rust))
     uses_tree = "TaurisTree" in text
     uses_terminal = "TaurisTerminal" in text
     uses_files = "TaurisFiles" in text
@@ -542,7 +582,7 @@ def main():
     # dependency), and with a runtime spelled out (init::<Wry>(...)).
     names = {crate, "tauris_ui"} | set(re.findall(r"\buse\s+(?:tauris_ui|" + re.escape(crate) + r")\s+as\s+(\w+)", rust))
     called = any(re.search(rf"\b{re.escape(n)}::init\s*(?:::<[^>]*>)?\s*\(", rust) for n in names)
-    imported = any(re.search(rf"\buse\s+{re.escape(n)}::(?:init\b|\{{[^}}]*\binit\b)", rust) for n in names)
+    imported = any(re.search(rf"\buse\s+{re.escape(n)}::(?:init\b|\*|\{{[^}}]*\binit\b)", rust) for n in names)
     if called or (imported and re.search(r"\.plugin\(\s*init\s*(?:::<[^>]*>)?\s*\(", rust)):
         ok("the plugin is registered")
     else:
@@ -574,7 +614,7 @@ def main():
             note("no tauris_ui::default_menu / file_menu / menu_ids: \u2318T and \u2318W only work if your own menu calls app.tabs()")
 
         caps = capabilities(tauri, app)
-        granting = [(p, c) for p, c in caps if "tauris-ui:default" in json.dumps(c.get("permissions", []))]
+        granting = [(p, c) for p, c in caps if grants(c, TAB_COMMANDS)]
         if not granting:
             bad("no capability grants tauris-ui:default",
                 'add "tauris-ui:default" to "permissions" in src-tauri/capabilities/default.json')
@@ -615,7 +655,8 @@ def main():
             reach = lambda c: any(pattern == "*" or pattern == label or (pattern.endswith("*") and label.startswith(pattern[:-1]))
                                   for pattern in c.get("windows") or c.get("webviews") or [] for label in labels)
             every = [c for _, c in capabilities(tauri, app)]
-            granting = [c for c in every if "tauris-ui:default" in permissions(c)]
+            dialogs = ("pick-files", "save-dialog") if re.search(r"TaurisFiles\s*\??\.\s*saveDialog\s*\(", text) else ("pick-files",)
+            granting = [c for c in every if grants(c, dialogs)]
             # Dropped files reach the page as events, with or without the app's own pick
             # (windows not known: at least one capability must allow it).
             if not labels and any(listens(c) for c in every):

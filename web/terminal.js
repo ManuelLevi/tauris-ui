@@ -250,7 +250,10 @@
       const cs = getComputedStyle(input);
       mirror.style.font = cs.font;
       mirror.style.letterSpacing = cs.letterSpacing;
+      // As wide as the field and aligned as it is: right-to-left text starts at its right.
       mirror.style.direction = cs.direction;
+      mirror.style.textAlign = cs.textAlign;
+      mirror.style.width = `${input.clientWidth}px`;
       mirror.textContent = input.value;
       const text = mirror.firstChild;
       if (!text) return 0;

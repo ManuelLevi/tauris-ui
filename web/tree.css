@@ -48,8 +48,8 @@
     /* --tv-sel-line: unset, the selection's text at 70%: the lines and boxes on a selected row */
     --tv-sel-inactive-bg: var(--tauris-sel-inactive, #34343b);  /* the selected row while focus is elsewhere */
     /* --tv-sel-inactive-fg: unset, the text colour */
-    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: mixed with the text colour. */
-    --tv-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #dfe1e5));
+    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: no lighter than oklch 0.5 in light mode, no darker than 0.75 in dark. */
+    --tv-ink-auto: oklch(from var(--tauris-accent) max(l, 0.75) c h);
     --tv-focus: var(--tauris-accent-ink, var(--tv-ink-auto, #5b8cff));
     --tv-head-bg: var(--tauris-chrome, #1c1c20);
     --tv-head-fg: var(--tauris-dim, #9e9ea8);
@@ -61,8 +61,7 @@
     --tv-check-bg: var(--tauris-bg, #1e1e22);
     --tv-check-border: var(--tauris-dim, #74747e);
     --tv-check-on: var(--tauris-accent, #4d7dff);
-    --tv-on-auto: oklch(from var(--tauris-accent) clamp(0, (0.58 - l) * 1000, 1) 0 0);
-    --tv-check-mark: var(--tauris-on-accent, var(--tv-on-auto, #ffffff));
+    /* --tv-check-mark: unset, the tick on --tv-check-on: --tauris-on-accent, else white or black, whichever reads on it */
     --tv-swatch-line: rgb(255 255 255 / 0.28);
     --tv-scroll-thumb: var(--tauris-line, #3b3b43);
     /* icons */
@@ -93,7 +92,7 @@
       --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
       --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
       --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
-      --tv-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #1e1f22));
+      --tv-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
       --tv-focus: var(--tauris-accent-ink, var(--tv-ink-auto, #2f6bff));
       --tv-head-bg: var(--tauris-chrome, #f6f6f8);
       --tv-head-fg: var(--tauris-dim, #5c5c66);
@@ -132,7 +131,7 @@
     --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
-    --tv-ink-auto: color-mix(in srgb, var(--tauris-accent) 55%, var(--tauris-fg, #1e1f22));
+    --tv-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
     --tv-focus: var(--tauris-accent-ink, var(--tv-ink-auto, #2f6bff));
     --tv-head-bg: var(--tauris-chrome, #f6f6f8);
     --tv-head-fg: var(--tauris-dim, #5c5c66);
@@ -491,13 +490,13 @@
     background: var(--tv-check-on);
   }
 
-  .tv-check.tv-on::after { border-color: var(--tv-check-mark); }
+  .tv-check.tv-on::after { border-color: var(--tv-check-mark, var(--tauris-on-accent, color(from var(--tv-check-on) xyz-d65 calc(0.9505 * clamp(0, (0.179 - y) * 1e9, 1)) clamp(0, (0.179 - y) * 1e9, 1) calc(1.089 * clamp(0, (0.179 - y) * 1e9, 1))))); }
 
   /* On the selection, an empty box is edged in the selection's text colour (it reads on the tint). */
   .tv-body:focus-within .tv-row[aria-selected="true"] .tv-check:not(.tv-on) { border-color: var(--tv-sel-fg); }
 
   .tv-body:focus-within .tv-row[aria-selected="true"] .tv-check.tv-on {
-    border-color: var(--tv-check-mark);
+    border-color: var(--tv-check-mark, var(--tauris-on-accent, color(from var(--tv-check-on) xyz-d65 calc(0.9505 * clamp(0, (0.179 - y) * 1e9, 1)) clamp(0, (0.179 - y) * 1e9, 1) calc(1.089 * clamp(0, (0.179 - y) * 1e9, 1)))));
   }
 
   .tv-body:focus-within .tv-row[aria-selected="true"] .tv-swatch {

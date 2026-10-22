@@ -178,13 +178,7 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
                 // The dock icon was clicked with no window open: the remembered ones
                 // come back (only in an app that uses tabs, i.e. called start()).
                 #[cfg(target_os = "macos")]
-                RunEvent::Reopen { has_visible_windows: false, .. }
-                    if windows::inner(app).started.load(std::sync::atomic::Ordering::SeqCst) =>
-                {
-                    after_event(app, |app| {
-                        let _ = persist::restore(app);
-                    });
-                }
+                RunEvent::Reopen { has_visible_windows: false, .. } => persist::reopened(app),
                 _ => {}
             }
         })
@@ -218,7 +212,8 @@ impl<R: Runtime, T: Manager<R>> TabsExt<R> for T {
 
 impl<R: Runtime> Tabs<R> {
     /// Opens the remembered windows (or one new window) and keeps saving the
-    /// layout. Call it once, in `setup`; later calls do nothing.
+    /// layout. Call it once, in `setup`; later calls do nothing (after one that
+    /// failed, the next tries again).
     pub fn start(&self) -> tauri::Result<()> {
         persist::start(&self.0)
     }

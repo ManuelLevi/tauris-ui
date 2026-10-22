@@ -691,7 +691,11 @@ with sync_playwright() as p:
     page.keyboard.press("ControlOrMeta+a")
     page.keyboard.type("new")
     page.evaluate("et.setData(mk())")
-    check("setData while editing: the edit is saved first (a change event), not lost", page.evaluate("edits") == [["a", "new"]], page.evaluate("edits"))
+    still = page.evaluate("[document.activeElement.classList.contains('tv-editor'), document.activeElement.value]")
+    page.keyboard.type(" too")
+    page.keyboard.press("Enter")
+    check("setData while editing: the edit goes on (the field, the focus, what is typed), and Enter saves it",
+          still == [True, "new"] and page.evaluate("edits") == [["a", "new too"]], (still, page.evaluate("edits")))
     order = lambda: page.evaluate("[...etHost.querySelectorAll('.tv-row')].sort((x, y) => parseFloat(x.style.top) - parseFloat(y.style.top)).map(r => r.dataset.key)")
     page.evaluate("et.sort('s')")
     up = order()
@@ -816,7 +820,8 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.keyboard.type("NEW")
     page.evaluate("t.setData(build()); 0")
-    check("setData during an edit: the value typed is saved and shown, in the new list's node",
+    page.keyboard.press("Enter")
+    check("setData during an edit, then Enter: the value typed is saved and shown, in the new list's node",
           page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']") == "NEW" and page.evaluate("model.a") == "NEW",
           page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']"))
     page.close()
@@ -908,8 +913,11 @@ with sync_playwright() as p:
     page.click("#mine .tv-row[data-key=a] .tv-label")
     page.keyboard.press("Enter")
     page.evaluate("t.setData(build('Atlas 2 (from the server)')); 0")
+    shows = page.input_value("#mine .tv-editor")
+    page.keyboard.press("Enter")
     page.wait_for_timeout(50)
-    check("setData while an editor is open but untouched: the new data stands, and nothing is said changed",
+    check("setData while an editor is open but untouched: it shows the new data, which stands, and nothing is said changed",
+          shows == "Atlas 2 (from the server)" and
           page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']") == "Atlas 2 (from the server)" and page.evaluate("got") == [],
           (page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']"), page.evaluate("got")))
     page.close()
@@ -945,6 +953,59 @@ with sync_playwright() as p:
     picked = page.evaluate("demo.files.selected()?.label")
     toggled = page.evaluate("__ev.filter(e => e[1] === 'toggle').length")
     check("type-ahead: a - inside a typed name is part of it (src-tauri), not a close", picked == "src-tauri" and toggled == 0, (picked, toggled))
+    page.close()
+
+    # ---------- a tenth review ----------
+    page = fresh(browser)
+    page.evaluate(f"(" + MINE + f")({{ columns: [{{ label: 'Name' }}, {{ label: 'V', key: 'v', editable: true }}, {{ label: 'N', key: 'n', editable: true, editor: {{ type: 'number', min: 10, max: 16, step: 1 }} }}],"
+                  " data: [{ id: 'a', label: 'A', values: { v: null, n: 12 } }, { id: 'b', label: 'B', values: { v: 'b', n: 12 } }] }); 0")
+    page.evaluate("t.edit('a', 'v'); 0")
+    page.keyboard.press("Enter")
+    check("an editor on an empty (null) value closed with nothing typed changes nothing", page.evaluate("got") == [] and page.evaluate("t.get('a').values.v") is None,
+          page.evaluate("got"))
+    page.evaluate("t.edit('a', 'n'); 0")
+    page.keyboard.press("ControlOrMeta+a")
+    page.keyboard.type("12.6")
+    page.keyboard.press("Enter")
+    check("a number is kept on its step (12.6 is 13 for a step of 1)", page.evaluate("t.get('a').values.n") == 13, page.evaluate("t.get('a').values.n"))
+    page.evaluate("t.edit('b', 'v'); 0")
+    page.evaluate("""() => { const i = document.querySelector('#mine .tv-editor'); i.value = 'にほ';
+      i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, isComposing: true, bubbles: true })); return 0; }""")
+    check("Enter that confirms an input method's text keeps the editor open", page.locator("#mine .tv-editor").count() == 1)
+    page.keyboard.press("Escape")
+    page.evaluate("document.querySelector('#mine .tv-row[data-key=b]').focus(); 0")
+    page.keyboard.press("ArrowUp")
+    check("the focus put on a row by something else (VoiceOver, the app): the keys go on from there", page.evaluate("t.selected()?.id") == "a",
+          page.evaluate("t.selected()?.id"))
+    page.evaluate("t.setData([]); 0")
+    on_tree = page.evaluate("document.activeElement.getAttribute('role')")
+    page.evaluate("t.setData([{ id: 'x', label: 'X' }, { id: 'y', label: 'Y' }]); 0")
+    check("the tree emptied and filled again keeps the focus (on itself, then on a row)", on_tree == "tree" and page.evaluate("document.activeElement.dataset.key") == "x",
+          (on_tree, page.evaluate("document.activeElement.className")))
+    page.close()
+
+    page = fresh(browser)
+    warnings = []
+    page.on("console", lambda m: warnings.append(m.text) if m.type == "warning" else None)
+    page.evaluate("(" + MINE + ")({ icons: { star: '<svg class=\\'my-star\\' viewBox=\\'0 0 16 16\\'></svg>' },"
+                  " data: [{ id: 'a', label: 'A', icon: 'star' }, { id: 'a', label: 'Again' }] }); 0")
+    # An element with no height of its own grows with its rows: past 200 rows, the console says so.
+    page.evaluate("""(() => { const flat = document.createElement('div'); document.body.append(flat);
+      TaurisTree.mount(flat, { data: Array.from({ length: 300 }, (_, i) => ({ id: 'z' + i, label: 'Z ' + i })) }); return 0; })()""")
+    page.wait_for_timeout(200)
+    check("icons: an app's own icon is drawn from its markup", page.locator("#mine .tv-icon .my-star").count() == 1)
+    check("the console says when ids repeat, and when the tree's element has no height",
+          any("own id" in w for w in warnings) and any("height" in w for w in warnings), warnings)
+    page.close()
+
+    page = fresh(browser, "light")
+    page.add_style_tag(content=":root { --tauris-accent: #039250; }")
+    page.evaluate("(" + MINE + ")({ columns: [{ label: 'Name' }, { label: 'On', key: 'on', editable: true }], data: [{ id: 'a', label: 'A', values: { on: true } }] }); 0")
+    tick = page.evaluate("getComputedStyle(document.querySelector('#mine .tv-check.tv-on'), '::after').borderTopColor")
+    page.evaluate("document.getElementById('mine').style.setProperty('--tv-check-on', '#ffd400'); 0")
+    tick2 = page.evaluate("getComputedStyle(document.querySelector('#mine .tv-check.tv-on'), '::after').borderTopColor")
+    check("a tick on an accent of the app's: white or black, whichever reads (never a grey), also for the tree's own colour",
+          tick in ("rgb(0, 0, 0)", "color(xyz-d65 0 0 0)") and tick2 in ("rgb(0, 0, 0)", "color(xyz-d65 0 0 0)"), (tick, tick2))
     page.close()
 
     # ---------- light mode ----------

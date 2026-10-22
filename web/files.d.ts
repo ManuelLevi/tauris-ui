@@ -94,7 +94,7 @@ declare global {
     typeAheadMs?: number;
     /** Ask before onDelete: true (the component asks; default), false (the app asks), or the question for
      * one file (null, false or "": that file goes without a question). Several files at once are asked about with
-     * labels.confirmDeleteMany; onDelete runs once per file. */
+     * labels.confirmDeleteMany (with false, not at all: onDelete's batch lets the app ask once); onDelete runs once per file. */
     confirmDelete?: boolean | ((file: F) => string | null | false);
     /** ⌘-click (Ctrl-click) and Shift-click select several files; ⌘A selects them all. Default false. */
     multiple?: boolean;
@@ -110,7 +110,9 @@ declare global {
     /** Resolve false when the person cancels the save dialog. */
     onSaveAs?: (file: F) => Promise<boolean | void> | boolean | void;
     onRename?: (file: F, name: string) => Promise<unknown> | unknown;
-    onDelete?: (file: F) => Promise<unknown> | unknown;
+    /** `batch`: the files deleted together and this one's place among them (with confirmDelete: false,
+     * the app can ask once, at index 0, for all of them). */
+    onDelete?: (file: F, batch: { files: F[]; index: number }) => Promise<unknown> | unknown;
     /** The selected file with the focus (or the first selected one), and every selected file, top to bottom. */
     onSelect?: (file: F | null, files: F[]) => void;
     /** The row's menu (right click, Shift+F10) opened; label is the file's name. As TaurisMenu's onOpen. */

@@ -132,11 +132,15 @@ impl<R: Runtime> Config<R> {
     /// Called with a window's label after anything about its tabs changes:
     /// opened, closed, moved, activated, or a title or field updated (from
     /// Rust or from the page). A change the app makes from its own code reaches
-    /// the hook at once, on that thread. One made inside Tauri's plugin lock
+    /// the hook at once, on that thread (unless earlier calls wait, or the hook
+    /// is running on another thread: then it waits its turn, on the worker; on
+    /// the main thread the hook must not wait for the main thread itself). One made inside Tauri's plugin lock
     /// (the plugin's own events, the page's commands, async ones too) or by a
     /// window job (⌘N, ⌘T, the Dock click) reaches it a moment later on a
-    /// worker thread, so the hook may open windows there too (and must never
-    /// block waiting for the main thread). Calls never overlap and keep their order (a change
+    /// worker thread, so the hook may open windows there too. While the app
+    /// quits it is given half a second and cannot open windows: a hook that
+    /// waits for the main thread then (a menu item's state, the screens) does
+    /// not finish. Calls never overlap and keep their order (a change
     /// made while earlier calls wait reaches the hook after them, on the
     /// worker); several changes to one window while its call waits make one
     /// call, at the place of the newest. It may use `app.tabs()`.

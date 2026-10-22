@@ -195,7 +195,7 @@
       } finally {
         pending--;
       }
-      if (signal.aborted || mine !== loads) return;
+      if (signal.aborted || mine !== loads) return false;
       // Rust finished that drag: the tab it left behind loses its drag look.
       if (drag?.handedOff) {
         resetDragStyles();
@@ -208,6 +208,14 @@
       emit("change", { tabs, active });
       // Another tab is active (the +, a tab closed, ⌘T, a drop, Rust): said too.
       if (active !== was) emit("activate", activeTab());
+      return true;
+    }
+
+    // Rust's tabs as they are now: asked again until an answer is drawn (a
+    // newer one asked meanwhile drops the older one).
+    async function current() {
+      for (let n = 0; n < 5 && !signal.aborted; n++) if (await load()) return true;
+      return false;
     }
 
     // A change made here: answers already on their way are now out of date,
@@ -419,7 +427,11 @@
       const first = known.size === 0;
       for (const node of items) {
         const id = Number(node.dataset.id);
-        if (opt.appear && !known.has(id) && !first) node.classList.add("tt-appear");
+        if (opt.appear && !known.has(id) && !first) {
+          node.classList.add("tt-appear");
+          // Once in, it does not pop in again when the strip is put in order.
+          node.addEventListener("animationend", () => node.classList.remove("tt-appear"), { once: true });
+        }
         known.add(id);
       }
       if (hover) {
@@ -428,10 +440,16 @@
       }
       // One tab is always reachable with Tab, even with none active.
       if (!items.some(n => n.tabIndex === 0)) items.find(n => !n.classList.contains("tt-ghost"))?.setAttribute("tabindex", "0");
-      // Put in order without taking out the ones in place (taking out the
-      // element with the focus would drop it).
-      items.forEach((node, i) => { if (tabsEl.children[i] !== node) tabsEl.insertBefore(node, tabsEl.children[i] ?? null); });
-      while (tabsEl.children.length > items.length) tabsEl.lastElementChild.remove();
+      // The tabs that went go first; then the rest is put in order, moving the
+      // others around one in place (taking out the element with the focus would drop it).
+      const stay = new Set(items);
+      for (const node of [...tabsEl.children]) if (!stay.has(node)) node.remove();
+      items.forEach((node, i) => {
+        const at = tabsEl.children[i] ?? null;
+        if (at === node) return;
+        if (node.isConnected && typeof tabsEl.moveBefore === "function") tabsEl.moveBefore(node, at);
+        else tabsEl.insertBefore(node, at);
+      });
       finishRender(hadFocus);
     }
 
@@ -488,6 +506,7 @@
     // Tells Rust where the tabs sit, for drops from other windows; only when it changed.
     let reported = "";
     function reportStrip() {
+      if (signal.aborted) return;
       const mids = [...tabsEl.querySelectorAll(".tt-tab:not(.tt-ghost)")].map(node => {
         const r = node.getBoundingClientRect();
         return Math.round(r.left + r.width / 2);
@@ -795,7 +814,7 @@
     // Rust asks to close a tab (⌘W): one this page has not loaded yet (⌘T a
     // moment before) is loaded first; one it never had closes without a question.
     async function closeRequested(id) {
-      if (!tabs.some(t => t.id === id)) await load();
+      if (!tabs.some(t => t.id === id)) await current();
       if (tabs.some(t => t.id === id)) return close(id);
       if (!signal.aborted) await call("close_tab", { tab: id });
       return true;
@@ -809,6 +828,8 @@
       if (askingWindow) return;
       askingWindow = true;
       try {
+        // Every tab Rust has now is asked, one it added a moment ago too.
+        await current();
         for (const tab of [...tabs]) {
           if (!(await mayClose(tab, "window"))) return;
         }
@@ -865,6 +886,10 @@
         const old = tabEl(next.id);
         if (drag?.moved && !drag.handedOff) {
           // Drawn when the drag ends.
+        } else if (old && !hover && old.contains(document.activeElement) && document.activeElement !== old) {
+          // A field the app drew in the tab has the focus (its title being typed): the
+          // tab stays as it is until the focus leaves it.
+          old.__ttStale = true;
         } else if (old && !hover) {
           // Only this tab is drawn again; it keeps the focus, and stays the one Tab reaches.
           const hadFocus = old.contains(document.activeElement);
@@ -888,6 +913,7 @@
       destroy() {
         if (opt.onBeforeClose) quiet(call("set_close_guard", { on: false, seq: ++guardSeq }));
         life.abort();
+        cancelAnimationFrame(scrollFrame);
         unlisten.splice(0).forEach(off => off());
         closeMenu();
         drag?.preview?.remove();

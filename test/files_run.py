@@ -1259,6 +1259,7 @@ with sync_playwright() as p:
     check("a row is named by what it shows, not by its buttons too", row_names and all("Open" not in r and "Rename" not in r for r in row_names), row_names)
     live = page.evaluate("[document.querySelector('.tf-live')].map(n => [n.getAttribute('role'), n.hidden, n.textContent])")
     page.evaluate("v.search('zzz'); 0")
+    page.wait_for_timeout(600)  # it speaks once the typing stops
     check("the region a screen reader hears is there before it speaks, then says the search found nothing",
           live == [["status", False, ""]] and page.evaluate("document.querySelector('.tf-live').textContent") == "No files match “zzz”.",
           (live, page.evaluate("document.querySelector('.tf-live').textContent")))
@@ -1344,18 +1345,18 @@ with sync_playwright() as p:
     page.wait_for_timeout(200)
     check("files added while the focus is on the empty place's button: the focus goes to the list", page.evaluate("document.activeElement.classList.contains('tf-list')"),
           page.evaluate("document.activeElement.className"))
-    page.evaluate("v.setFiles([{ id: 's', name: 'Scan', type: 'application/pdf' }, { id: 'p', name: 'Plan.docx' }, { id: 'q', name: 'Plan 2.docx' }]); 0")
+    page.evaluate("v.setFiles([{ id: 's', name: 'Scan', type: 'application/pdf' }, { id: 'p', name: 'Plan.docx' }, { id: 'q', name: 'Plan 2.docx' }, { id: 'l', name: 'Lease.pdf' }]); 0")
     names = page.evaluate("[...document.querySelectorAll('.tf .tf-file')].map(r => r.getAttribute('aria-label'))")
     check("a row whose name does not say its kind is named with it", any(n.startswith("Scan, PDF") for n in names) and not any(n.startswith("Plan.docx, ") and "DOC" in n for n in names), names)
     page.evaluate("v.search('plan'); 0")
     page.wait_for_timeout(700)
-    check("a search: how many files show is spoken once the typing stops", "2 of 3 files" in page.evaluate("document.querySelector('.tf .tf-live').textContent"),
+    check("a search: how many files show is spoken once the typing stops", "2 of 4 files" in page.evaluate("document.querySelector('.tf .tf-live').textContent"),
           page.evaluate("document.querySelector('.tf .tf-live').textContent"))
     page.evaluate("v.search(''); v.update({ typeAheadMs: 1000 }); v.focus(); 0")
     typed = page.evaluate("""() => { const g = document.querySelector('.tf .tf-list'); const k = key => g.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
       k('x'); const said = document.querySelector('.tf .tf-status').textContent;
       return new Promise(r => setTimeout(() => { k('p'); setTimeout(() => { k('l'); r([said, v.selected()?.name]); }, 850); }, 1100)); }""")
-    check("type-ahead: a miss says so; typeAheadMs sets how long a name keeps being typed (\"pl\" from the top)",
+    check("type-ahead: a miss says so; typeAheadMs sets how long a name keeps being typed (\"pl\" from the top, not Lease)",
           typed[0] == "Nothing starts with “x”." and typed[1] == "Plan.docx", typed)
     page.close()
 
@@ -1390,6 +1391,105 @@ with sync_playwright() as p:
     look = page.evaluate("(() => { const c = getComputedStyle(document.querySelector('.tf-add')); return [c.opacity, c.color]; })()")
     check("Windows high contrast: the Add button while adding is drawn in the system's disabled colour", look[0] == "1", look)
     page.close()
+
+    # ---------- a tenth review ----------
+    page = fresh(browser)
+    took = page.evaluate("""() => { let all = Array.from({ length: 2000 }, (_, i) => ({ id: i, name: 'File ' + i + '.pdf' }));
+      const host = document.createElement('div'); host.style.display = 'none'; document.body.append(host);
+      const w = TaurisFiles.mount(host, { multiple: true, confirmDelete: false, files: all,
+        onDelete: async f => { all = all.filter(x => x.id !== f.id); w.update({ files: all }); } });
+      w.selectAll(); const t = performance.now();
+      host.querySelector('.tf-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+      return new Promise(r => { const wait = () => w.files().length === 0 ? r(performance.now() - t) : setTimeout(wait, 20); wait(); }); }""")
+    check("deleting 2,000 files, the app sending its list back after each: one pass a frame, not one a file", took < 3000, took)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("""v.update({ multiple: true, confirmDelete: false, onDelete: async f => { await wait(30); window.A = A.filter(x => x.id !== f.id); } });
+      v.selectAll(); v.focus(); 0""")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(45)
+    page.evaluate("v.update({ title: 'B', files: B.concat([{ id: 'Extra.pdf', name: 'Extra.pdf', where: 'B' }]) }); 0")
+    page.wait_for_timeout(300)
+    check("several files being deleted, another place shown between two frames: none of its files vanish",
+          sorted(page.evaluate("v.files().map(f => f.where + '/' + f.name)")) == ["B/Budget.xlsx", "B/Extra.pdf", "B/Notes.md", "B/Plan.docx"],
+          page.evaluate("v.files().map(f => f.where + '/' + f.name)"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.update({ onRename: async (f, n) => { await wait(150); log.push(f.where + '/' + n); } }); v.rename('Notes.md'); 0")
+    page.keyboard.press("ControlOrMeta+a")
+    page.keyboard.type("Notes old.md")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(20)
+    page.evaluate("v.update({ title: 'B', files: B }); 0")
+    page.wait_for_timeout(300)
+    check("a rename waiting for the app when another place is shown: that place's file of the same id keeps its name",
+          "Notes.md" in page.evaluate("v.files().map(f => f.name)") and page.evaluate("v.files().every(f => f.where === 'B')"),
+          page.evaluate("v.files().map(f => f.where + '/' + f.name)"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("window.batches = []; v.update({ confirmDelete: false, onDelete: async (f, b) => { batches.push([f.name, b.index, b.files.length]); } }); v.selectAll(); v.focus(); 0")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(200)
+    check("onDelete hears which of the batch it is (to ask once, for all, at the first)", page.evaluate("batches.map(b => [b[1], b[2]])") == [[0, 3], [1, 3], [2, 3]],
+          page.evaluate("batches"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.focus(".tf .tf-q")
+    page.evaluate("v.setFiles([]); 0")
+    check("the search field with the focus, the list emptied: the focus stays in the component", page.evaluate("document.activeElement.closest('.tf') !== null"),
+          page.evaluate("document.activeElement.tagName"))
+    page.evaluate("v.setFiles(A); v.search('zzz'); 0")
+    page.focus(".tf .tf-nomatch .tf-clear")
+    page.evaluate("v.search(''); 0")
+    check("Clear search with the focus, the search cleared: the focus goes to the list", page.evaluate("document.activeElement.classList.contains('tf-list')"),
+          page.evaluate("document.activeElement.className"))
+    ids = page.evaluate("[...document.querySelectorAll('.tf .tf-file')].map(r => r.id)")
+    page.evaluate("v.setFiles([{ id: 'First.pdf', name: 'Aaa first.pdf', where: 'A' }, ...A]); 0")
+    again = page.evaluate("[...document.querySelectorAll('.tf .tf-file')].slice(1).map(r => r.id)")
+    check("a row keeps its id when a file arrives above it (the screen reader is not told of it again)", ids == again, (ids, again))
+    page.evaluate("document.querySelector('.tf .tf-file:nth-child(2) .tf-c-name').click(); 0")
+    check("a click no pointer made (a screen reader's) selects the row", page.evaluate("v.selected()?.name") == "Budget.xlsx", page.evaluate("v.selected()?.name"))
+    page.evaluate("v.setFiles([]); 0")
+    described = page.evaluate("(() => { const b = document.querySelector('.tf .tf-empty .tf-btn'); return (b.getAttribute('aria-describedby') || '').split(' ').map(i => document.getElementById(i)?.textContent); })()")
+    check("the empty place's button is described by what the place says", len(described) == 2 and all(described), described)
+    page.close()
+
+    page = fresh(browser)
+    cdp = page.context.new_cdp_session(page)
+    page.focus(".tf-q")
+    cdp.send("Input.imeSetComposition", {"selectionStart": 1, "selectionEnd": 1, "text": "こ"})
+    page.wait_for_timeout(100)
+    shown_while = page.locator(".tf-file").count()
+    cdp.send("Input.insertText", {"text": "こん"})
+    page.wait_for_timeout(100)
+    check("the search waits for an input method's text (the list is not filtered by half a word)", shown_while == 8, shown_while)
+    page.close()
+
+    for accent, dark in (("#039250", False), ("#ffd400", False), ("#000080", True)):
+        page = fresh(browser, "dark" if dark else "light", reduced_motion="reduce")
+        page.add_style_tag(content=f":root {{ --tauris-accent: {accent}; }}")
+        page.evaluate("__emit('tauri://drag-enter', { paths: ['/a.pdf'] }); 0")
+        pair = page.evaluate("""(() => { const c = s => getComputedStyle(document.querySelector(s)); return [c('.tf-primary, .tf-add').color, c('.tf-add').backgroundColor,
+          c('.tf-drop-title').color, c('.tf-panel').backgroundColor]; })()""")
+        page.close()
+        page = browser.new_page()
+        ratios = page.evaluate("""(pair) => { const rgb = c => { const d = document.createElement('div'); d.style.color = c; document.body.append(d);
+            const v = getComputedStyle(d).color; d.remove(); const cv = document.createElement('canvas').getContext('2d'); cv.fillStyle = v; cv.fillRect(0, 0, 1, 1);
+            return [...cv.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+          const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+          const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+          return [ratio(pair[0], pair[1]), ratio(pair[2], pair[3])]; }""", pair)
+        page.close()
+        check(f"--tauris-accent {accent} alone ({'dark' if dark else 'light'}): text on it and the accent as text both read",
+              ratios[0] >= 4.0 and ratios[1] >= 4.5, (pair, ratios))
 
     # ---------- a delete question and the light look, side by side with dark ----------
     if SHOTS:

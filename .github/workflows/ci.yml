@@ -43,10 +43,11 @@ jobs:
       - name: Example app builds, without warnings
         working-directory: examples/basic/src-tauri
         run: cargo clippy -- -D warnings && cargo build
+      # As a person runs it (no PYTHONUTF8: the checker sets its own output's encoding).
       - name: Example app passes the checker
-        env:
-          PYTHONUTF8: "1"
         run: python scripts/doctor.py examples/basic
+      - name: The checker's own tests, on every system
+        run: python test/doctor_run.py
 
   # A real app on macOS: a Dock click and File › New Window must open their
   # windows (a window opened inside the plugin's event handler froze the app).

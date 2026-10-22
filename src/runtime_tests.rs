@@ -1271,9 +1271,12 @@ fn quitting_saves_the_windows_open() {
     assert!(saved.to_string().contains("Users"));
 }
 
-// The Dock click after the last window closed: the remembered windows come back.
+// The Dock click after the last window closed (the plugin's Reopen event):
+// the remembered windows come back, on the worker; in an app that never
+// called start(), nothing opens.
 #[test]
-fn restore_brings_back_the_windows_after_the_last_one_closed() {
+fn the_dock_click_brings_back_the_windows_after_the_last_one_closed() {
+    let other = app(quiet());
     let file = temp_file("dock");
     let path = file.clone();
     let app = app(quiet().layout_file(move |_| Some(path.clone())));
@@ -1281,8 +1284,15 @@ fn restore_brings_back_the_windows_after_the_last_one_closed() {
     app.tabs().open(NewTab::new("Users")).unwrap();
     windows::forget_window(app.handle(), "tabs-1");
     assert_eq!(app.tabs().window_count(), 0);
-    app.tabs().restore().unwrap();
+    {
+        let _locked = windows::InPlugin::enter(); // as on_event runs it
+        persist::reopened(app.handle());
+    }
+    windows::settle(app.handle(), std::time::Duration::from_secs(2));
     assert_eq!(titles(&app), [["Home", "Users"]]);
+    persist::reopened(other.handle());
+    windows::settle(other.handle(), std::time::Duration::from_secs(2));
+    assert_eq!(other.tabs().window_count(), 0, "a window opened in an app that does not use tabs");
 }
 
 // A layout_file that panics (inside Tauri's lock, at times) saves nothing and stops nothing.
@@ -1318,6 +1328,87 @@ fn a_remembered_frame_comes_back() {
         frame.map(|f| (f.x, f.y, f.width, f.height, f.maximized, f.centre)),
         Some((40.0, 60.0, 900.0, 700.0, true, false))
     );
+}
+
+// A close the page agreed to, which the app then refused (a window hidden to
+// the tray instead): the next close asks the page again.
+#[test]
+fn a_close_the_app_refused_asks_the_page_again_next_time() {
+    let app = app(quiet());
+    app.tabs().start().unwrap();
+    if let Some(w) = windows::inner(app.handle()).model().win("tabs-1") {
+        w.guarded = true;
+        w.may_close = true; // the page said yes
+    }
+    assert!(!windows::ask_before_window_closes(app.handle(), "tabs-1"));
+    eventually("the window to take tabs again", || windows::inner(app.handle()).model().takes_tabs("tabs-1"));
+    assert!(windows::ask_before_window_closes(app.handle(), "tabs-1"), "the page was not asked again");
+}
+
+// A window remembered on a screen no longer there opens centred, keeping its
+// size and whether it was maximized.
+#[test]
+fn a_window_whose_screen_is_gone_opens_centred_with_its_size() {
+    let file = temp_file("off-screen");
+    std::fs::write(
+        &file,
+        r#"[{"tabs":[{"id":1,"title":"Users"}],"active":0,"frame":{"x":3000.0,"y":60.0,"width":900.0,"height":700.0,"maximized":true}}]"#,
+    )
+    .unwrap();
+    persist::TEST_SCREENS.with(|s| *s.borrow_mut() = Some(vec![(0.0, 0.0, 1440.0, 900.0)]));
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    persist::TEST_SCREENS.with(|s| *s.borrow_mut() = None);
+    let label = app.tabs().frontmost().unwrap();
+    let frame = windows::inner(app.handle()).model().win(&label).and_then(|w| w.frame);
+    assert_eq!(frame.map(|f| (f.width, f.height, f.maximized, f.centre)), Some((900.0, 700.0, true, true)));
+}
+
+// Windows that closed together (a quit) come back in front of each other as
+// they were, whatever order they closed in.
+#[test]
+fn windows_closed_together_keep_their_order_in_front() {
+    let file = temp_file("order");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    let second = app.tabs().new_window().unwrap();
+    app.tabs().update_tab(app.tabs().windows()[1].tabs[0].id, "Front", Fields::new());
+    // The front window closes first, then the one behind.
+    windows::forget_window(app.handle(), &second);
+    windows::forget_window(app.handle(), "tabs-1");
+    let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(saved[1]["tabs"][0]["title"], "Front", "{saved}");
+}
+
+// The windows a restore brought back are not added again by a quit a moment later.
+#[test]
+fn a_quit_right_after_a_restore_saves_each_window_once() {
+    let file = temp_file("once");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    app.tabs().open(NewTab::new("Users")).unwrap();
+    windows::forget_window(app.handle(), "tabs-1");
+    app.tabs().restore().unwrap();
+    persist::save(app.handle(), true);
+    let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(saved.as_array().map(Vec::len), Some(1), "{saved}");
+}
+
+// A write a crash left half done goes when the layout is forgotten.
+#[test]
+fn forgetting_the_layout_removes_a_half_written_one() {
+    let file = temp_file("half");
+    let half = file.with_extension("json.99999.tmp");
+    std::fs::write(&half, "[{\"tabs\":[{\"id\":1,\"title\":\"Anna\"}]").unwrap();
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    let only = app.tabs().windows()[0].tabs[0].id;
+    app.tabs().close_tab(only);
+    assert!(!half.exists());
 }
 
 // Where each window sits is saved with it (the test runtime knows no

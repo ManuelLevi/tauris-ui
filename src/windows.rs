@@ -428,7 +428,7 @@ pub(crate) fn open_window<R: Runtime>(
         "tauris-ui: window {label} opened inside Tauri's plugin lock; it would freeze the app (use after_event)"
     );
     if inner(app).exiting.load(Ordering::SeqCst) {
-        return Err(quitting());
+        return Err(quitting_error());
     }
     let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_window(app, label, frame, focused)))
         .unwrap_or_else(|payload| {
@@ -489,7 +489,7 @@ pub(crate) fn create_window<R: Runtime>(
     let state = inner(app);
     // Quitting: nothing new is recorded, so the layout saved holds no window that never showed.
     if state.exiting.load(Ordering::SeqCst) {
-        return Err(quitting());
+        return Err(quitting_error());
     }
     let (label, ids) = {
         let mut m = state.model();
@@ -504,7 +504,11 @@ pub(crate) fn create_window<R: Runtime>(
     Ok((label, ids))
 }
 
-fn quitting() -> tauri::Error {
+pub(crate) fn quitting<R: Runtime>(app: &AppHandle<R>) -> bool {
+    inner(app).exiting.load(Ordering::SeqCst)
+}
+
+fn quitting_error() -> tauri::Error {
     tauri::Error::Io(std::io::Error::other("the app is quitting: no new window opens"))
 }
 
@@ -744,11 +748,16 @@ pub(crate) fn ask_before_window_closes<R: Runtime>(app: &AppHandle<R>, label: &s
 // window open: one still there a moment later takes tabs again.
 fn kept_open_after_all<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let (app, label) = (app.clone(), label.to_string());
-    std::thread::spawn(move || {
+    // (No thread to be had: it takes tabs again once it is focused.)
+    let _ = std::thread::Builder::new().name("tauris-ui close check".into()).spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(400));
         if app.get_webview_window(&label).is_some() {
             if let Some(win) = inner(&app).model().win(&label) {
                 win.leaving = false;
+                // Its page agreed to that close, which did not happen: the next close asks again.
+                win.may_close = false;
+                win.close_asked_at = None;
+                win.close_seen = false;
             }
         }
     });
@@ -845,8 +854,14 @@ pub(crate) fn bring_to_front<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let mut m = inner(app).model();
     if let Some(pos) = m.wins.iter().position(|w| w.label == label) {
         let mut win = m.wins.remove(pos);
-        // Focused again: it did not close after all (the app kept it open).
-        win.leaving = false;
+        // Focused again after a close went ahead: it did not close after all
+        // (the app kept it open), and its page is asked at the next close.
+        if win.leaving {
+            win.leaving = false;
+            win.may_close = false;
+            win.close_asked_at = None;
+            win.close_seen = false;
+        }
         m.wins.push(win);
         m.changed();
     }
@@ -858,6 +873,10 @@ pub(crate) fn frame_changed<R: Runtime>(window: &WebviewWindow<R>) {
     let (Ok(pos), Ok(size)) = (window.outer_position(), window.inner_size()) else { return };
     let (pos, size) = (pos.to_logical::<f64>(scale), size.to_logical::<f64>(scale));
     let maximized = window.is_maximized().unwrap_or(false);
+    // Minimized (Windows moves it to -32000 with no size): where it was is kept.
+    if window.is_minimized().unwrap_or(false) || size.width < 1.0 || size.height < 1.0 {
+        return;
+    }
     let mut m = inner(window.app_handle()).model();
     if let Some(win) = m.win(window.label()) {
         // A maximized window keeps the size it had before, to go back to.

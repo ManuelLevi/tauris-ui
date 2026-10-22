@@ -203,9 +203,9 @@ with sync_playwright() as p:
     page.add_style_tag(content=":root { --tauris-accent: rgb(1, 2, 3); --tauris-bg: rgb(4, 5, 6); --tauris-fg: rgb(7, 8, 9); --tauris-chrome: rgb(10, 11, 12); --tauris-sel-bg: rgb(13, 14, 15); --tauris-font: Georgia, serif; }")
     look = page.evaluate("""() => { const r = getComputedStyle(document.documentElement), v = n => r.getPropertyValue(n).trim();
       return [v('--tt-accent'), v('--tt-active-bg'), v('--tt-strip-bg'), v('--tt-fg-active'), getComputedStyle(document.querySelector('.tt-tab')).fontFamily]; }""")
-    # The accent alone: its bar is the accent mixed with the text, to read on the strip.
+    # The accent alone: its bar is the accent made light enough to read on the (dark) strip.
     check("the tabs follow the shared --tauris-* colours and font",
-          look == ["color-mix(in srgb, rgb(1, 2, 3) 55%, rgb(7, 8, 9))", "rgb(4, 5, 6)", "rgb(10, 11, 12)", "rgb(7, 8, 9)", "Georgia, serif"], look)
+          look == ["oklch(from rgb(1, 2, 3) max(l, 0.75) c h)", "rgb(4, 5, 6)", "rgb(10, 11, 12)", "rgb(7, 8, 9)", "Georgia, serif"], look)
     page.add_style_tag(content=":root { --tauris-accent-ink: rgb(16, 17, 18); }")
     check("with --tauris-accent-ink, the bar is that", page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--tt-accent').trim()") == "rgb(16, 17, 18)")
     page.close()
@@ -850,10 +850,11 @@ with sync_playwright() as p:
     page.mouse.move(first["x"] + 20, first["y"] + 16)
     page.mouse.down()
     page.mouse.move(first["x"] + 40, first["y"] + 16, steps=3)
-    page.mouse.move(lefts[8] + 20, first["y"] + 16, steps=12)
+    # Place 5: well inside the row, where holding the tab does not scroll it.
+    page.mouse.move(lefts[5] + 20, first["y"] + 16, steps=12)
     page.mouse.up()
     page.wait_for_timeout(400)
-    check("a tab dropped exactly on a place lands there (the tabs sit a gap apart)", page.evaluate("drops") == [8], (page.evaluate("drops"), titles(page)[:10]))
+    check("a tab dropped exactly on a place lands there (the tabs sit a gap apart)", page.evaluate("drops") == [5], (page.evaluate("drops"), titles(page)[:10]))
     page.close()
 
     page = fresh(browser, """{ renderTab: tab => { const s = document.createElement('span'); s.className = 'my-title'; s.textContent = tab.title;
@@ -887,6 +888,63 @@ with sync_playwright() as p:
     look = page.evaluate("[getComputedStyle(document.querySelector('.tt-menu-item.tt-danger')).color, getComputedStyle(document.documentElement).getPropertyValue('--tt-menu-fg').trim()]")
     check("a danger item hovered takes the menu's text colour (readable on the hover)", look[0] == page.evaluate(f"(() => {{ const d = document.createElement('div'); d.style.color = '{look[1]}'; document.body.append(d); const c = getComputedStyle(d).color; d.remove(); return c; }})()"), look)
     page.keyboard.press("Escape")
+    page.close()
+
+    # --- a tenth review ---
+    FIELD = """{ renderTab: tab => { const s = document.createElement('span'); s.className = 'my-title'; s.textContent = tab.title;
+      if (tab.id === 3) { const i = document.createElement('input'); i.id = 'rename'; i.value = tab.title;
+        i.addEventListener('input', () => tabs.update(tab, { title: i.value })); s.append(i); } return [s]; } }"""
+    page = fresh(browser, FIELD)
+    page.focus("#rename")
+    page.keyboard.type("ab")
+    typed = page.evaluate("[document.activeElement.id, document.activeElement.value]")
+    page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|close_tab', { tab: 1 }); 0")
+    page.wait_for_timeout(150)
+    check("typing in a field the app drew in a tab (its title updated as it goes) keeps the focus and the text",
+          typed == ["rename", "Tab 3ab"], typed)
+    check("and Rust closing a tab before it keeps them too", page.evaluate("[document.activeElement.id, document.activeElement.value]") == ["rename", "Tab 3ab"],
+          page.evaluate("[document.activeElement.id, document.activeElement.value]"))
+    page.close()
+
+    page = fresh(browser, "{ onBeforeClose: () => false }", before="window.__slow = { window_state: 80 }")
+    page.wait_for_timeout(300)
+    page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|new_tab'); __emit('tauris-ui:close-request', { label: 'tabs-1', tab: 4 }); setTimeout(() => __emit('tauris-ui:state-changed', 'tabs-1'), 20); 0")
+    page.wait_for_timeout(600)
+    check("⌘W for a tab not loaded yet, while more changes arrive: it is asked, not closed past its question", page.evaluate("__titles()").count("Tab 4") == 1,
+          page.evaluate("__titles()"))
+    page.close()
+
+    page = fresh(browser, "{ onBeforeClose: tab => tab.id !== 4 }", before="window.__slow = { window_state: 80 }")
+    page.wait_for_timeout(300)
+    page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|new_tab'); __emit('tauris-ui:close-window-request', 'tabs-1'); 0")
+    page.wait_for_timeout(600)
+    check("the window's close button asks a tab Rust added a moment ago too", page.evaluate("window.__windowClosed") is None, page.evaluate("window.__windowClosed"))
+    page.close()
+
+    page = fresh(browser, "{ newIcon: '<b class=\\'my-plus\\'>+</b>', closeIcon: '<i class=\\'my-x\\'>x</i>', moveThreshold: 30, detachDistance: 120 }")
+    check("newIcon and closeIcon draw the app's own markup", page.locator(".tt-new .my-plus").count() == 1 and page.locator(".tt-tab .my-x").count() == 3)
+    box = tab_box(page, 0)
+    page.mouse.move(box["x"] + 30, box["y"] + 16)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 50, box["y"] + 16, steps=4)
+    small = page.evaluate("document.querySelector('.tt-tab').classList.contains('tt-dragging')")
+    page.mouse.move(box["x"] + 70, box["y"] + 16, steps=4)
+    big = page.evaluate("document.querySelector('.tt-tab').classList.contains('tt-dragging')")
+    page.evaluate("__calls.length = 0")
+    page.mouse.move(box["x"] + 70, box["y"] + 110, steps=6)
+    near = page.evaluate("__calls.some(c => c[0] === 'drag_out')")
+    page.mouse.move(box["x"] + 70, box["y"] + 200, steps=6)
+    far = page.evaluate("__calls.some(c => c[0] === 'drag_out')")
+    page.mouse.up()
+    check("moveThreshold and detachDistance set when a drag begins and when the tab leaves the strip",
+          (small, big, near, far) == (False, True, False, True), (small, big, near, far))
+    page.close()
+
+    page = fresh(browser)
+    page.locator(".tt-new").click()
+    page.wait_for_timeout(600)
+    check("a new tab's pop-in is done once it has played (it does not play again when the strip is put in order)",
+          page.locator(".tt-appear").count() == 0)
     page.close()
 
     # --- the example app's page (examples/basic/ui), as a new app starts from it ---

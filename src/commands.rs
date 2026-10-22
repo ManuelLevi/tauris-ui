@@ -1,7 +1,9 @@
 // What a page can ask of its tab strip (through `TaurisTabs`, see web/tabs.js).
 // A page may only touch the tabs of its own window. Commands that only change
 // the tabs are not async: Tauri then runs them one after another, in the order
-// the page sent them. Commands that open or close windows stay async.
+// the page sent them. Those that open a window are async (opening one inside
+// Tauri's lock would freeze the app); closing one (`close_tab` on a window's
+// last tab) is safe there.
 
 use crate::model::{Fields, NewTab, Strip};
 use crate::windows::{self, inner, WindowTabs};

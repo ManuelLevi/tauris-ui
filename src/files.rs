@@ -267,6 +267,12 @@ pub fn inspect(path: impl AsRef<Path>, max_bytes: Option<u64>) -> Result<FileInf
     if std::fs::File::open(path).is_err() {
         return Err(format!("{name} could not be read."));
     }
+    // A shortcut (a Finder alias, a Windows or web shortcut) points at a file
+    // on the sender's own disk: the file itself is what to add.
+    let ext = Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if ["lnk", "url", "webloc", "inetloc", "fileloc"].contains(&ext.as_str()) || is_alias(&head_bytes(path)) {
+        return Err(format!("{name} is a shortcut. Add the file itself."));
+    }
     let size = meta.len();
     if let Some(max) = max_bytes {
         if size > max {
@@ -275,6 +281,14 @@ pub fn inspect(path: impl AsRef<Path>, max_bytes: Option<u64>) -> Result<FileInf
     }
     let mime = mime_for(&name);
     Ok(FileInfo { path: path.to_path_buf(), name, size, mime })
+}
+
+// The first bytes of a file (fewer if it is shorter, none if it cannot be read).
+fn head_bytes(path: &Path) -> Vec<u8> {
+    use std::io::Read;
+    let mut head = Vec::with_capacity(16);
+    let _ = std::fs::File::open(path).and_then(|f| f.take(16).read_to_end(&mut head));
+    head
 }
 
 // ---------- the system's dialogs and opening (the "files" feature) ----------
@@ -325,34 +339,50 @@ pub fn open_path(path: impl AsRef<Path>) -> Result<(), String> {
     open::that_detached(path).map_err(|e| format!("Couldn't open {name}: {e}"))
 }
 
+// A Finder alias: bookmark data, "book" then "mark".
+fn is_alias(head: &[u8]) -> bool {
+    head.len() >= 12 && &head[..4] == b"book" && &head[8..12] == b"mark"
+}
+
+// A script ("#!"), or an ELF or Mach-O program.
+#[cfg(any(feature = "files", test))]
+fn starts_as_program(head: &[u8]) -> bool {
+    const MAGIC: [&[u8]; 6] =
+        [b"#!", b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe"];
+    MAGIC.iter().any(|m| head.starts_with(m)) || head.starts_with(b"\xca\xfe\xba\xbe")
+}
+
 // Files the system would run, install, mount or open a program or web page
 // from, rather than show: by the name of what a link points at (Windows
 // ignores trailing dots and spaces; the list holds at least everything
-// Outlook blocks), and, on Unix, a file marked executable whose name is no
-// known kind of document (on a FAT or exFAT drive, every file is marked so).
+// Outlook blocks, and remote desktop files and disk images), a Finder alias,
+// and, on Unix, a file marked executable that has no extension or starts as a
+// program. Web pages (.html, .svg) open in the browser, which runs them in its
+// sandbox, as a link would.
 #[cfg(any(feature = "files", test))]
 fn runs_something(path: &Path) -> bool {
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let name =
         target.file_name().map(|n| n.to_string_lossy().trim_end_matches(['.', ' ']).to_string()).unwrap_or_default();
+    let head = head_bytes(&target);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        // Marked executable: a program when it has no extension (the system
+        // runs it by its mark), or when it starts as one (a script's "#!", an
+        // ELF or Mach-O binary). A document with an extension opens by its type
+        // (every file on a USB stick or a network share is marked).
         let marked = std::fs::metadata(&target).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-        if marked && mime_for(&name) == "application/octet-stream" {
+        let no_extension = !name.get(1..).is_some_and(|n| n.contains('.'));
+        if marked && (no_extension || starts_as_program(&head)) {
             return true;
         }
     }
     // A Finder alias is an ordinary file (not a link) that macOS follows to
-    // whatever it points at, whatever it is called: its contents start "book…mark".
+    // whatever it points at, whatever it is called.
     #[cfg(any(target_os = "macos", test))]
-    {
-        use std::io::Read;
-        let mut head = [0u8; 12];
-        let read = std::fs::File::open(&target).and_then(|mut f| f.read_exact(&mut head));
-        if read.is_ok() && &head[..4] == b"book" && &head[8..12] == b"mark" {
-            return true;
-        }
+    if is_alias(&head) {
+        return true;
     }
     #[rustfmt::skip]
     const PROGRAMS: &[&str] = &[
@@ -373,6 +403,7 @@ fn runs_something(path: &Path) -> bool {
         "xlsm", "xltm", "xlam", "xla", "xll", "ppam", "ppa", "pptm", "potm", "sldm", "wll", "iqy", "slk", "vsmacros",
         "vsw", "webpnp",
         "shs", "shb", "psdm1", "ppsm", "xlm", "xlsb", "themepack", "deskthemepack", "onepkg", "afploc", "ftploc",
+        "rdp", "sparseimage", "sparsebundle", "cdr", "toast", "mht", "mhtml",
     ];
     let ext = Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     PROGRAMS.contains(&ext.as_str())
@@ -590,6 +621,13 @@ mod tests {
         assert_eq!(info.mime, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         assert_eq!(inspect(&folder, None).unwrap_err(), "Contracts is a folder. Add files, not folders.");
         assert_eq!(inspect(dir.join("nope.pdf"), None).unwrap_err(), "nope.pdf could not be found.");
+        // A shortcut is not the file: a Windows one, and a Finder alias named like a document.
+        let lnk = dir.join("Report - Shortcut.lnk");
+        std::fs::write(&lnk, "L").unwrap();
+        assert_eq!(inspect(&lnk, None).unwrap_err(), "Report - Shortcut.lnk is a shortcut. Add the file itself.");
+        let alias = dir.join("Invoice alias.pdf");
+        std::fs::write(&alias, b"book\0\0\0\0mark\0\0\0\0the rest").unwrap();
+        assert_eq!(inspect(&alias, None).unwrap_err(), "Invoice alias.pdf is a shortcut. Add the file itself.");
         assert_eq!(inspect(&file, Some(2048)).unwrap_err(), "Term sheet.docx is larger than 2 KB.");
         assert_eq!(inspect(&file, Some(100)).unwrap_err(), "Term sheet.docx is larger than 100 bytes.");
         assert_eq!(inspect(&file, Some(1500)).unwrap_err(), "Term sheet.docx is larger than 1,500 bytes.");
@@ -634,6 +672,11 @@ mod tests {
             "x.onepkg",
             "x.afploc",
             "x.ftploc",
+            "Board.rdp",
+            "x.sparseimage",
+            "x.cdr",
+            "x.toast",
+            "x.mht",
         ] {
             assert!(runs_something(Path::new(name)), "{name}");
         }
@@ -649,6 +692,18 @@ mod tests {
             let alias = dir.join("Invoice (alias).pdf");
             std::fs::write(&alias, b"book\0\0\0\0mark\0\0\0\0the rest of the bookmark").unwrap();
             assert!(runs_something(&alias));
+            // Documents marked executable (every file on a USB stick is) still open, whatever their
+            // kind; a script with an extension does not.
+            for doc in ["Logo.psd", "Holiday.mkv", "Book.epub"] {
+                let f = dir.join(doc);
+                std::fs::write(&f, "data").unwrap();
+                std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o777)).unwrap();
+                assert!(!runs_something(&f), "{doc}");
+            }
+            let script = dir.join("notes.yaml");
+            std::fs::write(&script, "#!/bin/sh\necho hi\n").unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(runs_something(&script));
             // A document marked executable (every file on a USB stick is) still opens.
             let board = dir.join("Board.pdf");
             std::fs::write(&board, "%PDF").unwrap();

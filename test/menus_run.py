@@ -855,9 +855,13 @@ with sync_playwright() as p:
     page.close()
 
     page = fresh(browser)
-    page.evaluate("""(() => { const list = document.createElement('div'); list.id = 'scroller'; list.style.cssText = 'position:fixed;left:20px;top:60px;width:300px;height:200px;overflow:auto';
+    page.evaluate("""(() => { const list = document.createElement('div'); list.id = 'scroller'; list.style.cssText = 'position:fixed;left:20px;top:60px;width:300px;height:200px;overflow:auto;z-index:9999;background:#fff';
       list.innerHTML = Array.from({ length: 40 }, (_, i) => '<div style="height:30px">row ' + i + '</div>').join(''); document.body.append(list);
       TaurisMenu.open([{ label: 'Delete row 2' }], { x: 100, y: 120 }); return 0; })()""")
+    page.evaluate("""(() => { const pane = document.createElement('div'); pane.id = 'pane'; pane.style.cssText = 'position:fixed;right:10px;bottom:10px;width:200px;height:100px;overflow:auto;z-index:9999';
+      pane.innerHTML = '<div style="height:600px">log</div>'; document.body.append(pane); pane.scrollTop = 20; return 0; })()""")
+    page.wait_for_timeout(100)
+    check("a menu opened at a point stays open when something elsewhere scrolls (a log pane)", page.locator(".tmn-menu").count() == 1)
     page.evaluate("document.getElementById('scroller').scrollTop = 200; 0")
     page.wait_for_timeout(100)
     check("a menu opened at a point closes when what is under it scrolls", page.locator(".tmn-menu").count() == 0)
@@ -885,6 +889,71 @@ with sync_playwright() as p:
     boxes = page.evaluate("[...document.querySelectorAll('.tmn-menu')].map(m => { const r = m.getBoundingClientRect(); return [r.left, r.right]; })")
     check("past a sub-menu that opened to the left, the next opens to the left too (not over the first menu)",
           len(boxes) == 3 and boxes[2][1] <= boxes[1][0] + 4 and boxes[1][1] <= boxes[0][0] + 4, boxes)
+    page.close()
+
+    # ---------- a tenth review ----------
+    page = fresh(browser)
+    page.evaluate("window.got = []; TaurisMenu.open([{ label: 'Open', action: () => got.push('open') }, '-', { label: 'Delete', danger: true, action: () => got.push('delete') }], { x: 990, y: 550 }); 0")
+    m = rect(page, ".tmn-menu")
+    page.mouse.move(990, 550)
+    page.mouse.down(button="right")
+    page.wait_for_timeout(300)
+    page.mouse.up(button="right")
+    check("a menu at a point that does not fit opens beside it (the point at a corner), and a release there chooses nothing",
+          abs(m["x"] + m["w"] - 990) <= 3 and abs(m["y"] + m["h"] - 550) <= 3 and page.evaluate("got") == [], (m, page.evaluate("got")))
+    page.close()
+
+    page = fresh(browser)
+    own(page, "() => [{ label: 'File', items: [{ label: 'Alpha', action: () => ran.push('a') }, { label: 'Beta', action: () => ran.push('b'), shortcut: '⇧⌘B' }] }]")
+    box = rect(page, TITLE("File"))
+    page.mouse.move(box["x"] + 8, box["y"] + 8)
+    page.mouse.down()
+    beta = rect(page, ".tmn-menu .tmn-item:nth-child(2)")
+    page.mouse.move(beta["x"] + 10, beta["y"] + beta["h"] / 2, steps=3)
+    page.mouse.up()
+    check("a quick press, drag and release from a title chooses (no waiting)", page.evaluate("ran") == ["b"], page.evaluate("ran"))
+    page.click(TITLE("File"))
+    keys = page.evaluate("[document.querySelector('.tmn-menu .tmn-item:nth-child(2)').getAttribute('aria-keyshortcuts'), document.querySelector('.tmn-menu .tmn-shortcut').getAttribute('aria-hidden')]")
+    check("a shortcut is said as the item's shortcut (aria-keyshortcuts), not read as part of its name", keys == ["Shift+Meta+B", "true"], keys)
+    page.keyboard.press("Escape")
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""(() => { const pop = document.createElement('div'); pop.popover = 'auto'; pop.style.cssText = 'margin:0;left:100px;top:100px;width:240px;height:120px';
+      const b = document.createElement('button'); b.id = 'inpop'; b.className = 'tmn-tool'; b.textContent = 'Layers'; pop.append(b); document.body.append(pop); pop.showPopover();
+      window.chosenPop = []; TaurisMenu.button(b, { items: [{ label: 'One', action: () => chosenPop.push(1) }] }); return 0; })()""")
+    page.click("#inpop")
+    page.wait_for_timeout(200)
+    page.click(".tmn-menu .tmn-item")
+    check("a menu opened from inside an app's popover is drawn over it, and its items work", page.evaluate("chosenPop") == [1], page.evaluate("chosenPop"))
+    cursor = page.evaluate("getComputedStyle(document.getElementById('inpop')).cursor")
+    check("a <button> menu button keeps the default cursor (a template's pointer hand does not reach it)", cursor == "default", cursor)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""(() => { const f = document.createElement('input'); f.id = 'back'; document.body.append(f);
+      TaurisMenu.open([{ label: 'One' }], { x: 200, y: 200 }, { keyboard: true, returnTo: f }); return 0; })()""")
+    page.keyboard.press("Escape")
+    check("open(..., { returnTo }) gives the focus back there", page.evaluate("document.activeElement.id") == "back", page.evaluate("document.activeElement.tagName"))
+    page.close()
+
+    page = fresh(browser, reduced_motion="reduce")
+    page.click("#tb-docs") if page.locator("#tb-docs").count() else None
+    page.wait_for_timeout(100)
+    page.keyboard.press("Escape")
+    look = page.evaluate("""(() => { const b = document.getElementById('tb-docs'); b.setAttribute('aria-pressed', 'true'); return getComputedStyle(b).boxShadow; })()""")
+    check("a pressed toolbar button has a line along its foot (its tint alone is under 3:1)", "inset" in look and "-2px" in look, look)
+    page.close()
+
+    page = fresh(browser)
+    own(page, "() => [{ label: 'Long', items: [{ label: 'Recent', items: [{ label: 'R1' }] }, ...Array.from({ length: 60 }, (_, i) => ({ label: 'Item ' + i }))] }]")
+    page.set_viewport_size({"width": 1000, "height": 400})
+    page.click(TITLE("Long"))
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowRight")
+    page.evaluate("document.querySelector('.tmn-menu').scrollTop = 300; 0")
+    page.wait_for_timeout(100)
+    check("a menu scrolled leaves no sub-menu hanging beside a row that moved", page.locator(".tmn-menu").count() == 1, page.locator(".tmn-menu").count())
     page.close()
 
     browser.close()

@@ -87,7 +87,14 @@ pub(crate) fn start<R: Runtime>(
         }
     }
     let handle = app.clone();
-    thread::spawn(move || follow_mouse(handle));
+    if thread::Builder::new().name("tauris-ui drag".into()).spawn(move || follow_mouse(handle)).is_err() {
+        // No thread to follow the mouse: the drag ends where it is (a tab in its new window).
+        match app.get_webview_window(&moving) {
+            Some(w) => finish(app, &w, tab, None),
+            None => state.model().drag = None,
+        }
+        return Err("the dragged tab could not follow the mouse".into());
+    }
     // The app hears of the new window, as for a tab moved to a new window; the
     // window already follows the mouse, however long the hook takes.
     if !alone {
@@ -102,7 +109,7 @@ fn drop_targets<R: Runtime>(app: &AppHandle<R>, moving: &str) -> Vec<(String, f6
     m.wins
         .iter()
         .rev()
-        .filter(|w| w.label != moving)
+        .filter(|w| w.label != moving && !w.opening && !w.leaving)
         .map(|w| (w.label.clone(), w.strip.height, w.strip.mids.clone()))
         .collect()
 }
@@ -218,8 +225,8 @@ pub(crate) fn finish<R: Runtime>(
         }
         return;
     }
-    // A target window that closed while the tab was over it: no drop.
-    let hover = hover.filter(|(target, _)| m.win(target).is_some());
+    // A target window that closed (or is closing) while the tab was over it: no drop.
+    let hover = hover.filter(|(target, _)| m.takes_tabs(target));
     let Some((target, index)) = hover else {
         drop(m);
         set_alpha(window, 1.0);
