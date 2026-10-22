@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finder</title>
+<link rel="stylesheet" href="../web/finder.css">
+<style>
+  :root { color-scheme: light dark; }
+  html, body { height: 100%; margin: 0; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { padding: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="shown">Nothing picked</h1>
+  <input id="field" aria-label="A field of the page">
+  <button id="open">Find…</button>
+</main>
+<script src="../web/finder.js"></script>
+<script>
+  window.ITEMS = [
+    { id: "p1", kind: "project", label: "Northwind Launch", detail: "4 open tasks", when: "2026-10-20" },
+    { id: "p2", kind: "project", label: "Revenue Pipeline", detail: "2 open tasks", when: "2026-10-01" },
+    { id: "p3", kind: "project", label: "Atlas", detail: "no open tasks", when: "2026-09-12" },
+    { id: "t1", kind: "task", label: "Sign the lease", more: ["Ask the landlord about the parking spot"], when: "2026-10-21" },
+    { id: "t2", kind: "task", label: "Send the board deck", dim: true, when: "2026-10-02" },
+    { id: "t3", kind: "task", label: "Café opening", when: "2026-10-03" },
+    { id: "w1", kind: "password", label: "Stripe", more: ["finance@northwind.example", "stripe.com"], detail: "stripe.com" },
+    { id: "d1", kind: "doc", label: "Q3 board deck.pdf", detail: "2.1 MB", when: "2026-10-19" },
+  ];
+  // The secret never goes in: it is not in `more`, so it cannot be found.
+  window.SECRET = "hunter2-very-secret";
+  window.said = [];
+  window.finder = TaurisFinder.mount({
+    items: () => ITEMS,
+    kinds: [{ id: "project", label: "Projects", limit: 2, bias: 40 }, { id: "task", label: "Tasks" }, { id: "password", label: "Passwords" }, { id: "doc", label: "Documents" }],
+    storageKey: "demo-finder",
+    onPick: (item, info) => { said.push(["pick", item.id, info.how]); document.getElementById("shown").textContent = item.label; },
+    onContextMenu: (item, at) => said.push(["menu", item.id, at.how]),
+    onOpen: () => said.push(["open"]),
+    onClose: info => said.push(["close", info.picked]),
+  });
+  document.getElementById("open").addEventListener("click", () => finder.open());
+</script>
+</body>
+</html>

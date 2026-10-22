@@ -1,0 +1,224 @@
+/* tauris-ui finder: the look of the find-anything panel (⌘K).
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --tfd-* variables outside every @layer block, or override any .tfd-*
+ * class. The defaults follow the system's light or dark mode.
+ *
+ * The parts (finder.js draws them, in a .tfd-host hung from <body> while open):
+ *   .tfd              the panel: .tfd-field (the search field, .tfd-count), .tfd-list
+ *                     (the results: .tfd-group with .tfd-group-head and .tfd-row
+ *                     options), .tfd-empty, .tfd-keys (the key strip at its foot)
+ *   .tfd-row          .tfd-icon, .tfd-label (matches in <mark>), .tfd-detail;
+ *                     [aria-selected="true"] is the chosen one, .tfd-dim a done one
+ */
+@layer tauris-ui {
+  :root {
+    --tfd-scheme: light;
+    --tfd-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+    --tfd-mono: var(--tauris-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+    --tfd-w: 640px;
+    --tfd-max-h: 560px;
+    --tfd-top: max(68px, 11vh);        /* how far below the window's top it opens */
+    --tfd-row-h: 26px;
+    --tfd-radius: 8px;
+    --tfd-bg: var(--tauris-bg, #ffffff);
+    --tfd-fg: var(--tauris-fg, #1e1f22);
+    --tfd-dim: var(--tauris-dim, #5d616b);
+    --tfd-line: var(--tauris-line, #d3d5da);
+    --tfd-chrome: var(--tauris-chrome, #f0f0f2);    /* the key strip */
+    --tfd-sel-bg: var(--tauris-sel-bg, #2675bf);
+    --tfd-sel-fg: var(--tauris-sel-fg, #ffffff);
+    --tfd-mark: rgb(255 204 0 / 0.45);                /* a match, on an unchosen row */
+    --tfd-veil: rgb(0 0 0 / 0.08);
+    --tfd-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08), 0 14px 38px -8px rgb(0 0 0 / 0.28), 0 3px 10px -4px rgb(0 0 0 / 0.2);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tauris-theme="light"]) {
+      --tfd-scheme: dark;
+      --tfd-bg: var(--tauris-bg, #2f3234);
+      --tfd-fg: var(--tauris-fg, #dfe1e5);
+      --tfd-dim: var(--tauris-dim, #adb0b8);
+      --tfd-line: var(--tauris-line, #515356);
+      --tfd-chrome: var(--tauris-chrome, #34373a);
+      --tfd-sel-bg: var(--tauris-sel-bg, #2f65ca);
+      --tfd-mark: rgb(255 204 0 / 0.3);
+      --tfd-veil: rgb(0 0 0 / 0.25);
+      --tfd-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.5), 0 14px 38px -8px rgb(0 0 0 / 0.6), 0 3px 10px -4px rgb(0 0 0 / 0.5);
+    }
+  }
+
+  :root[data-tauris-theme="dark"] {
+    --tfd-scheme: dark;
+    --tfd-bg: var(--tauris-bg, #2f3234);
+    --tfd-fg: var(--tauris-fg, #dfe1e5);
+    --tfd-dim: var(--tauris-dim, #adb0b8);
+    --tfd-line: var(--tauris-line, #515356);
+    --tfd-chrome: var(--tauris-chrome, #34373a);
+    --tfd-sel-bg: var(--tauris-sel-bg, #2f65ca);
+    --tfd-mark: rgb(255 204 0 / 0.3);
+    --tfd-veil: rgb(0 0 0 / 0.25);
+    --tfd-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.5), 0 14px 38px -8px rgb(0 0 0 / 0.6), 0 3px 10px -4px rgb(0 0 0 / 0.5);
+  }
+
+  .tfd-host {
+    color-scheme: var(--tfd-scheme);
+    position: fixed;
+    inset: 0;
+    z-index: 2147482000;               /* under a menu opened from it (TaurisMenu) */
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: var(--tfd-top) 16px 16px;
+    box-sizing: border-box;
+    background: var(--tfd-veil);
+    animation: tfd-veil 0.12s ease-out both;
+  }
+  @keyframes tfd-veil { from { background: transparent; } }
+
+  .tfd {
+    display: flex;
+    flex-direction: column;
+    width: min(var(--tfd-w), 100%);
+    max-height: min(var(--tfd-max-h), calc(100vh - var(--tfd-top) - 32px));
+    overflow: hidden;
+    font: 13px var(--tfd-font);
+    color: var(--tfd-fg);
+    background: var(--tfd-bg);
+    border: 1px solid var(--tfd-line);
+    border-radius: var(--tfd-radius);
+    box-shadow: var(--tfd-shadow);
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+    animation: tfd-in 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    transform-origin: 50% 0;
+  }
+  @keyframes tfd-in { from { opacity: 0; transform: translateY(-6px) scale(0.985); } }
+
+  /* the field */
+  .tfd-field {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 10px 0 12px;
+    border-bottom: 1px solid var(--tfd-line);
+  }
+  .tfd-search { display: inline-grid; place-items: center; width: 15px; height: 15px; color: var(--tfd-dim); }
+  .tfd-search svg { width: 100%; height: 100%; }
+  input:where(.tfd-input) {
+    all: unset;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    font: 16px var(--tfd-font);
+    color: var(--tfd-fg);
+    cursor: text;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  input:where(.tfd-input)::placeholder { color: var(--tfd-dim); opacity: 1; }
+  .tfd-count { flex: none; font: 500 11px var(--tfd-mono); color: var(--tfd-dim); font-variant-numeric: tabular-nums; }
+
+  .tfd kbd {
+    display: inline-block;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    font: 500 10.5px/14px var(--tfd-mono);
+    text-align: center;
+    color: var(--tfd-dim);
+    background: var(--tfd-chrome);
+    border: 1px solid var(--tfd-line);
+    border-radius: 3px;
+  }
+
+  /* the results */
+  .tfd-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 2px 0 4px;
+  }
+  .tfd-group + .tfd-group { margin-top: 2px; border-top: 1px solid var(--tfd-line); }
+  .tfd-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 22px;
+    padding: 0 12px;
+    font: 600 10px var(--tfd-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--tfd-dim);
+  }
+  .tfd-some { letter-spacing: 0.02em; text-transform: none; }
+
+  .tfd-row {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) minmax(0, max-content);
+    align-items: center;
+    gap: 8px;
+    height: var(--tfd-row-h);
+    margin: 0 4px;
+    padding: 0 8px;
+    border-radius: 4px;
+  }
+  .tfd-row[aria-selected="true"] { color: var(--tfd-sel-fg); background: var(--tfd-sel-bg); }
+  .tfd-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; font-size: 13px; color: var(--tfd-dim); }
+  .tfd-icon svg { width: 15px; height: 15px; }
+  .tfd-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .tfd mark { padding: 0; font-weight: 700; color: inherit; background: var(--tfd-mark); border-radius: 1px; }
+  .tfd-detail {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 280px;
+    overflow: hidden;
+    font-size: 11.5px;
+    white-space: nowrap;
+    color: var(--tfd-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .tfd-detail-text, .tfd-snip { overflow: hidden; text-overflow: ellipsis; }
+  .tfd-chip { flex: none; width: 3px; height: 11px; border-radius: 1px; background: var(--tfd-chip); }
+  .tfd-dim .tfd-label { color: var(--tfd-dim); text-decoration: line-through; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
+  .tfd-row[aria-selected="true"] :is(.tfd-icon, .tfd-detail, .tfd-label) { color: var(--tfd-sel-fg); }
+  /* On the selection a match is a darker band, underlined: the text on it still reads. */
+  .tfd-row[aria-selected="true"] mark { background: rgb(0 0 0 / 0.26); text-decoration: underline; text-underline-offset: 2px; }
+  .tfd-row[aria-selected="true"] .tfd-chip { background: var(--tfd-sel-fg); }
+
+  .tfd-empty { display: grid; gap: 3px; padding: 16px 14px 14px; text-align: center; }
+  .tfd-empty b { font-size: 12.5px; font-weight: 600; }
+  .tfd-empty span { font-size: 11.5px; color: var(--tfd-dim); }
+
+  /* the key strip */
+  .tfd-keys {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    height: 26px;
+    padding: 0 10px;
+    font-size: 11px;
+    color: var(--tfd-dim);
+    background: var(--tfd-chrome);
+    border-top: 1px solid var(--tfd-line);
+  }
+  .tfd-keys > span { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tfd, .tfd-host { animation: none; }
+  }
+
+  @media (forced-colors: active) {
+    .tfd { border-color: CanvasText; }
+    .tfd-row[aria-selected="true"] { forced-color-adjust: none; color: HighlightText; background: Highlight; }
+    .tfd-row[aria-selected="true"] * { color: HighlightText; }
+  }
+}

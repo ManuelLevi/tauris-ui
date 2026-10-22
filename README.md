@@ -8,6 +8,7 @@ UI components for Tauri 2 desktop apps. One library for every app.
 | [Tree view](#tree-view) | `TaurisTree.mount(element, { data })` | A dense tree and configuration editor: compact rows, dotted guide lines, aligned columns, in-place editing |
 | [Files](#files) | `TaurisFiles.mount(element, { files, onAdd })` | A place's shared files: a dense, sortable table with drag and drop, search, in-place renaming and the system's pickers |
 | [Menus](#menus) | `TaurisMenu.bar(nav, { menus })` | An in-window menu bar, toolbar buttons with a ▾ menu, and right-click menus, with a desktop app's keyboard |
+| [Finder](#finder) | `TaurisFinder.mount({ items, onPick })` | Find anything with ⌘K: a panel at the top of the window, as Spotlight or Xcode's Open Quickly, finding as you type |
 | [Sidebar](#sidebar) | `TaurisSidebar.mount(element, { items })` | A collapsible side bar of sections, as in Mail or Finder: icons, counts, groups, a rail of icons when collapsed, an edge to resize |
 | [Terminal](#terminal) | `TaurisTerminal.mount(element)` | An optional Bloomberg-style look: amber on black, monospace, dense tables, function keys, a command line and a message log |
 
@@ -757,6 +758,30 @@ Put it in a row with a height (`display: flex`): it sets its own width, and the 
 
 Types are in `web/sidebar.d.ts`. **The look:** `--tsb-*` variables at the top of `web/sidebar.css` (its background is `--tauris-chrome`; the selected item is `--tauris-sel-bg` while the sidebar has the focus, `--tauris-sel-inactive` otherwise). `[data-tsb-state]` on the element says `"open"`, `"rail"` or `"hidden"`.
 
+## Finder
+
+Find anything with ⌘K (or ⌘L; Ctrl elsewhere): a panel at the top of the window, as Spotlight or Xcode's Open Quickly. What it searches is in memory, so its results follow every key.
+
+```js
+const finder = TaurisFinder.mount({
+  items: () => [                                  // a function: made each time it opens
+    ...projects.map(p => ({ id: p.id, kind: "project", label: p.name, detail: `${p.open} open tasks`, when: p.updated })),
+    ...logins.map(l => ({ id: l.id, kind: "login", label: l.name, more: [l.username, l.site] })),   // never the password
+  ],
+  kinds: [{ id: "project", label: "Projects", limit: 5, bias: 40 }, { id: "login", label: "Logins" }],
+  storageKey: "my-app-finder",                    // what was picked comes back first
+  onPick: item => show(item),
+  onContextMenu: (item, { x, y }) => TaurisMenu.open(itemsFor(item), { x, y }),
+});
+```
+
+- **What is found:** only an item's `label` and its `more` texts; what the app leaves out (a password, a note) is never found. Each word typed must match: the label whole, at its start, at a word's start, inside, as initials ("rp" finds Revenue Pipeline), or as scattered letters at word starts; or a `more` text, its letters together, at half weight. Accents do not count ("cafe" finds Café). The matches are marked; a `more` text that matched shows beside the label.
+- **How it shows:** in groups by `kind`, the group with the best match first, each cut at its `limit` ("5 of 12"). With nothing typed: what was picked last (`storageKey`), then the latest items by `when`. `detail`, `icon`, `color` and `dim` (a done task, struck through) dress a row.
+- **Keys:** ↑ ↓ (⌃N ⌃P) move, ⌘↑ ⌘↓ go to the first and last, Page Up and Down by a page, Tab and ⇧Tab from group to group, Enter picks, Esc or a press beside the panel closes it, the focus back where it was. The menu key or ⇧F10 on a result calls `onContextMenu`.
+- **Methods:** `open(text?)`, `close()`, `isOpen`, `update(changes)`, `destroy()`; `TaurisFinder.close()` closes whichever is open. `onOpen()`, `onClose({ picked })`; `labels` has every word it shows (`web/finder.d.ts`).
+
+Types are in `web/finder.d.ts`. **The look:** `--tfd-*` variables at the top of `web/finder.css`.
+
 ## Terminal
 
 An optional look for an app or a part of one: amber on black, IBM Plex Mono at 12/18 px, square corners, 1 px gaps between panes. It changes nothing outside the element you mark as a terminal (`.tm`), and its stylesheet is added only when a page uses it. A page that brings its own passes `{ styles: false }` to `mount` (and to `commandLine`, `log` or `pane` made before it). Like the tree, it lives in the page: the plugin delivers it, and it needs no capability.
@@ -832,6 +857,7 @@ python test/terminal_run.py [shots-dir]    # the terminal, including its gaps an
 python test/files_run.py [shots-dir]       # the files component, with drops and the picker stood in for
 python test/menus_run.py [shots-dir]       # the menus, mouse and keyboard
 python test/sidebar_run.py [shots-dir]     # the sidebar: collapsing, the edge, the keys
+python test/finder_run.py                  # the finder: matching, groups, the keys
 python test/all_run.py [shots-dir]         # examples/all: every component in one app
 python test/doctor_run.py                  # the checker, on small apps set up right and wrong
 (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build) && python scripts/doctor.py examples/basic

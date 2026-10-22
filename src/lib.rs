@@ -84,6 +84,8 @@ const MENUS_SCRIPT: &str = include_str!("../web/menus.js");
 const MENUS_STYLE: &str = include_str!("../web/menus.css");
 const SIDEBAR_SCRIPT: &str = include_str!("../web/sidebar.js");
 const SIDEBAR_STYLE: &str = include_str!("../web/sidebar.css");
+const FINDER_SCRIPT: &str = include_str!("../web/finder.js");
+const FINDER_STYLE: &str = include_str!("../web/finder.css");
 const NATIVE_SCRIPT: &str = include_str!("../web/native.js");
 
 // The page scripts carry their stylesheets and the version, so one crate
@@ -109,6 +111,8 @@ pub(crate) fn page_script<R: Runtime>(config: &Config<R>) -> String {
         MENUS_SCRIPT.replace("\"__TAURIS_MENUS_CSS__\"", &serde_json::to_string(MENUS_STYLE).unwrap_or_default());
     let sidebar =
         SIDEBAR_SCRIPT.replace("\"__TAURIS_SIDEBAR_CSS__\"", &serde_json::to_string(SIDEBAR_STYLE).unwrap_or_default());
+    let finder =
+        FINDER_SCRIPT.replace("\"__TAURIS_FINDER_CSS__\"", &serde_json::to_string(FINDER_STYLE).unwrap_or_default());
     [
         (Component::Tabs, tabs),
         (Component::Tree, tree),
@@ -116,6 +120,7 @@ pub(crate) fn page_script<R: Runtime>(config: &Config<R>) -> String {
         (Component::Files, files),
         (Component::Menus, menus),
         (Component::Sidebar, sidebar),
+        (Component::Finder, finder),
     ]
     .into_iter()
     .filter(|(c, _)| config.components.contains(c))

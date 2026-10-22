@@ -1,7 +1,8 @@
-// All six components in one window: the tab strip (TaurisTabs), the menu bar
+// All seven components in one window: the tab strip (TaurisTabs), the menu bar
 // and toolbar (TaurisMenu), a sidebar (TaurisSidebar) holding a tree
-// (TaurisTree), the table of a project's files (TaurisFiles) and a search line
-// (TaurisTerminal). The data is data.js; nothing is saved but the tabs.
+// (TaurisTree), the table of a project's files (TaurisFiles), a search line
+// (TaurisTerminal) and find-anything with ⌘K (TaurisFinder). The data is
+// data.js; nothing is saved but the tabs.
 
 "use strict";
 
@@ -91,6 +92,11 @@ treeHost.addEventListener("contextmenu", e => {
   if (!node || node.kind === "team") return;
   const box = row.getBoundingClientRect();
   const at = e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : { x: box.left + 24, y: box.bottom };
+  TaurisMenu.open(menuFor(node), at, { label: node.name, returnTo: row });
+});
+
+// What can be done to a project or a file, wherever it is shown (the tree, the finder).
+function menuFor(node) {
   const items = [
     { label: "Open", action: () => open(node) },
     { label: "Open in new tab", action: () => open(node, { newTab: true }) },
@@ -100,8 +106,8 @@ treeHost.addEventListener("contextmenu", e => {
       { label: "Edit", action: () => say("Edit does nothing in this example.") },
       { label: "Delete", danger: true, action: () => say("Delete does nothing in this example.") });
   }
-  TaurisMenu.open(items, at, { label: node.name, returnTo: row });
-});
+  return items;
+}
 
 // ---------- the files table ----------
 
@@ -200,7 +206,8 @@ TaurisMenu.bar($("menubar"), {
     ] },
     { label: "View", items: () => [
       { label: side.collapsed ? "Show Sidebar" : "Hide Sidebar", shortcut: "⌃⌘S", action: () => side.toggle() },
-      { label: "Search", shortcut: "⌘K", action: () => cmd.focus() },
+      { label: "Find…", shortcut: "⌘K", action: () => finder.open() },
+      { label: "Search Line", action: () => cmd.focus() },
     ] },
     { label: "Help", items: [
       { label: "About this example", action: () => say("Every tauris-ui component in one app. The projects and files are sample data.") },
@@ -284,9 +291,35 @@ function submit(line) {
 // The library gives Enter (onSubmit); the app listens to the typing itself.
 $("cmd").addEventListener("input", () => search(cmd.value));
 $("cmd").addEventListener("keydown", e => { if (e.key === "Escape") setTimeout(() => search(cmd.value), 0); });
-document.addEventListener("keydown", e => {
-  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
-    e.preventDefault();
-    cmd.focus();
-  }
+
+// ---------- find anything: ⌘K (the finder's own shortcut) ----------
+
+const finder = TaurisFinder.mount({
+  // Every team, project and file; a file's text is searched too.
+  items: () => [...nodes.values()].map(n => ({
+    id: n.id,
+    kind: n.kind,
+    label: n.name,
+    detail: n.kind === "file" ? `${n.team.name} / ${n.project.name} · ${kb(n.file.size)}`
+      : n.kind === "project" ? `${n.team.name} · ${count(n.project.files.length)}` : `${n.team.projects.length} projects`,
+    more: n.kind === "file" ? [n.file.text] : [],
+    color: n.project?.color,
+    when: n.file?.added,
+  })),
+  kinds: [{ id: "project", label: "Projects", bias: 40 }, { id: "file", label: "Files" }, { id: "team", label: "Teams" }],
+  storageKey: "all-components-finder",
+  onPick: item => {
+    const node = nodes.get(item.id);
+    // A team shows in the tree; a project or a file opens.
+    if (node.kind === "team") {
+      side.toggle(false);
+      tree.select(node.id);
+    } else {
+      open(node);
+    }
+  },
+  onContextMenu: (item, at) => {
+    const node = nodes.get(item.id);
+    if (node.kind !== "team") TaurisMenu.open(menuFor(node), at, { label: node.name });
+  },
 });

@@ -1642,16 +1642,16 @@ fn a_tab_moved_to_a_window_that_failed_to_open_comes_back() {
 fn only_the_components_asked_for_go_in_the_pages() {
     use crate::Component;
     let has = |script: &str| {
-        ["TaurisTabs", "TaurisTree", "TaurisTerminal", "TaurisFiles", "TaurisMenu", "TaurisSidebar"]
+        ["TaurisTabs", "TaurisTree", "TaurisTerminal", "TaurisFiles", "TaurisMenu", "TaurisSidebar", "TaurisFinder"]
             .map(|name| script.contains(&format!("window.{name} = ")))
     };
-    assert_eq!(has(&crate::page_script(&quiet())), [true; 6]);
+    assert_eq!(has(&crate::page_script(&quiet())), [true; 7]);
     assert_eq!(
         has(&crate::page_script(&quiet().components(&[Component::Tabs]))),
-        [true, false, false, false, false, false]
+        [true, false, false, false, false, false, false]
     );
     let files = crate::page_script(&quiet().components(&[Component::Tree, Component::Files]));
-    assert_eq!(has(&files), [false, true, false, true, true, false]);
+    assert_eq!(has(&files), [false, true, false, true, true, false, false]);
     assert!(files.len() < crate::page_script(&quiet()).len());
 }
 

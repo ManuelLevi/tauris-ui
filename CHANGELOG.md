@@ -8,6 +8,10 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.28 — 2026-10-26
+
+- New: `TaurisFinder`, find anything with ⌘K (from MLPC's finder): a panel at the top of the window, as Spotlight or Xcode's Open Quickly, finding in memory as you type. Only an item's `label` and `more` texts are searched (a password left out is never found); words match whole, at the start, at word starts, as initials or scattered letters, accents folded; results in groups by kind, the best first, each cut at its `limit`; recent picks with nothing typed (`storageKey`). ↑ ↓ ⌃N ⌃P, Page Up and Down, Tab between groups, Enter, Esc; `onContextMenu` for a result's menu. `Component::Finder`; the checker knows it. The full example (`examples/all`) finds its teams, projects and files with it.
+
 ## 0.4.27 — 2026-10-26
 
 From MLPC's components:

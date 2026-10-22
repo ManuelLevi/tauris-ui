@@ -28,7 +28,8 @@ def component(name, tag):
 def scripts():
     tabs = component("tabs", "TABS").replace("__TAURIS_TABS_VERSION__", "test").replace('"__TAURIS_TABS_CAN_DRAG_OUT__"', "true")
     return [(HERE / "mock_tauri.js").read_text(), tabs, component("menus", "MENUS"), component("tree", "TREE"),
-            component("files", "FILES"), component("terminal", "TERMINAL"), component("sidebar", "SIDEBAR")]
+            component("files", "FILES"), component("terminal", "TERMINAL"), component("sidebar", "SIDEBAR"),
+            component("finder", "FINDER")]
 
 
 # What Rust does for the example: a new tab is a project, the picker gives one file, `inspect` sizes it.
@@ -168,7 +169,7 @@ with sync_playwright() as p:
 
     # ---------- View > Hide Sidebar ----------
     page.click(".tmn-title:has-text('View')")
-    check("View: Hide Sidebar, Search", menu(page) == ["Hide Sidebar", "Search"], menu(page))
+    check("View: Hide Sidebar, Find…, Search Line", menu(page) == ["Hide Sidebar", "Find…", "Search Line"], menu(page))
     page.click(".tmn-item:has-text('Hide Sidebar')")
     page.wait_for_timeout(300)
     state = page.get_attribute("#side", "data-tsb-state")
@@ -217,7 +218,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(100)
     check("and Enter opens that one (in this tab)",
           active_title(page) == "places to visit.md" and page.locator(".tt-tab").count() == 1 and page.is_visible("#doc"), active_title(page))
-    page.keyboard.press("ControlOrMeta+k")
+    page.click(".tm-cmd-input")
     page.keyboard.type("mexico")
     page.evaluate("document.querySelector('.tm-cmd-input').select()")
     page.keyboard.type("1")
@@ -236,9 +237,26 @@ with sync_playwright() as p:
     page.wait_for_timeout(50)
     check("Escape clears the line and the list", page.input_value(".tm-cmd-input") == "" and page.get_attribute("#matches", "data-tm-state") in (None, ""),
           page.get_attribute("#matches", "data-tm-state"))
+    page.close()
+
+    # ---------- find anything: ⌘K ----------
+    page = fresh(browser)
     page.click("body", position={"x": 600, "y": 300})
     page.keyboard.press("ControlOrMeta+k")
-    check("⌘K (Ctrl+K) goes to the search line", page.evaluate("document.activeElement.classList.contains('tm-cmd-input')"))
+    page.wait_for_selector(".tfd-input")
+    page.keyboard.type("mexico")
+    found = page.evaluate("[...document.querySelectorAll('.tfd-row .tfd-label')].map(r => r.textContent)")
+    check("⌘K (Ctrl+K) opens the finder; “mexico” finds the project, and the file whose text says Mexico City",
+          found[:1] == ["Vacation Mexico"] and "places to visit.md" in found, found)
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(100)
+    check("Enter opens what was found, in this tab", active_title(page) == "Vacation Mexico" and page.locator(".tfd").count() == 0, active_title(page))
+    page.keyboard.press("ControlOrMeta+k")
+    page.keyboard.type("team b")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(100)
+    check("a team found shows in the tree", page.evaluate("document.querySelector('#tree [aria-selected=true]')?.dataset.key") == "team-b",
+          page.evaluate("document.querySelector('#tree [aria-selected=true]')?.dataset.key"))
     page.close()
 
     # ---------- dark ----------

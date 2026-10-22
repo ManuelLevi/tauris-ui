@@ -98,6 +98,7 @@ jobs:
       - run: python test/files_run.py
       - run: python test/menus_run.py
       - run: python test/sidebar_run.py
+      - run: python test/finder_run.py
       - run: python test/all_run.py
       - run: python test/doctor_run.py
 
@@ -121,4 +122,5 @@ jobs:
       - run: python test/files_run.py
       - run: python test/menus_run.py
       - run: python test/sidebar_run.py
+      - run: python test/finder_run.py
       - run: python test/all_run.py

@@ -4,7 +4,7 @@ Read AGENTS.md first: it says how to use this library in an app and the rules fo
 
 Example app must use all components of tauris-ui, no exception.
 
-It lives in `examples/all` (`test/all_run.py` tests its page). The plugin delivers every component to the page (`Config::new()` has all six). All data is the sample below, kept in the page: nothing is saved but the tabs.
+It lives in `examples/all` (`test/all_run.py` tests its page). The plugin delivers every component to the page (`Config::new()` has all seven). All data is the sample below, kept in the page: nothing is saved but the tabs.
 
 | Component | Where the app uses it |
 | --- | --- |
@@ -14,6 +14,7 @@ It lives in `examples/all` (`test/all_run.py` tests its page). The plugin delive
 | Files (`TaurisFiles`) | The table of the selected project's files |
 | Menus (`TaurisMenu`) | Menu bar, right-click menus, a toolbar |
 | Terminal (`TaurisTerminal`) | The search line |
+| Finder (`TaurisFinder`) | ⌘K: find any team, project or file |
 
 ## Collapsable Sidebar + Treeview (2 components)
 

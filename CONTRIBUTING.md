@@ -15,7 +15,7 @@ them.
 1. Keep it general. Anything one app needs becomes an option whose default
    changes nothing for others.
 2. Add or update a test:
-   - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`, the sidebar in `test/sidebar_run.py`
+   - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`, the sidebar in `test/sidebar_run.py`, the finder in `test/finder_run.py`
    - window behaviour in `src/runtime_tests.rs`
    - pure logic next to the code
 3. Update the docs to match: `README.md`, the component's `web/*.d.ts`, and `examples/basic`.
@@ -32,6 +32,7 @@ them.
    python test/files_run.py
    python test/menus_run.py
    python test/sidebar_run.py
+   python test/finder_run.py
    python test/all_run.py
    (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build)
    (cd examples/all/src-tauri && cargo clippy -- -D warnings && cargo build)
