@@ -138,6 +138,12 @@
   }
 
   // Here, while a dialog's window is open: the page is out of reach, and a click brings the dialog forward.
+  // The dialog windows waited for, the last on top: a question asked meanwhile (a confirm in
+  // a submit) shows in the top one.
+  const windowWaits = [];
+  const questions = new Map(); // id -> resolve, for questions shown in a dialog's window
+  let questionIds = 0;
+
   function waitForWindow(label, onMessage) {
     const back = rememberFocus();
     const shield = el("div", "tdl-shield");
@@ -149,12 +155,14 @@
       plugin("dialog_window_reply", { label, message: { type: "focus" } }).catch(() => {});
     });
     open.push(shield);
+    windowWaits.push(label);
     return new Promise(resolve => {
       let done = false;
       const finish = value => {
         if (done) return;
         done = true;
         heard.delete(label);
+        windowWaits.splice(windowWaits.indexOf(label), 1);
         shield.remove();
         for (const n of quieted) n.inert = false;
         open.splice(open.indexOf(shield), 1);
@@ -163,9 +171,19 @@
         resolve(value);
       };
       const reply = (id, answer) => plugin("dialog_window_reply", { label, message: { type: "answer", id, ...answer } }).catch(() => {});
+      // TaurisDialog.close(): the window closes, the dialog ends as cancelled.
+      shield.abort = () => {
+        plugin("dialog_window_reply", { label, message: { type: "close" } }).catch(() => {});
+        finish(null);
+      };
       heard.set(label, async msg => {
         if (msg.type === "closed") return finish(null);
         if (msg.type === "done") return finish(msg.value ?? null);
+        if (msg.type === "answered") {
+          questions.get(msg.id)?.(msg.yes === true);
+          questions.delete(msg.id);
+          return undefined;
+        }
         if (msg.type === "ask") {
           try {
             reply(msg.id, { result: (await onMessage(msg.what, msg.value)) ?? null });
@@ -224,7 +242,8 @@
     const box = el("div", `tdl${wide ? " tdl-wide" : ""}${className ? " " + className : ""}`, { role, "aria-modal": "true", "aria-labelledby": heading.id, tabindex: "-1" },
       head, body, buttons);
     if (width) box.style.setProperty("--tdl-w", `${Number(width)}px`);
-    const veil = el("div", "tdl-veil", {}, box);
+    const veil = el("div", `tdl-veil${open.length ? " tdl-over" : ""}`, {}, box);
+    const sizesWindow = IN_WINDOW && !open.length;
     // The rest of the page (and a dialog under this one) is out of reach, for a screen reader too.
     const quieted = [...document.body.children].filter(n => n !== veil && !n.inert && !n.matches("script, style, .tmn-menu"));
     for (const n of quieted) n.inert = true;
@@ -253,7 +272,7 @@
       }
     }, { signal });
     // In its own window: the window is its size (and follows it as a refusal or a review shows).
-    if (IN_WINDOW) {
+    if (sizesWindow) {
       let queued = false;
       const fit = () => {
         queued = false;
@@ -300,6 +319,25 @@
   // ---------- a question ----------
 
   async function confirm(options = {}) {
+    // Asked while a dialog's own window is open (its submit asking "Future date?"): asked there.
+    const label = windowWaits[windowWaits.length - 1];
+    if (label && !IN_WINDOW) {
+      const id = ++questionIds;
+      const yes = await new Promise(resolve => {
+        questions.set(id, resolve);
+        const { run, ...data } = options;
+        plugin("dialog_window_reply", { label, message: { type: "confirm", id, options: JSON.parse(JSON.stringify(data)) } })
+          .catch(() => { questions.delete(id); resolve(null); });
+      });
+      if (yes === null) return confirmHere(options);
+      if (!yes || typeof options.run !== "function") return yes;
+      await options.run();
+      return true;
+    }
+    return confirmHere(options);
+  }
+
+  async function confirmHere(options = {}) {
     const w = words(options.labels);
     const ok = String(options.ok ?? w.ok);
     const cancel = String(options.cancel ?? w.cancel);
@@ -329,6 +367,7 @@
       let busy = false;
       const end = yes => { state.close(); resolve(yes); };
       state = frame({ title: options.title, role: "alertdialog", width: options.width, onCancel: () => { if (!busy) end(false); }, className: "tdl-question" });
+      state.abort = () => end(false);
       const text = el("div", "tdl-message", { id: `${state.heading.id}-m` });
       for (const para of String(options.message ?? "").split(/\n{2,}/)) if (para.trim()) text.append(el("p", "", {}, para.trim()));
       state.box.setAttribute("aria-describedby", text.id);
@@ -534,9 +573,30 @@
         end(null);
       };
       state = frame({ title: options.title, wide: options.wide === true, width: options.width, onCancel: cancel, className: "tdl-form" });
+      state.abort = () => end(null);
       const grid = el("div", "tdl-fields");
       const controls = new Map();
+      // Several inputs on one line ({ type: "row", label, fields }): one label, the inputs side by side.
+      const rowOf = f => {
+        const cell = el("div", "tdl-cell");
+        const line = el("div", "tdl-inline");
+        for (const sub of (Array.isArray(f.fields) ? f.fields : []).filter(x => x && x.name != null)) {
+          const id = `${state.heading.id}-${String(sub.name).replace(/[^\w-]/g, "_")}`;
+          const entry = fieldControl(sub, id, w);
+          if (entry.handle) handles.push(entry.handle);
+          controls.set(String(sub.name), { f: sub, ...entry });
+          if (sub.label) line.append(el("label", "tdl-sub-label", { for: entry.handle ? null : id }, String(sub.label)));
+          line.append(sub.type === "checkbox" ? el("label", "tdl-check-label", {}, entry.control) : entry.wrap);
+        }
+        cell.append(line, el("div", "tdl-tip", { role: "alert", hidden: true }));
+        if (f.hint) cell.append(el("div", "tdl-hint", {}, String(f.hint)));
+        grid.append(el("span", "tdl-label", {}, f.label ? `${f.label}:` : ""), cell);
+      };
       for (const f of fields) {
+        if (f.type === "row") {
+          rowOf(f);
+          continue;
+        }
         const id = `${state.heading.id}-${String(f.name).replace(/[^\w-]/g, "_")}`;
         const entry = fieldControl(f, id, w);
         if (entry.handle) handles.push(entry.handle);
@@ -599,7 +659,14 @@
           tip.textContent = text;
           tip.hidden = false;
           at.control.setAttribute("aria-invalid", "true");
-          focusEntry(at);
+          // A part of the app's own field (an objective's date): it shows where, and takes the keys there.
+          const part = typeof r === "object" && r ? r.part : null;
+          if (part != null && at.handle) {
+            at.handle.refuse?.(part, text);
+            if (typeof at.handle.focus === "function") at.handle.focus(part);
+          } else {
+            focusEntry(at);
+          }
         } else {
           refusal.textContent = text;
           line.classList.add("tdl-refused");
@@ -700,6 +767,9 @@
       }
       state.form = { refuse, values };
       focusFirst();
+      // A form that opens refused (New Task at the limit): the reason at once, its button off.
+      if (options.okDisabled) yes.setAttribute("aria-disabled", "true");
+      if (options.refusal) refuse(options.refusal);
     });
   }
 
@@ -719,6 +789,7 @@
       let state = null;
       const end = yes => { state.close(); resolve(yes); };
       state = frame({ title: options.title ?? w.review, width: options.width, onCancel: () => end(false), className: "tdl-form" });
+      state.abort = () => end(false);
       const box = el("div", "tdl-review", { role: "group", "aria-label": String(options.title ?? w.review) },
         options.message ? el("p", "tdl-review-title", {}, String(options.message)) : null,
         reviewRows(Array.isArray(options.rows) ? options.rows : [], w),
@@ -757,6 +828,7 @@
       let state = null;
       const end = () => { state.close(); resolve(); };
       state = frame({ title: options.title ?? w.shortcuts, wide: true, width: options.width ?? 700, onCancel: end, className: "tdl-sheet" });
+      state.abort = end;
       const groups = (Array.isArray(options.groups) ? options.groups : []).map(g => {
         const rows = el("dl", "tdl-shortcut-rows");
         for (const item of Array.isArray(g.items) ? g.items : []) rows.append(el("dt", "", {}, String(item.label ?? "")), el("dd", "", {}, keycaps(item.keys, item.either === true, w)));
@@ -794,6 +866,7 @@
       let state = null;
       const end = () => { state.close(); resolve(); };
       state = frame({ title: options.title ?? `About ${options.name ?? ""}`.trim(), width: options.width ?? 420, onCancel: end, className: "tdl-about" });
+      state.abort = end;
       const mark = el("div", "tdl-mark", { "aria-hidden": "true" });
       if (typeof options.mark === "string" && /^(data:|https?:|\/|\.)/.test(options.mark)) mark.append(el("img", "", { src: options.mark, alt: "" }));
       else markup(mark, options.mark);
@@ -851,7 +924,13 @@
   async function serveWindow() {
     document.documentElement.classList.add("tdl-in-window");
     addStyles();
-    heard.set("self", msg => {
+    heard.set("self", async msg => {
+      // The window that asked: a question during its save, or close (TaurisDialog.close()).
+      if (msg.type === "close") return void plugin("dialog_window_close").catch(() => {});
+      if (msg.type === "confirm") {
+        const yes = await confirmHere(msg.options ?? {});
+        return void plugin("dialog_window_send", { message: { type: "answered", id: msg.id, yes } }).catch(() => {});
+      }
       if (msg.type !== "answer") return;
       const waiting = answers.get(msg.id);
       if (!waiting) return;
@@ -905,6 +984,10 @@
     about,
     panel,
     defineField,
+    /** Closes whatever dialog is open (a session that ends): each ends as cancelled. */
+    close() {
+      for (const d of [...open].reverse()) d.abort?.();
+    },
     /** This page is a dialog's window: the app only defines its field types here. */
     inWindow: IN_WINDOW,
     /** Whether a dialog is open (the app may hold its own keys while one is). */

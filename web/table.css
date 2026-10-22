@@ -14,7 +14,10 @@
  *   .ttb-group        a group's row: .ttb-chip (its colour, --ttb-c), .ttb-group-label, .ttb-group-detail
  *   .ttb-none         a group with no rows
  *   .ttb-acts         a row's buttons (.ttb-ib), shown on hover and selection;
- *                     [aria-pressed="true"] is a toggle that is on, .ttb-copied the tick after a copy
+ *                     [aria-pressed="true"] is a toggle that is on, .ttb-copied the tick after a copy,
+ *                     [aria-disabled="true"] one that is off
+ *   .ttb-box          a group's +/- box (collapsible); .ttb-grip a column's edge; .ttb-check the
+ *                     checkbox column; .ttb-edit a cell edited in place; .ttb-empty.ttb-error a state's error
  *   .ttb-left .ttb-right .ttb-center   a column's alignment
  *
  * Give the element a height (or put it in a grid or flex row that has one):
@@ -49,6 +52,8 @@
     --ttb-danger: #b83a31;
     --ttb-focus: rgb(38 117 191 / 0.45);
     --ttb-ib: 22px;                                          /* a row's button */
+    /* --ttb-sel-dim: unset, the selection's text: dim text on a selected row while the table has the keys.
+       Each row carries --ttb-row-dim (dim text there): an app's own dim parts in a cell use color: var(--ttb-row-dim). */
   }
 
   @media (prefers-color-scheme: dark) {
@@ -202,7 +207,12 @@
   .ttb-center { text-align: center; }
 
   .ttb-row {
+    --ttb-row-dim: var(--ttb-dim);
     cursor: default;
+  }
+
+  .ttb-list:focus .ttb-row[aria-selected="true"] {
+    --ttb-row-dim: var(--ttb-sel-dim, var(--ttb-sel-fg));
   }
 
   .ttb-row:hover > .ttb-cell {
@@ -220,7 +230,7 @@
   }
 
   .ttb-dim > .ttb-cell {
-    color: var(--ttb-dim);
+    color: var(--ttb-row-dim);
   }
 
   .ttb-row.ttb-flash > .ttb-cell {
@@ -340,6 +350,66 @@
     background: rgb(255 255 255 / 0.18);
     border-color: rgb(255 255 255 / 0.55);
   }
+
+  /* A column's edge, to drag (its width kept under storageKey). The header cell, sticky, holds it. */
+  .ttb-grip {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    z-index: 3;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+  }
+  .ttb-grip:hover, .ttb-resizing .ttb-grip:active { background: linear-gradient(var(--ttb-accent), var(--ttb-accent)) center / 2px 100% no-repeat; }
+  .ttb-resizing, .ttb-resizing * { cursor: col-resize !important; -webkit-user-select: none; user-select: none; }
+
+  /* Groups that open and close: a +/- box, as the tree's; a group selected. */
+  .ttb-box {
+    display: inline-grid;
+    place-items: center;
+    width: 11px;
+    height: 11px;
+    margin-right: 7px;
+    vertical-align: -1px;
+    font: 600 10px / 1 var(--ttb-font);
+    color: var(--ttb-dim);
+    background: var(--ttb-bg);
+    border: 1px solid var(--ttb-border);
+    border-radius: 2px;
+    cursor: default;
+  }
+  .ttb-group[aria-selected="true"] > td { color: var(--ttb-sel-inactive-fg); background: var(--ttb-sel-inactive-bg); }
+  .ttb-list:focus .ttb-group[aria-selected="true"] > td { color: var(--ttb-sel-fg); background: var(--ttb-sel-bg); }
+  .ttb-list:focus .ttb-group[aria-selected="true"] .ttb-group-detail { color: inherit; }
+
+  /* The checkbox column, always shown. */
+  .ttb-check-cell { text-align: center; text-overflow: clip; }
+  .ttb-check { margin: 0; vertical-align: middle; accent-color: var(--ttb-accent); }
+
+  /* A cell edited in place. */
+  .ttb-cell.ttb-editing { padding: 0 2px; overflow: visible; }
+  .ttb-edit {
+    box-sizing: border-box;
+    width: 100%;
+    height: calc(var(--ttb-row-h) - 4px);
+    padding: 0 4px;
+    font: inherit;
+    color: var(--ttb-fg);
+    background: var(--ttb-bg);
+    border: 1px solid var(--ttb-accent);
+    border-radius: 2px;
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ttb-focus);
+  }
+
+  /* A row's button that is off, with why as its tooltip. */
+  .ttb-ib[aria-disabled="true"] { opacity: 0.4; }
+  .ttb-row:hover .ttb-ib[aria-disabled="true"], .ttb-row[aria-selected="true"] .ttb-ib[aria-disabled="true"] { opacity: 0.4; }
+  .ttb-ib[aria-disabled="true"]:hover { background: none; border-color: transparent; }
+
+  /* state: loading, or what went wrong, in place of the rows. */
+  .ttb-empty.ttb-error { color: var(--ttb-danger); }
 
   .ttb-live {
     position: absolute;

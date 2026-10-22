@@ -51,7 +51,14 @@ function main() {
 
   // ---------- the tabs: each one shows a project or a file ----------
 
-  const tabs = TaurisTabs.mount($("strip"), { panelId: "work" });
+  // Each tab's Back and Forward: the places it showed ("home", or a project's or file's id).
+  const tabs = TaurisTabs.mount($("strip"), {
+    panelId: "work",
+    history: {
+      restore: place => open(place === "home" ? { kind: "home" } : nodes.get(place)),
+      alive: place => place === "home" || nodes.has(place),
+    },
+  });
 
   // Shows `node` in this tab, or in a new one (Home: { kind: "home" }).
   function open(node, { newTab = false } = {}) {
@@ -192,7 +199,7 @@ function main() {
       drawHome();
       for (const button of teamButtons.values()) button.setAttribute("aria-pressed", "false");
       home.setAttribute("aria-pressed", "true");
-      visited("home");
+      tabs.visit("home");
       return;
     }
     home.setAttribute("aria-pressed", "false");
@@ -210,7 +217,7 @@ function main() {
     }
     tree.select(node.id);
     for (const [team, button] of teamButtons) button.setAttribute("aria-pressed", String(team === node.team));
-    visited(node.id);
+    tabs.visit(node.id);
   }
   tabs.on("change", render);
 
@@ -245,29 +252,13 @@ function main() {
   }
 
   // The toolbar: one stop for Tab, ← → between its buttons; Back and Forward through the
-  // views this tab has shown (⌘[ ⌘]); Find anything (⌘K) at its end.
-  const views = { list: [], at: -1, stepping: false };
+  // places this tab has shown (the tabs' history; ⌘[ ⌘]); Find anything (⌘K) at its end.
   const toolbar = TaurisMenu.toolbar($("toolbar"), {
-    back: () => step(-1),
-    forward: () => step(1),
+    back: () => tabs.back(),
+    forward: () => tabs.forward(),
     find: { label: "Find anything", shortcut: "⌘K", onClick: () => finder.open() },
   });
-  function visited(key) {
-    if (views.stepping) views.stepping = false;
-    else if (views.list[views.at] !== key) {
-      views.list = views.list.slice(0, views.at + 1).concat(key);
-      views.at = views.list.length - 1;
-    }
-    toolbar.setHistory({ back: views.at > 0, forward: views.at < views.list.length - 1 });
-  }
-  function step(dir) {
-    const at = views.at + dir;
-    if (at < 0 || at >= views.list.length) return;
-    views.at = at;
-    views.stepping = true;
-    const key = views.list[at];
-    open(key === "home" ? { kind: "home" } : nodes.get(key));
-  }
+  tabs.on("history", can => toolbar.setHistory(can));
 
   TaurisMenu.bar($("menubar"), {
     menus: [
@@ -275,8 +266,8 @@ function main() {
         { label: "Add files…", action: () => filesView.add(), disabled: $("files").hidden },
       ] },
       { label: "View", items: () => [
-        { label: "Back", shortcut: toolbar.keys.back, disabled: views.at <= 0, action: () => step(-1) },
-        { label: "Forward", shortcut: toolbar.keys.forward, disabled: views.at >= views.list.length - 1, action: () => step(1) },
+        { label: "Back", shortcut: toolbar.keys.back, disabled: !tabs.canGo().back, action: () => tabs.back() },
+        { label: "Forward", shortcut: toolbar.keys.forward, disabled: !tabs.canGo().forward, action: () => tabs.forward() },
         "-",
         { label: side.collapsed ? "Show Sidebar" : "Hide Sidebar", shortcut: "⌃⌘S", action: () => side.toggle() },
         { label: "Find…", shortcut: "⌘K", action: () => finder.open() },

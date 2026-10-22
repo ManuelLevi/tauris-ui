@@ -250,6 +250,7 @@
       scroller.scrollTop = viewAt / ratio;
     }
     let editing = null;
+    let dropKey = null;       // the row a drop would land on (dropTarget): a ring, kept as rows are reused
     let sortBy = null;        // { ci, up }: the column sorted by; null keeps the data's order
     let sorted = new Map();   // parent key (null at the top) -> its children in that order
     {
@@ -645,6 +646,7 @@
       else node.removeAttribute("aria-expanded");
       node.setAttribute("aria-selected", String(picked.has(row.key)));
       node.classList.toggle("tv-many", picked.size > 1);
+      node.classList.toggle("tv-drop", row.key === dropKey);
       node.tabIndex = row.key === focusKey ? 0 : -1;
     }
 
@@ -654,6 +656,7 @@
       const branch = el("span", "tv-indent", {}, row.kids ? el("span", "tv-box") : null);
       branch.style.setProperty("--tv-g", guides(row));
       const main = el("div", "tv-cell tv-main", {}, branch, iconOf(n, row.open), el("span", "tv-label", {}, labelOf(n)));
+      toneCell(main, n, cols?.[0]?.key ?? "label");
       if (cols) {
         main.dataset.col = "0";
         main.style.width = "var(--tv-c0)";
@@ -778,10 +781,18 @@
       return true;
     }
 
+    // A cell's tone, from the node (tones: { key: "warn" }): its text in that colour.
+    const TONES = new Set(["warn", "bad", "ok", "dim"]);
+    function toneCell(cell, n, key) {
+      const tone = n.tones && typeof n.tones === "object" ? n.tones[key] : null;
+      if (TONES.has(tone)) cell.classList.add(`tv-tone-${tone}`);
+    }
+
     function valueCell(n, c, ci) {
       const cell = el("div", `tv-cell${c.className ? " " + c.className : ""}${c.align === "right" ? " tv-right" : c.align === "center" ? " tv-center" : ""}`);
       cell.dataset.col = String(ci);
       cell.style.width = `var(--tv-c${ci})`;
+      if (c.key != null) toneCell(cell, n, c.key);
       if (!has(n.values, c.key)) return cell;
       const v = n.values[c.key];
       if (!c.editable) {
@@ -1207,6 +1218,12 @@
           return;
         }
       }
+      // ⌘↩ (Ctrl+Enter): the app's other way to open (a new tab).
+      if (e.key === "Enter" && toggleKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        emit("activate", { node: rows[at].node, cmd: true });
+        return;
+      }
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       const row = rows[at];
       const page = Math.max(1, Math.floor((scroller.clientHeight - headH) / rowH) - 1);
@@ -1243,7 +1260,7 @@
           handled();
           const ci = firstEditable(row);
           if (ci > 0) goToCell(row.key, ci);
-          else emit("activate", { node: row.node });
+          else emit("activate", { node: row.node, cmd: false });
           break;
         }
         case "F2": {
@@ -1348,6 +1365,11 @@
         return;
       }
       go(i);
+      // ⌘-click (Ctrl-click): the app's other way to open (a new tab), when rows are picked one at a time.
+      if (toggleKey && !e.shiftKey && !opt.multiple) {
+        emit("activate", { node: row.node, cmd: true });
+        return;
+      }
       const cell = e.target.closest(".tv-cell[data-col]");
       const ci = cell ? Number(cell.dataset.col) : -1;
       if (!canEdit(row, ci)) return;
@@ -1377,7 +1399,7 @@
       const x = e.clientX - rowEl.querySelector(".tv-indent").getBoundingClientRect().left;
       if (x < (row.depth + 1) * indent) return; // the box's own presses did the work
       if (row.kids) toggle(row.key);
-      emit("activate", { node: row.node });
+      emit("activate", { node: row.node, cmd: MAC ? e.metaKey : e.ctrlKey });
     }, { signal });
 
     scroller.addEventListener("scroll", schedule, { signal, passive: true });
@@ -1592,6 +1614,16 @@
       },
       /** The node with this id, or null. */
       get(id) { return nodes.get(keyOf(id)) ?? null; },
+      /** Rings the row a drop would land on (null: none); it stays as the rows scroll and are reused. */
+      dropTarget(id) {
+        dropKey = id == null ? null : keyOf(id);
+        render();
+      },
+      /** The node of the row at a point of the window (a drop from outside the page), or null. */
+      nodeAt(x, y) {
+        const rowEl = document.elementFromPoint(x, y)?.closest?.(".tv-row");
+        return rowEl && body.contains(rowEl) ? nodes.get(rowEl.dataset.key) ?? null : null;
+      },
       /** Whether a row is open. */
       isExpanded(id) {
         const n = nodes.get(keyOf(id));

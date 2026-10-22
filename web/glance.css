@@ -22,6 +22,8 @@
     --tgl-ring: rgb(0 0 0 / 0.22);     /* round a light dot, on a light page */
     --tgl-font-size: 12px;
     --tgl-cap-w: 140px;
+    /* --tgl-sel-c: unset, the row's text colour: a sparkline in a selected row */
+    /* --tgl-sel-ring: unset, white at 75%: a status dot's ring in a selected row */
   }
 
   @media (prefers-color-scheme: dark) {
@@ -74,7 +76,7 @@
   }
 
   [aria-selected="true"] .tgl-spark {
-    --tgl-c: currentColor;
+    --tgl-c: var(--tgl-sel-c, currentColor);
   }
 
   /* ---------- the status ---------- */
@@ -128,7 +130,7 @@
   }
 
   [aria-selected="true"] .tgl-status > i {
-    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.75);
+    box-shadow: 0 0 0 1px var(--tgl-sel-ring, rgb(255 255 255 / 0.75));
   }
 
   /* ---------- the capacity bar ---------- */

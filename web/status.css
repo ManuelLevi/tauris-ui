@@ -30,6 +30,7 @@
     --tst-error: #b3261e;               /* an error message's text: 4.5:1 on --tst-bg */
     --tst-faint: #9a9da4;
     --tst-focus: var(--tauris-accent-ink, #2675bf);
+    --tst-msg-in-time: 0.22s;           /* a new message fading in (0s: at once) */
   }
 
   @media (prefers-color-scheme: dark) {
@@ -97,6 +98,8 @@
     text-overflow: ellipsis;
   }
 
+  .tst-msg.tst-msg-in { animation: tst-msg-in var(--tst-msg-in-time) ease-out; }
+  @keyframes tst-msg-in { from { opacity: 0; transform: translateY(2px); } }
   .tst-msg.tst-error { color: var(--tst-error); }
   .tst-msg.tst-ok { color: var(--tst-fg); }
 
@@ -161,7 +164,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .tst-dot-wait { animation: none; }
+    .tst-dot-wait, .tst-msg.tst-msg-in { animation: none; }
   }
 
   @media (forced-colors: active) {

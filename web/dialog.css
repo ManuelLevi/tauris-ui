@@ -268,6 +268,11 @@
   /* The app's own field (TaurisDialog.defineField, or a field's render). */
   .tdl-custom { min-width: 0; }
 
+  /* Several inputs on one line ({ type: "row" }): side by side, each with its own small label. */
+  .tdl-inline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .tdl-inline > .tdl-input, .tdl-inline > .tdl-pw { flex: 1 1 0; min-width: 0; }
+  .tdl-sub-label { flex: none; color: var(--tdl-dim); white-space: nowrap; }
+
   /* A password: Show to read it, Generate to make one. */
   .tdl-pw { display: flex; align-items: center; gap: 4px; }
   .tdl-pw .tdl-input { flex: 1; min-width: 0; }
@@ -397,4 +402,12 @@
   html.tdl-in-window .tdl-veil { position: static !important; display: block; padding: 0; background: none; animation: none; }
   html.tdl-in-window .tdl { width: var(--tdl-w); max-height: none; border: 0; border-radius: 0; box-shadow: none; animation: none; }
   html.tdl-in-window .tdl-head { display: none; }
+  /* A question asked while it is open (its save asking "Future date?"): over it, in the same window. */
+  html.tdl-in-window .tdl-veil.tdl-over {
+    position: fixed !important; inset: 0; display: grid; place-items: center; padding: 8px; background: var(--tdl-veil);
+  }
+  html.tdl-in-window .tdl-veil.tdl-over .tdl {
+    width: min(var(--tdl-w), 100%); border: 1px solid var(--tdl-line); border-radius: var(--tdl-radius); box-shadow: var(--tdl-shadow);
+  }
+  html.tdl-in-window .tdl-veil.tdl-over .tdl-head { display: flex; }
 }

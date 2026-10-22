@@ -85,6 +85,10 @@
     tabClass: null,
     // the window title follows the active tab: (tab) => string | undefined
     documentTitle: tab => tab?.title,
+    // each tab's Back and Forward: { restore(place, tab), same?(a, b), alive?(place) }. The app
+    // calls visit(place) for each place a tab shows; back() and forward() step through them
+    // (50 at most a tab), skipping places alive() says are gone, and restore() shows one.
+    history: null,
     // what floats under the mouse while a tab is dragged inside its strip:
     // "tab" (the tab itself, default), "ghost", "title", "none", or (tab, tabEl) => HTMLElement
     dragPreview: "tab",
@@ -197,6 +201,62 @@
 
     const activeTab = () => tabs.find(t => t.id === active) ?? null;
     const tabEl = id => tabsEl.querySelector(`.tt-tab[data-id="${id}"]`);
+
+    // ---------- each tab's Back and Forward (the history option) ----------
+
+    const HISTORY_MAX = 50;
+    const histories = new Map(); // tab id -> { list: places, at }
+    const sameAs = (a, b) => (typeof opt.history?.same === "function" ? Boolean(opt.history.same(a, b)) : JSON.stringify(a) === JSON.stringify(b));
+    const alive = p => (typeof opt.history?.alive === "function" ? opt.history.alive(p) !== false : true);
+    // Where a step back (-1) or forward (1) lands: the nearest place still there, or -1.
+    function stepTarget(dir) {
+      const h = histories.get(active);
+      if (!h) return -1;
+      for (let j = h.at + dir; j >= 0 && j < h.list.length; j += dir) if (alive(h.list[j])) return j;
+      return -1;
+    }
+    const canGo = () => ({ back: stepTarget(-1) >= 0, forward: stepTarget(1) >= 0 });
+    let toldHistory = "";
+    // "history": whether Back and Forward can go now (the toolbar's buttons follow it).
+    function tellHistory() {
+      const can = canGo();
+      const said = `${active}|${can.back}|${can.forward}`;
+      if (said === toldHistory) return;
+      toldHistory = said;
+      emit("history", can);
+    }
+    function visit(place) {
+      if (active == null || place == null) return;
+      let h = histories.get(active);
+      if (!h) {
+        h = { list: [], at: -1 };
+        histories.set(active, h);
+      }
+      if (h.at >= 0 && sameAs(h.list[h.at], place)) {
+        h.list[h.at] = place;
+        return tellHistory();
+      }
+      h.list = h.list.slice(0, h.at + 1);
+      h.list.push(place);
+      if (h.list.length > HISTORY_MAX) h.list.splice(0, h.list.length - HISTORY_MAX);
+      h.at = h.list.length - 1;
+      return tellHistory();
+    }
+    function step(dir) {
+      const j = stepTarget(dir);
+      if (j < 0) return false;
+      const h = histories.get(active);
+      h.at = j;
+      tellHistory();
+      if (typeof opt.history?.restore === "function") {
+        try {
+          opt.history.restore(h.list[j], activeTab());
+        } catch (e) {
+          console.error("[tauris-ui] history.restore failed:", e);
+        }
+      }
+      return true;
+    }
 
     // ---------- state ----------
 
@@ -976,10 +1036,23 @@
 
     quiet(load());
 
+    // A tab gone takes its history with it; another tab active, its own Back and Forward.
+    on("change", () => {
+      for (const id of [...histories.keys()]) if (!tabs.some(t => t.id === id)) histories.delete(id);
+      tellHistory();
+    });
+
     return {
       get tabs() { return tabs; },
       get active() { return active; },
       activeTab,
+      /** The active tab now shows `place` (the history option): the next Back comes here. */
+      visit,
+      /** Steps the active tab back or forward through its places: true when it went. */
+      back: () => step(-1),
+      forward: () => step(1),
+      /** Whether Back and Forward can go now (also told by the "history" event). */
+      canGo,
       activate,
       /** Closes a tab after asking onBeforeClose; resolves to true when it closed. */
       close,

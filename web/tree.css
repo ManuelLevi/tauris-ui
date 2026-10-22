@@ -24,6 +24,11 @@
     --tv-icon-gap: 4px;             /* between an icon and its label */
     --tv-icon-size: 16px;           /* a row's icon */
     --tv-arrow-size: 7px;           /* the sort arrow in a header */
+    /* a cell's tone (node.tones: { key: "warn" }); on a selected row with the focus, the selection's text */
+    --tv-tone-warn: #e3ae2f;
+    --tv-tone-bad: #f07a70;
+    --tv-tone-ok: #45c27a;
+    /* --tv-tone-dim: unset, --tv-muted */
     /* --tv-arrow-color: unset, --tv-focus: the sort arrow */
     /* --tv-sel-hover-bg: unset, --tv-sel-bg: the selected row under the pointer while the tree has focus */
     /* --tv-sel-inactive-hover-bg: unset, --tv-sel-inactive-bg: the same while focus is elsewhere */
@@ -99,6 +104,9 @@
       --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
       --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
       --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
+      --tv-tone-warn: #8a5a00;
+      --tv-tone-bad: #b3261e;
+      --tv-tone-ok: #1f7a45;
       --tv-focus: var(--tauris-accent-ink, var(--tv-ink-auto, #2f6bff));
       --tv-head-bg: var(--tauris-chrome, #f6f6f8);
       --tv-head-fg: var(--tauris-dim, #5c5c66);
@@ -137,6 +145,9 @@
     --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
+    --tv-tone-warn: #8a5a00;
+    --tv-tone-bad: #b3261e;
+    --tv-tone-ok: #1f7a45;
     --tv-focus: var(--tauris-accent-ink, var(--tv-ink-auto, #2f6bff));
     --tv-head-bg: var(--tauris-chrome, #f6f6f8);
     --tv-head-fg: var(--tauris-dim, #5c5c66);
@@ -240,6 +251,14 @@
   }
 
   .tv-row[aria-selected="true"]:hover { background: var(--tv-sel-inactive-hover-bg, var(--tv-sel-inactive-bg)); }
+
+  /* A cell's tone (node.tones), and where a drop would land (dropTarget). */
+  .tv-tone-warn { color: var(--tv-tone-warn); }
+  .tv-tone-bad { color: var(--tv-tone-bad); }
+  .tv-tone-ok { color: var(--tv-tone-ok); }
+  .tv-tone-dim { color: var(--tv-tone-dim, var(--tv-muted)); }
+  .tv-body:focus-within .tv-row[aria-selected="true"] :is(.tv-tone-warn, .tv-tone-bad, .tv-tone-ok, .tv-tone-dim) { color: inherit; }
+  .tv-row.tv-drop { box-shadow: inset 0 0 0 1px var(--tv-focus); }
 
   .tv-body:focus-within .tv-row[aria-selected="true"] {
     background: var(--tv-sel-bg);

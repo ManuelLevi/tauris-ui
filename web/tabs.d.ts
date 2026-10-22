@@ -52,6 +52,9 @@ declare global {
       | ((tab: TaurisTab<F> | null, items: Array<TaurisTabsMenuItem<F> | "-">) => Array<TaurisTabsMenuItem<F> | "-">);
     /** Asked before a tab closes, however it is closed; false keeps it open. */
     onBeforeClose?: ((tab: TaurisTab<F>, info: { reason: "tab" | "window" }) => boolean | Promise<boolean>) | null;
+    /** Each tab's Back and Forward: visit(place) records what a tab shows; back() and forward() step through
+     *  (50 places a tab), skipping those alive() says are gone, and restore() shows one. */
+    history?: { restore: (place: any, tab: TaurisTab<F> | null) => void; same?: (a: any, b: any) => boolean; alive?: (place: any) => boolean } | null;
     /** The id of the element that shows the active tab (sets aria-controls). */
     panelId?: string | null;
     tabClass?: ((tab: TaurisTab<F>) => string) | null;
@@ -72,6 +75,8 @@ declare global {
     /** The tabs or the active tab changed. */
     change: { tabs: TaurisTab<F>[]; active: number | null };
     activate: TaurisTab<F> | null;
+    /** Whether the active tab's Back and Forward can go now (the history option). */
+    history: { back: boolean; forward: boolean };
     update: TaurisTab<F>;
     /** A tab is closing (after onBeforeClose agreed). */
     close: TaurisTab<F>;
@@ -83,6 +88,13 @@ declare global {
     readonly tabs: TaurisTab<F>[];
     readonly active: number | null;
     activeTab(): TaurisTab<F> | null;
+    /** The active tab now shows `place` (the history option): the next Back comes here. */
+    visit(place: unknown): void;
+    /** Steps the active tab back or forward through its places: true when it went. */
+    back(): boolean;
+    forward(): boolean;
+    /** Whether Back and Forward can go now. */
+    canGo(): { back: boolean; forward: boolean };
     activate(id: number): void;
     /** Asks onBeforeClose (reason "tab"), then closes; resolves to true when the tab closed. */
     close(id: number): Promise<boolean>;

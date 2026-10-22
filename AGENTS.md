@@ -44,7 +44,7 @@ this file is in.
 
 Do all of these, every time:
 
-1. **Keep it general.** Nothing for one app goes in here: no app names, colours, views or fields. If one app needs something, add an option whose default changes nothing for the others.
+1. **Keep it general.** Nothing for one app goes in here: no app names, colours, views or fields. If one app needs something, add an option whose default changes nothing for the others. `docs/scope.md` says what belongs here and what stays in an app, as agreed with the apps.
 2. **Bump the version in `Cargo.toml`** (working for the maintainer; apps on this machine rely on it. A pull request from elsewhere adds to **Unreleased** instead, and the maintainer bumps at release):
    - patch (0.4.x) for fixes and for new options that change nothing by default
    - next series (0.x+1.0) when any app must change something

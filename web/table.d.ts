@@ -25,6 +25,8 @@ declare global {
     /** Copies this text; the icon is a tick for a moment. */
     copy?: (row: R) => string;
     danger?: boolean;
+    /** Off for this row: true, or why (its tooltip, and said when it is pressed): "A KPI keeps at least one value." */
+    disabled?: boolean | string | ((row: R) => boolean | string | null | undefined);
   }
 
   interface TaurisTableColumn<R extends TaurisTableRow = TaurisTableRow> {
@@ -46,6 +48,17 @@ declare global {
     /** The cell's tooltip: true for its whole text, or (row) => text. */
     title?: boolean | ((row: R) => string);
     className?: string;
+    /** The narrowest a drag makes it (default 40). */
+    minWidth?: number;
+    /** A shorter text ("€1.2M") shown when the whole one ("€1,234,567") does not fit. */
+    short?: (row: R) => string;
+    /** Edited in place (F2, or a click on the selected row's cell and a pause): onEdit hears the value. */
+    edit?: boolean;
+    /** A checkbox, always shown, ticked by `row[key]` (or `value(row)`); Space on the row ticks it too. */
+    check?: boolean;
+    /** Whether it may be ticked or unticked now: true, or why not (said instead of ticking). */
+    canToggle?: (row: R) => boolean | string;
+    onToggle?: (row: R, on: boolean, info: { how: "mouse" | "keyboard" }) => void;
     /** A column of the row's buttons. */
     actions?: TaurisTableAction<R>[];
   }
@@ -59,12 +72,19 @@ declare global {
     detail?: string;
     /** Shown when it has no rows (default labels.emptyGroup). */
     empty?: string;
+    /** With collapsible groups: false, it starts closed (after that the person opens and closes it). */
+    expanded?: boolean;
     [field: string]: unknown;
   }
 
   interface TaurisTableLabels {
     noneStarts: string | ((typed: string) => string);
     copied: string;
+    copiedRows: string | ((count: number) => string);
+    loading: string;
+    expand: string;
+    collapse: string;
+    resize: string | ((label: string) => string);
     copyFailed: string;
     emptyGroup: string;
     empty: string;
@@ -85,6 +105,20 @@ declare global {
     sort?: TaurisTableSort | null;
     /** false: no header sorts (default true). */
     sortable?: boolean;
+    /** false: no column's edge can be dragged (default true). */
+    resizable?: boolean;
+    /** Groups open and close: a +/- box, ← →, Enter or Space on a selected group (default false). */
+    collapsible?: boolean;
+    /** ⌘-click and Shift-click select several rows, ⌘A every row shown, ⇧↑ ⇧↓ extend (default false). */
+    multiple?: boolean;
+    /** ⌘C copies the selected rows as tab-separated text (a spreadsheet takes them). Default false. */
+    copy?: boolean;
+    /** A row's class names: overdue, locked, a drop target. */
+    rowClass?: (row: R) => string | null | undefined;
+    /** Said in place of the rows: "loading", or { error }. */
+    state?: null | "loading" | { error: string };
+    /** Keeps the columns' widths, the sort and the closed groups in the browser's storage under this key. */
+    storageKey?: string | null;
     selected?: string | number | null;
     /** The column whose text typing matches (default the first). */
     typeKey?: string | null;
@@ -95,17 +129,24 @@ declare global {
     labels?: Partial<TaurisTableLabels>;
     /** false: the page brings its own stylesheet. */
     styles?: boolean;
-    onSelect?: (row: R | null, info: { how: "mouse" | "keyboard" }) => void;
-    /** Enter or a double click; `cmd`: with ⌘ (Ctrl elsewhere), the app's other way to open (a new tab). */
+    /** rows: every selected row (several with `multiple`). */
+    onSelect?: (row: R | null, info: { how: "mouse" | "keyboard"; rows: R[] }) => void;
+    /** Enter or a double click; `cmd`: ⌘↩, or a ⌘-click without `multiple` (Ctrl elsewhere): the app's other way to open (a new tab). */
     onOpen?: (row: R, info: { how: "mouse" | "keyboard"; cmd: boolean }) => void;
     /** A right click or the menu key (⇧F10); null on the empty space. */
     onContextMenu?: (row: R | null, at: { x: number; y: number; how: "mouse" | "keyboard" }) => void;
     /** A header was clicked: the table is sorted by it. */
     onSort?: (sort: TaurisTableSort | null) => void;
-    /** Any key on the table, first: true when the app took it (Space, F2, Delete). */
-    onKey?: (event: KeyboardEvent, row: R | null) => boolean | void;
+    /** A cell edited in place: a throw, text or false refuses it (the field stays, the text said). */
+    onEdit?: (row: R, key: string, value: string) => unknown | Promise<unknown>;
+    /** A column's edge was dragged: every column's width (null: as given). Kept under storageKey too. */
+    onResize?: (info: { widths: (number | null)[] }) => void;
+    /** Any key on the table, first: true when the app took it (Delete on a row or a group). */
+    onKey?: (event: KeyboardEvent, row: R | null, group: TaurisTableGroup | null) => boolean | void;
+    /** A group opened or closed by the person. */
+    onGroupToggle?: (group: TaurisTableGroup, open: boolean, info: { how: "mouse" | "keyboard" }) => void;
     onGroupOpen?: (group: TaurisTableGroup, info: { how: "mouse"; cmd: boolean }) => void;
-    onGroupContextMenu?: (group: TaurisTableGroup, at: { x: number; y: number; how: "mouse" }) => void;
+    onGroupContextMenu?: (group: TaurisTableGroup, at: { x: number; y: number; how: "mouse" | "keyboard" }) => void;
     /** What the table has to say ("Nothing starts with “q”.", "Copied"): show it (a status bar). */
     onMessage?: (text: string, kind: "info" | "ok" | "error") => void;
   }
@@ -119,9 +160,21 @@ declare global {
     shown(): R[];
     /** Changes options: columns, rows, groups, sort, selected, labels, label, typeKey, the on… functions. */
     update(changes: Partial<TaurisTableOptions<R>>): void;
-    /** Selects a row (null: none) and brings it into view. */
-    select(id: string | number | null): void;
+    /** Selects a row (null: none) and brings it into view; an array selects several (multiple). */
+    select(id: string | number | null | (string | number)[]): void;
     selected(): R | null;
+    /** Every selected row, as they show. */
+    selection(): R[];
+    /** The selected group (collapsible groups), or null. */
+    selectedGroup(): TaurisTableGroup | null;
+    /** Opens, closes, asks of a group (onGroupToggle is not called). */
+    expand(groupId: string | number): void;
+    collapse(groupId: string | number): void;
+    isExpanded(groupId: string | number): boolean;
+    /** Edits a row's cell in place (its first column with edit: true, or that key's): false when it cannot. */
+    edit(rowId: string | number, key?: string): boolean;
+    /** The columns' widths dragged to (null: as given). */
+    widths(): (number | null)[];
     readonly sort: TaurisTableSort | null;
     /** A row just added: selected, in view, and flashed so the eye finds it. */
     flash(id: string | number): void;

@@ -115,6 +115,10 @@
       msg.textContent = t;
       msg.title = t;
       msg.className = `tst-msg${options.kind ? ` tst-${options.kind}` : ""}`;
+      // A new message comes in (--tst-msg-in-time; 0 for none).
+      msg.classList.remove("tst-msg-in");
+      void msg.offsetWidth;
+      if (t) msg.classList.add("tst-msg-in");
       const run = typeof options.undo === "function" ? options.undo : typeof options.action?.run === "function" ? options.action.run : null;
       action = run ? { run, label: String(typeof options.undo === "function" ? options.undoLabel ?? L().undo : options.action.label ?? "") } : null;
       act.hidden = !action;
@@ -150,16 +154,27 @@
 
     // ---------- the segments ----------
 
+    // A segment's element, kept while its id stays (a button with the keys keeps them).
+    const segNodes = new Map();
     function segmentFor(s) {
       const clickable = typeof s.onClick === "function";
-      const node = document.createElement(clickable ? "button" : "span");
+      const id = String(s.id);
+      const kept = segNodes.get(id);
+      const node = kept && kept.tagName === (clickable ? "BUTTON" : "SPAN") ? kept : document.createElement(clickable ? "button" : "span");
+      segNodes.set(id, node);
       node.className = "tst-seg";
+      node.replaceChildren();
+      for (const a of ["aria-pressed", "title"]) node.removeAttribute(a);
+      node.__tstSeg = s;
       if (clickable) {
         node.type = "button";
         node.classList.add("tst-button");
-        node.addEventListener("click", () => call(s.onClick, { how: "mouse" }), { signal });
+        if (!node.__tstClick) {
+          node.__tstClick = true;
+          node.addEventListener("click", () => call(node.__tstSeg?.onClick, { how: "mouse" }), { signal });
+        }
       }
-      node.dataset.id = String(s.id);
+      node.dataset.id = id;
       if (s.pressed != null) node.setAttribute("aria-pressed", String(Boolean(s.pressed)));
       if (s.strong) node.classList.add("tst-strong");
       if (s.title) node.title = String(s.title);
@@ -175,7 +190,12 @@
       return node;
     }
     function drawSegments() {
-      right.replaceChildren(...segments.map(segmentFor));
+      const nodes = segments.map(segmentFor);
+      const keep = new Set(segments.map(s => String(s.id)));
+      for (const id of [...segNodes.keys()]) if (!keep.has(id)) segNodes.delete(id);
+      // Put in order without taking out the ones that stay (the focus stays on them).
+      nodes.forEach((n, i) => { if (right.children[i] !== n) right.insertBefore(n, right.children[i] ?? null); });
+      while (right.children.length > nodes.length) right.lastElementChild.remove();
     }
 
     root.addEventListener("contextmenu", e => {

@@ -287,6 +287,8 @@ Tab ids are given fresh at every launch. To find a tab again after a restart, ke
 
 ## The page: `TaurisTabs.mount(strip, options)`
 
+**Back and Forward for each tab:** give `history: { restore: (place, tab) => show(place), alive?: place => exists(place), same?: (a, b) => ... }` and call `tabs.visit(place)` each time a tab shows something. `tabs.back()` and `tabs.forward()` step through that tab's places (50 at most), skipping gone ones. `tabs.canGo()` and the `history` event say what can go: `tabs.on("history", can => toolbar.setHistory(can))`.
+
 | Option | Default | What it does |
 |---|---|---|
 | `renderTab` | title and × | `(tab, { active }) => Node \| string \| Node[]`: what a tab shows. Add `data-tt-close` to an element to make it close the tab. Buttons, links and `data-tt-action` elements get their own clicks. |
@@ -485,6 +487,8 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 | `multiple` | `false` | ⌘-click (Ctrl-click) and Shift-click select several rows; ⌘A selects every row shown |
 | `header` | `true` | The column headers (`false`: none, for a tree in a sidebar) |
 | `fit` | `false` | The first column takes the room the others leave, so the tree fits its width and never scrolls sideways |
+
+A node's `tones: { count: "warn" }` colours one cell (warn, bad, ok, dim). `tree.dropTarget(id)` rings the row a drop would land on (it stays as rows scroll), and `tree.nodeAt(x, y)` finds the row at a point (a drop from Finder).
 | `styles` | `true` | Add the stylesheet |
 
 **Keyboard** (as in Windows and Qt):
@@ -499,7 +503,7 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 - While editing: Tab and Shift+Tab save and go to the row's next or previous editable value (a checkbox takes the focus, and Space flips it); past the last one, back to the row. Enter saves, and Escape cancels.
 - Typing a letter jumps to the next row starting with it.
 
-**Events:** `select` (`{ node, nodes, how }`: the row with the focus, every selected row, and `how`: `"mouse"`, `"keyboard"`, or `"api"` when the app selected), `contextmenu` (`{ node, x, y, how }`: a right click on a row, or the menu key or ⇧F10; open your menu there with `TaurisMenu.open(items, { x, y })`), `toggle`, `change` (`{ node, column, value }`, already written into `node.values`), `activate`, `sort` (`{ key, up }`, or `null`), and `resize` (`{ column, index, width, widths }`: a column the person made wider or narrower).
+**Events:** `select` (`{ node, nodes, how }`: the row with the focus, every selected row, and `how`: `"mouse"`, `"keyboard"`, or `"api"` when the app selected), `contextmenu` (`{ node, x, y, how }`: a right click on a row, or the menu key or ⇧F10; open your menu there with `TaurisMenu.open(items, { x, y })`), `activate` (`{ node, cmd }`: Enter or a double click; `cmd` for ⌘↩, or a ⌘-click without `multiple`), `toggle`, `change` (`{ node, column, value }`, already written into `node.values`), `activate`, `sort` (`{ key, up }`, or `null`), and `resize` (`{ column, index, width, widths }`: a column the person made wider or narrower).
 
 **Methods:**
 - `setData(nodes)`
@@ -807,6 +811,12 @@ const values = await TaurisDialog.form({
 - **Passwords:** `{ type: "password", reveal: true, generate: true }` adds Show (to read it) and Generate (20 characters from the system's randomness, shown and selected; a number for another length).
 - **Pictures in a review:** a row `{ field: "Photo", beforeImage, afterImage }` shows the old and new pictures. About's values and description can be selected and copied.
 - **In a window of its own:** `window: true` on a form, a review or a sheet opens it in a native window attached to this one, sized to the dialog and following it as a refusal or a review shows; this window is out of reach meanwhile, and a click on it brings the dialog forward. That window loads the app's page, so the page starts with `if (TaurisDialog.inWindow) { /* defineField(...) only */ } else { /* the app */ }`; the dialog draws itself. The app's `validate`, `review` and `submit` run here, in the window that asked, and the values cross as JSON (an app's field gives JSON). `left` stays in the page. The capability must cover `"tauris-dialog-*"` too (the checker says so); where no window can open (no plugin), the dialog shows in the page.
+- **More in a form:**
+  - `{ type: "row", label, fields: [...] }` puts several inputs on one line;
+  - `refusal` and `okDisabled` open it refused;
+  - `{ field, part, text }` points a refusal at a part of an app field;
+  - a `TaurisDialog.confirm` asked while a form in its own window saves shows in that window.
+- **`TaurisDialog.close()`** closes whatever dialog is open (a session that ends).
 - **Titled panels:** `TaurisDialog.panel(element, { title, count, actions: [{ label, action }] })` frames a part of a page in a box with its title, a dim count and its buttons on its top line (Swing's TitledBorder); `update()` and `destroy()`. Set `--tdl-panel-bg` to what is behind the box.
 
 Types are in `web/dialog.d.ts`. **The look:** `--tdl-*` variables at the top of `web/dialog.css`.
@@ -867,6 +877,18 @@ table.flash(added.id);                            // a row just added: selected,
 - **Sorting:** a click on a header sorts by it (▲), again the other way (▼), within each group; numbers as numbers, text in natural order ("Report 2" before "Report 10"), no value last, ties in the app's order. `sort: null` (and `update({ sort: null })`) is the app's order; `onSort` hears each click.
 - **Groups:** rows with a `group` go under its row (a colour square, its name, `detail` or its count), in `groups`' order; a group with no rows says `empty`. A double click and a right click on a group's row call `onGroupOpen` and `onGroupContextMenu`.
 - **Keys** (on the table, one stop for Tab): ↑ ↓, Home End and ⌘↑ ⌘↓, Page Up and Down; Enter opens; the menu key or ⇧F10 the row's menu; a letter, or a whole name typed quickly, jumps to the row whose name starts with it. `onKey` sees every key first. The selection is the accent while the table has the keys, grey when they are elsewhere.
+- **Editing in place:** `edit: true` on a column and `onEdit(row, key, value)`. F2, or a click on the selected row's cell and a pause, opens a field; Enter saves, Esc cancels, leaving saves. A throw, text or `false` from `onEdit` refuses it: the field stays, with what was typed.
+- **A checkbox column:** `{ key: "done", check: true, canToggle: row => true or "why not", onToggle: (row, on) => ... }`. Space on the row ticks it too.
+- **More:**
+  - `collapsible: true` groups open and close (a +/- box, ← → on a selected group);
+  - `rowClass(row)` gives a row its classes;
+  - an action's `disabled: row => "why"` turns it off with a reason;
+  - `short(row)` gives a column's narrow text ("€1.2M");
+  - column edges can be dragged, and `storageKey` keeps widths, sort and closed groups;
+  - `state: "loading"` or `{ error }` shows in place of the rows;
+  - `multiple: true` selects several rows (`selection()`);
+  - `copy: true` makes ⌘C copy the selected rows as text;
+  - a ⌘-click opens with `cmd`.
 - **Drag to reorder:** `TaurisReorder.attach(table.scroller, { rows: ".ttb-row", ... })`; turn it off while sorted (`onSort: s => reorder.update({ enabled: !s })`).
 - **Methods:** `setRows`, `rows()`, `shown()`, `update(changes)`, `select(id)`, `selected()`, `sort`, `flash(id)`, `focus()`, `scroller`, `destroy()`. For a few thousand rows; the files table draws only the rows in view, for more.
 

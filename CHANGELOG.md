@@ -8,6 +8,36 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.38 — 2026-10-22
+
+- Tabs: each tab's Back/Forward. The `history` option (`restore`, `same`, `alive`), with `visit(place)`, `back()`, `forward()`, `canGo()` and a `history` event for the toolbar. The full example uses it.
+- Tree:
+  - `node.tones` colours a cell (warn, bad, ok, dim);
+  - `dropTarget(id)` rings the row a drop would land on, and `nodeAt(x, y)` finds a row from a point;
+  - ⌘↩, and ⌘-click without `multiple`, give `activate` with `cmd: true`.
+- Table:
+  - editing in place (`edit: true` on a column, `onEdit`; F2, or a click on the selected row and a pause);
+  - a checkbox column (`check`, `canToggle`, `onToggle`; Space ticks);
+  - groups that open and close (`collapsible`, a +/- box, ← →);
+  - `rowClass`;
+  - row buttons off with a reason (`disabled`);
+  - `short` text when a column is narrow;
+  - column edges to drag;
+  - `storageKey` keeps widths, sort and closed groups;
+  - `state` for loading and errors;
+  - `multiple`;
+  - `copy` (⌘C as text);
+  - ⌘-click opens with `cmd`.
+- Dialogs:
+  - `TaurisDialog.close()`;
+  - a form can open refused (`refusal`, `okDisabled`);
+  - `{ type: "row", fields }` puts inputs on one line;
+  - a refusal can point at a part of an app field (`{ field, part, text }`);
+  - a question asked while a form in its own window saves shows in that window.
+- Status bar: segments keep their place, so the keys stay on them. New messages fade in (`--tst-msg-in-time`).
+- New look variables: easing beside each motion time (`--tt-*-ease`, `--tmn-*-ease`); colours inside a selected row (`--tgl-sel-c`, `--tgl-sel-ring`, `--ttb-sel-dim`, and `--ttb-row-dim` for an app's own dim text).
+- `docs/scope.md`: what goes in the library and what stays in an app.
+
 ## 0.4.37 — 2026-10-22
 
 - The checker says when sidebar items still have `children`: since 0.4.35 they don't show, and the page only said so in its console.

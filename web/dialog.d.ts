@@ -65,6 +65,8 @@ declare global {
     focus?(): void;
     /** The dialog closed. */
     destroy?(): void;
+    /** A refusal about one of its parts (`{ field, part, text }`): show it there. */
+    refuse?(part: string | number, text: string): void;
   }
 
   /** Draws the app's own field in `cell` (a picker, a photo, live text). */
@@ -74,7 +76,7 @@ declare global {
     name: string;
     /** Shown as "Label:" to its left (a checkbox: its text on its right). */
     label?: string;
-    /** The form's own types, or one the app defined with TaurisDialog.defineField. */
+    /** The form's own types, one the app defined with TaurisDialog.defineField, or "row": `fields` side by side on one line, under one `label`. */
     type?: "text" | "password" | "number" | "email" | "url" | "tel" | "date" | "time" | "textarea" | "select" | "checkbox" | (string & {});
     value?: string | number | boolean | null;
     /** An example, dimmer than typed text ("Northwind Launch"). */
@@ -99,12 +101,15 @@ declare global {
     generate?: boolean | number | (() => string);
     /** This field only: the app draws it (in the page only; in a window, define the type). */
     render?: TaurisDialogFieldRender;
+    /** A "row"'s inputs, side by side (each may have a short label of its own). */
+    fields?: TaurisDialogField[];
     /** Anything else the app's own field reads (ids, choices). */
     [extra: string]: unknown;
   }
 
-  /** A refusal: about a field (a balloon under it), or about the whole form (the kept line). */
-  type TaurisDialogRefusal = string | { field?: string; text: string };
+  /** A refusal: about a field (a balloon under it), or about the whole form (the kept line);
+   *  `part`: a part of the app's own field (its handle's refuse(part, text) and focus(part)). */
+  type TaurisDialogRefusal = string | { field?: string; part?: string | number; text: string };
 
   interface TaurisDialogFormOptions<V = Record<string, unknown>> {
     title: string;
@@ -129,8 +134,13 @@ declare global {
     /** Fills the left of the button row (a "Delete" of the app's); in the page only. */
     left?: (element: HTMLElement) => void;
     labels?: Partial<TaurisDialogLabels>;
-    /** In a native window of its own, attached to this one (in the page where none can open). Its checks and save run here. */
+    /** In a native window of its own, attached to this one (in the page where none can open). Its checks and save run here;
+     *  a TaurisDialog.confirm during them is asked in that window. */
     window?: boolean;
+    /** Opens refused: this refusal shows at once (New Task at the limit). */
+    refusal?: TaurisDialogRefusal;
+    /** Its ok button off for as long as it is open. */
+    okDisabled?: boolean;
   }
 
   interface TaurisDialogShortcut {
@@ -174,6 +184,8 @@ declare global {
       readonly inWindow: boolean;
       /** A titled border box around an element of the page (Swing's TitledBorder). */
       panel(element: HTMLElement, options: TaurisDialogPanelOptions): TaurisDialogPanel;
+      /** Closes whatever dialog is open (a session that ends); each ends as cancelled. */
+      close(): void;
       /** Whether a dialog is open. */
       readonly isOpen: boolean;
     };

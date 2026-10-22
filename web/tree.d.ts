@@ -26,6 +26,8 @@ declare global {
     readOnly?: boolean;
     /** Open when the node first comes (in mount or setData); after that the person opens and closes it. */
     expanded?: boolean;
+    /** A cell's text in a tone, by column key ("label" for the first column without a key): "1 behind" in amber. */
+    tones?: Record<string, "warn" | "bad" | "ok" | "dim">;
   }
 
   interface TaurisTreeColumn<V extends object = Record<string, unknown>> {
@@ -89,8 +91,8 @@ declare global {
     toggle: { node: TaurisTreeNode<V>; expanded: boolean };
     /** An edited value, already written into node.values. */
     change: { node: TaurisTreeNode<V>; column: keyof V & string; value: unknown };
-    /** Enter or double-click on a row. */
-    activate: { node: TaurisTreeNode<V> };
+    /** Enter or double-click on a row; `cmd`: ⌘↩, or a ⌘-click with `multiple` off (the app's other way to open: a new tab). */
+    activate: { node: TaurisTreeNode<V>; cmd: boolean };
     /** A right click on a row, or the menu key (⇧F10) on the row with the focus: where to open the app's menu
      *  (TaurisMenu.open(items, { x, y })). With a listener, the browser's own menu stays shut. */
     contextmenu: { node: TaurisTreeNode<V>; x: number; y: number; how: "mouse" | "keyboard" };
@@ -117,6 +119,10 @@ declare global {
     /** Selects every row shown (with `multiple`). */
     selectAll(): void;
     get(id: string | number): TaurisTreeNode<V> | null;
+    /** Rings the row a drop would land on (null: none); it stays as rows scroll. */
+    dropTarget(id: string | number | null): void;
+    /** The node of the row at a point of the window (a drop from outside the page), or null. */
+    nodeAt(x: number, y: number): TaurisTreeNode<V> | null;
     isExpanded(id: string | number): boolean;
     /** Opens a cell's editor (the first editable column by default; a true/false value's box takes the focus); false if it cannot. */
     edit(id: string | number, column?: keyof V & string): boolean;
