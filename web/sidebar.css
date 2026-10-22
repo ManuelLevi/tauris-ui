@@ -7,7 +7,9 @@
  * system's light or dark mode.
  *
  * The parts (sidebar.js draws them all, inside the element marked .tsb):
- *   .tsb-head         the top: .tsb-title (the title option) and .tsb-toggle
+ *   .tsb-head         the top: .tsb-brand, holding .tsb-image (the image option;
+ *                     .tsb-image-round, .tsb-image-letter when it failed to load)
+ *                     and .tsb-title (the title option); then .tsb-toggle
  *   .tsb-nav          the items: .tsb-list > .tsb-entry > .tsb-item, a group's
  *                     items in a .tsb-sub list inside its entry; .tsb-heading
  *                     between sections
@@ -34,6 +36,8 @@
     --tsb-item-pad: 8px;
     --tsb-indent: 14px;              /* per level of a group */
     --tsb-icon: 16px;
+    --tsb-image: 22px;               /* the image before the title (a logo, an avatar) */
+    --tsb-image-radius: 5px;         /* its corners, imageShape "square" */
     --tsb-radius: 6px;
     --tsb-grip-w: 6px;               /* the edge to drag */
     --tsb-speed: 0.16s;              /* collapsing and opening (none with reduced motion) */
@@ -136,6 +140,39 @@
   }
   .tsb.tsb-right .tsb-head { flex-direction: row-reverse; }
   .tsb[data-tsb-state="rail"] .tsb-head { justify-content: center; padding-inline: 0; }
+
+  .tsb-brand {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tsb-brand[hidden], .tsb-image[hidden] { display: none; }
+  /* In the rail, the image alone, above the button (no image: the button alone). */
+  .tsb[data-tsb-state="rail"] .tsb-brand { flex: none; }
+  .tsb[data-tsb-state="rail"]:not(.tsb-has-image) .tsb-brand { display: none; }
+  .tsb[data-tsb-state="rail"].tsb-has-image .tsb-head { flex-direction: column; gap: 6px; padding-top: 8px; }
+
+  .tsb-image {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: var(--tsb-image);
+    height: var(--tsb-image);
+    overflow: hidden;
+    border-radius: var(--tsb-image-radius);
+    color: var(--tsb-fg);
+  }
+  .tsb-image > img, .tsb-image > svg { display: block; width: 100%; height: 100%; }
+  .tsb-image > img { object-fit: contain; }
+  .tsb-image.tsb-image-round { border-radius: 50%; }
+  .tsb-image.tsb-image-round > img { object-fit: cover; }
+  .tsb-image.tsb-image-letter {
+    font-size: calc(var(--tsb-image) / 2);
+    font-weight: 600;
+    background: var(--tsb-hover);
+  }
 
   .tsb-title {
     flex: 1;

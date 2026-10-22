@@ -4,6 +4,7 @@
 // first time a page uses it. Elsewhere (the demo page) load web/sidebar.css.
 //
 //   const side = TaurisSidebar.mount(document.getElementById("side"), {
+//     image: "logo.svg", title: "Mail",   // a logo, an avatar: beside the title
 //     items: [
 //       { id: "inbox", label: "Inbox", icon: "📥", count: 3 },
 //       { heading: "Projects" },
@@ -29,7 +30,7 @@
 // to the narrowest and widest, Enter collapses or opens.
 //
 // Nothing here is a <button>, so an app's plain `button { ... }` rule cannot
-// restyle it. Labels are set as text; an icon starting with "<" is markup.
+// restyle it. Labels are set as text; an icon or image starting with "<" is markup.
 
 (() => {
   "use strict";
@@ -84,6 +85,13 @@
     maxWidth: 420,
     // a heading at its top, beside the button (none by default)
     title: "",
+    // a picture before the title (a product's or company's logo, a person's avatar):
+    // an image's address, or markup starting with "<" (an svg). In the rail it
+    // alone shows, above the button. None by default.
+    image: null,
+    // "square": slightly rounded, the whole picture shown (a logo);
+    // "round": a circle the picture fills (an avatar)
+    imageShape: "square",
     // an element of the app's to show below the items (a tree view, a search):
     // it fills the rest of the height and scrolls; it shows only while the
     // sidebar is open. Also reached as `body` on what mount returns.
@@ -196,7 +204,9 @@
     const toggleBtn = el("div", "tsb-toggle", { role: "button", tabindex: "0", "aria-controls": `${id}-nav` });
     toggleBtn.innerHTML = SIDEBAR_SVG;
     const title = el("div", "tsb-title", { id: `${id}-title` });
-    const head = el("div", "tsb-head", {}, title, toggleBtn);
+    const image = el("span", "tsb-image", { "aria-hidden": "true" });
+    const brand = el("div", "tsb-brand", {}, image, title);
+    const head = el("div", "tsb-head", {}, brand, toggleBtn);
     const list = el("div", "tsb-list", { role: "list" });
     const nav = el("nav", "tsb-nav", { id: `${id}-nav` }, list);
     const body = el("div", "tsb-body");
@@ -205,6 +215,49 @@
     root.replaceChildren(head, nav, body, grip);
 
     // ---------- drawing ----------
+
+    // The image, drawn again only when it changes (not at every draw, which
+    // would load it again). One that fails to load leaves the title's first letter.
+    let shownImage = "";
+    let imageFailed = false;
+    function drawImage(src) {
+      shownImage = src;
+      imageFailed = false;
+      image.replaceChildren();
+      if (!src) return;
+      if (src.startsWith("<")) {
+        image.innerHTML = src;
+        return;
+      }
+      const img = el("img", null, { src, alt: "", draggable: "false" });
+      img.addEventListener("error", () => {
+        if (shownImage !== src || signal.aborted) return;
+        imageFailed = true;
+        img.remove();
+        drawHead();
+      }, { once: true, signal });
+      image.append(img);
+    }
+
+    function drawHead() {
+      const words = L();
+      const name = String(opt.title ?? "");
+      const src = opt.image == null ? "" : String(opt.image).trim();
+      if (src !== shownImage) drawImage(src);
+      title.textContent = name;
+      title.hidden = !name;
+      const letter = imageFailed ? name.trim().charAt(0).toUpperCase() : "";
+      image.classList.toggle("tsb-image-letter", imageFailed);
+      if (imageFailed) image.textContent = letter;
+      image.classList.toggle("tsb-image-round", opt.imageShape === "round");
+      image.hidden = !src || (imageFailed && !letter);
+      brand.hidden = image.hidden && title.hidden;
+      // In the rail the title shows as the image's tooltip.
+      brand.title = rail() && !image.hidden ? name : "";
+      if (!brand.title) brand.removeAttribute("title");
+      root.classList.toggle("tsb-has-image", !image.hidden);
+      nav.setAttribute("aria-label", String(name || words.label));
+    }
 
     // Every item with its place: depth, parent, and whether it shows (its groups are open).
     let flat = [];
@@ -245,9 +298,7 @@
       root.classList.toggle("tsb-groups", flat.some(r => r.group));
       root.dataset.tsbState = hidden() ? "hidden" : rail() ? "rail" : "open";
       root.style.setProperty("--tsb-w", `${width}px`);
-      title.textContent = String(opt.title ?? "");
-      title.hidden = !title.textContent;
-      nav.setAttribute("aria-label", String(opt.title || words.label));
+      drawHead();
       const hint = opt.shortcut ? ` (${SHORTCUT})` : "";
       const toggleName = String(collapsed ? words.show : words.hide);
       toggleBtn.setAttribute("aria-label", toggleName);
@@ -607,7 +658,7 @@
       get width() { return width; },
       /** Sets its width when open (kept between the narrowest and widest). */
       setWidth(w) { setWidth(Number(w), false); },
-      /** Changes options: items, selected, title, labels, the on… functions, collapse, side, widths. */
+      /** Changes options: items, selected, title, image, imageShape, labels, the on… functions, collapse, side, widths. */
       update(changes = {}) {
         changes = given(changes);
         Object.assign(opt, changes);
@@ -626,7 +677,7 @@
         if (signal.aborted) return;
         life.abort();
         root.replaceChildren();
-        if (addedClass) root.classList.remove("tsb", "tsb-right", "tsb-resizing", "tsb-groups", "tsb-has-body", "tsb-has-items");
+        if (addedClass) root.classList.remove("tsb", "tsb-right", "tsb-resizing", "tsb-groups", "tsb-has-body", "tsb-has-items", "tsb-has-image");
         root.style.removeProperty("--tsb-w");
         delete root.dataset.tsbState;
         delete root.__taurisSidebar;

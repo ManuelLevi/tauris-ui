@@ -106,6 +106,48 @@ with sync_playwright() as p:
     check("a disabled item is not chosen", said(page) == [])
     page.close()
 
+    # ---------- its image: a logo, an avatar ----------
+    page = fresh(browser)
+    LOGO = "<svg viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='#2675bf'/></svg>"
+    AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' fill='%23d9822b'/%3E%3C/svg%3E"
+    page.evaluate("side.update({ title: 'Manuel Levi', image: %s, imageShape: 'round' }); 0" % json.dumps(AVATAR))
+    page.wait_for_function("document.querySelector('#side .tsb-image img')?.complete")
+    look = page.evaluate("""(() => { const q = s => document.querySelector('#side ' + s), box = s => q(s).getBoundingClientRect(),
+      i = box('.tsb-image'), t = box('.tsb-title');
+      return [q('.tsb-image img').getAttribute('src').startsWith('data:'), Math.round(i.width), Math.round(i.height), i.right <= t.left,
+              Math.abs((i.top + i.bottom) / 2 - (t.top + t.bottom) / 2) <= 1, getComputedStyle(q('.tsb-image')).borderRadius,
+              q('.tsb-image').getAttribute('aria-hidden'), q('.tsb-image img').alt, q('.tsb-nav').getAttribute('aria-label')]; })()""")
+    check("image: a picture before the title, 22px, level with the title; round, a circle; hidden from screen readers (the title names the list)",
+          look == [True, 22, 22, True, True, "50%", "true", "", "Manuel Levi"], look)
+    img = page.evaluate_handle("document.querySelector('#side .tsb-image img')")
+    page.evaluate("side.setItems(ITEMS.slice(0, 2)); side.update({ title: 'Manuel' }); 0")
+    check("drawn again (new items, a new title), the same picture stays: not loaded again",
+          page.evaluate("i => i === document.querySelector('#side .tsb-image img')", img))
+    page.evaluate("side.update({ image: %s, imageShape: 'square' }); 0" % json.dumps(LOGO))
+    check("markup starting with '<' is drawn as it is (a logo's svg), with slightly rounded corners",
+          page.locator("#side .tsb-image svg").count() == 1 and page.locator("#side .tsb-image img").count() == 0
+          and css(page, "#side .tsb-image", "border-radius") == "5px")
+    if SHOTS:
+        page.screenshot(path=str(SHOTS / "sidebar_image.png"))
+    page.evaluate("side.toggle(true); 0")
+    page.wait_for_timeout(300)
+    rail = page.evaluate("""(() => { const q = s => document.querySelector('#side ' + s), box = s => q(s).getBoundingClientRect(),
+      i = box('.tsb-image'), b = box('.tsb-toggle'), s = box('');
+      return [q('.tsb-title').checkVisibility(), Math.round((i.left + i.right) / 2 - (s.left + s.right) / 2), i.bottom <= b.top, q('.tsb-brand').title]; })()""".replace("box('')", "document.getElementById('side').getBoundingClientRect()"))
+    check("in the rail the image alone shows, centred above the button, the title as its tooltip", rail == [False, 0, True, "Manuel"], rail)
+    page.evaluate("side.toggle(false); side.update({ image: 'no-such-picture.png', imageShape: 'round' }); 0")
+    page.wait_for_function("document.querySelector('#side .tsb-image').textContent === 'M'")
+    check("an image that fails to load leaves the title's first letter", page.locator("#side .tsb-image img").count() == 0
+          and page.evaluate("document.querySelector('#side .tsb-image').checkVisibility()"))
+    page.evaluate("side.update({ image: null }); 0")
+    check("image: null takes it away; the head is as before", page.is_hidden("#side .tsb-image") and page.text_content("#side .tsb-title") == "Manuel"
+          and not page.evaluate("document.getElementById('side').classList.contains('tsb-has-image')"))
+    page.evaluate("side.update({ title: '', image: %s }); side.toggle(true); 0" % json.dumps(LOGO))
+    page.wait_for_timeout(300)
+    check("an image with no title: it shows alone, open and in the rail; the list keeps its own name",
+          page.is_visible("#side .tsb-image svg") and page.get_attribute("#side .tsb-nav", "aria-label") == "Sidebar")
+    page.close()
+
     # ---------- the keys ----------
     page = fresh(browser)
     page.focus("#field")

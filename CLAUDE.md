@@ -35,7 +35,7 @@ Sidebar contains the treeview:
 
 User can right click any file and click "Open" "Open in new tab" "Edit" "Delete" etc. (edit and delete do nothing)
 
-- Sidebar: `TaurisSidebar.mount`, with `storageKey` so its width and collapsed state are kept; ⌃⌘S (Ctrl+Shift+B), its button or View › Hide Sidebar collapses it to a rail.
+- Sidebar: `TaurisSidebar.mount`, its head the product's logo (`image`, `ui/logo.svg`) and name (`title`, "All Components"), with `storageKey` so its width and collapsed state are kept; ⌃⌘S (Ctrl+Shift+B), its button or View › Hide Sidebar collapses it to a rail.
 - Tree: `TaurisTree.mount` with two columns, Name and Size (aligned); teams and projects are groups, files are leaves. Its element is the sidebar's `content`.
 - The tree leaves the right click to the app: the app listens for `contextmenu` on a file and calls `TaurisMenu.open` with Open, Open in new tab, Edit, Delete (a separator before Delete, which is `danger`).
 - A click on a project shows its files in the Files table (in the current tab); Enter or a double click on a file opens it.

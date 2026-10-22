@@ -8,6 +8,10 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.30 — 2026-10-22
+
+- Sidebar: `image` puts a picture before its `title`: a product's or company's logo, a person's avatar. An image's address or markup starting with `<` (an svg); `imageShape: "round"` makes it a circle the picture fills (an avatar), `"square"` (default) shows the whole picture with slightly rounded corners. In the rail it alone shows, above the button, the title as its tooltip; one that fails to load leaves the title's first letter. Its size is `--tsb-image` (22px). The full example (`examples/all`) shows its logo and name there.
+
 ## 0.4.29 — 2026-10-26
 
 What MLPC's finder had that TaurisFinder missed:

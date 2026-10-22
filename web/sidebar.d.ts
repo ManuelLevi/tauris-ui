@@ -52,6 +52,15 @@ declare global {
     maxWidth?: number;
     /** A heading at its top, beside the button; also the list's name. */
     title?: string;
+    /**
+     * A picture before the title: a product's or company's logo, a person's avatar. An image's
+     * address (it obeys the page's img-src policy) or markup starting with "<" (an svg). In the rail
+     * it alone shows, above the button, the title as its tooltip. One that fails to load leaves the
+     * title's first letter.
+     */
+    image?: string | null;
+    /** "square" (default): corners slightly rounded, the whole picture shown (a logo). "round": a circle the picture fills (an avatar). */
+    imageShape?: "square" | "round";
     /** An element of the app's shown below the items (a tree view): it fills the rest of the height and scrolls, while the sidebar is open. */
     content?: HTMLElement | null;
     /** ⌃⌘S on a Mac, Ctrl+Shift+B elsewhere, collapses and opens it (default true). */
@@ -91,7 +100,7 @@ declare global {
     /** Its width when open, in pixels. */
     readonly width: number;
     setWidth(width: number): void;
-    /** Changes options: items, selected, title, labels, the on… functions, collapse, side, widths. */
+    /** Changes options: items, selected, title, image, imageShape, labels, the on… functions, collapse, side, widths. */
     update(changes: Partial<TaurisSidebarOptions>): void;
     /** Puts the keyboard focus on the item Tab reaches. */
     focus(): void;

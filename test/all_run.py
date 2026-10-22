@@ -97,6 +97,9 @@ with sync_playwright() as p:
           tree_names(page) == ["Team A", "Project A", "Hello.md", "Sup.txt", "Team B", "Megalomania", "readme.md", "Team C", "Vacation Mexico", "places to visit.md"]
           and page.evaluate("document.querySelector('#side').contains(document.querySelector('.tv-row'))")
           and page.locator(".tv-row:has-text('Hello.md')").text_content().endswith("45kb"), tree_names(page))
+    page.wait_for_function("document.querySelector('#side .tsb-image img')?.naturalWidth > 0")
+    check("the sidebar's head is the product: its logo and its name",
+          page.get_attribute("#side .tsb-image img", "src") == "logo.svg" and page.inner_text("#side .tsb-title") == "All Components")
     check("the tab shows Project A: its files in the table, its project selected in the tree",
           active_title(page) == "Project A" and texts(page, ".tf-file .tf-name") == ["Hello.md", "Sup.txt"]
           and page.locator(".tv-row[aria-selected='true']").text_content().startswith("Project A"),

@@ -49,10 +49,13 @@ function open(node, { newTab = false } = {}) {
 
 // ---------- the sidebar, with the tree in it ----------
 
-// The sidebar's content is the tree's element: it fills what is left under the head.
+// The sidebar's head is the product: its logo and name. Its content is the
+// tree's element: it fills what is left under the head.
 const treeHost = document.createElement("div");
 treeHost.id = "tree";
-const side = TaurisSidebar.mount($("side"), { title: "Projects", width: 280, storageKey: "all-components-sidebar", content: treeHost });
+const side = TaurisSidebar.mount($("side"), {
+  title: "All Components", image: "logo.svg", width: 280, storageKey: "all-components-sidebar", content: treeHost,
+});
 
 function treeData() {
   const open = id => (tree ? tree.isExpanded(id) : true);

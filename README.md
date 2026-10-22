@@ -9,7 +9,7 @@ UI components for Tauri 2 desktop apps. One library for every app.
 | [Files](#files) | `TaurisFiles.mount(element, { files, onAdd })` | A place's shared files: a dense, sortable table with drag and drop, search, in-place renaming and the system's pickers |
 | [Menus](#menus) | `TaurisMenu.bar(nav, { menus })` | An in-window menu bar, toolbar buttons with a ▾ menu, and right-click menus, with a desktop app's keyboard |
 | [Finder](#finder) | `TaurisFinder.mount({ items, onPick })` | Find anything with ⌘K: a panel at the top of the window, as Spotlight or Xcode's Open Quickly, finding as you type |
-| [Sidebar](#sidebar) | `TaurisSidebar.mount(element, { items })` | A collapsible side bar of sections, as in Mail or Finder: icons, counts, groups, a rail of icons when collapsed, an edge to resize |
+| [Sidebar](#sidebar) | `TaurisSidebar.mount(element, { items })` | A collapsible side bar of sections, as in Mail or Finder: a logo or avatar with its title, icons, counts, groups, a rail of icons when collapsed, an edge to resize |
 | [Terminal](#terminal) | `TaurisTerminal.mount(element)` | An optional Bloomberg-style look: amber on black, monospace, dense tables, function keys, a command line and a message log |
 
 The plugin delivers every component's script and stylesheet to every page (or the ones `Config::components` names). A component's stylesheet is added only when a page mounts it, so a component you don't use changes nothing.
@@ -720,6 +720,7 @@ main { flex: 1; min-width: 0; }
 ```js
 const side = TaurisSidebar.mount(document.getElementById("side"), {
   title: "Mail",
+  image: "logo.svg",                  // a logo or an avatar before the title (optional)
   items: [
     { id: "inbox", label: "Inbox", icon: "📥", count: 12 },
     { id: "sent", label: "Sent", icon: "<svg viewBox='0 0 16 16'>…</svg>" },
@@ -744,6 +745,8 @@ Put it in a row with a height (`display: flex`): it sets its own width, and the 
 |---|---|---|
 | `items`, `selected` | `[]`, `null` | |
 | `title` | none | A heading at its top; also the list's name for screen readers |
+| `image` | none | A picture before the title: a product's or company's logo, a person's avatar. An image's address (it obeys the page's `img-src` policy: a `data:` URL needs `img-src 'self' data:`) or markup starting with `<` (an svg). In the rail it alone shows, above the button, the title as its tooltip; one that fails to load leaves the title's first letter |
+| `imageShape` | `"square"` | `"square"`: corners slightly rounded, the whole picture shown (a logo). `"round"`: a circle the picture fills (an avatar). Its size is `--tsb-image` (22px) |
 | `collapsed`, `collapse` | `false`, `"rail"` | `storageKey`, when it has a value kept, says instead of `collapsed` |
 | `side` | `"left"` | `"right"`: the edge to drag is on its left |
 | `width`, `minWidth`, `maxWidth` | 220, 160, 420 | |
