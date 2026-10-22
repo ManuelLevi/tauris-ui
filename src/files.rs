@@ -374,6 +374,8 @@ fn runs_something(path: &Path) -> bool {
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let name =
         target.file_name().map(|n| n.to_string_lossy().trim_end_matches(['.', ' ']).to_string()).unwrap_or_default();
+    // Read where something below looks at it (not on Windows, outside the tests).
+    #[cfg(any(unix, test))]
     let head = head_bytes(&target);
     #[cfg(unix)]
     {

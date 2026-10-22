@@ -73,6 +73,7 @@ Do all of these, every time:
    python test/doctor_run.py                 # the checker itself, on small apps set up right and wrong
    (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
    rm -f Cargo.lock && export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback && cargo +1.90 build && cargo +1.90 build --features files   # the oldest Rust it builds with, as CI
+   rustup target add x86_64-pc-windows-msvc && cargo clippy --all-targets --features files --target x86_64-pc-windows-msvc -- -D warnings   # Windows's code paths, from any system
    ```
    The page suites also run in CI's browser, the Chromium of Playwright 1.48 (older than Chrome: it hangs on some CSS current Chrome takes): in a virtualenv with `pip install playwright==1.48.0 pillow && python -m playwright install chromium`, run each suite with `TAURIS_TEST_CHROMIUM=1`.
 9. **Delete the build output** when finished: `target/`, `examples/basic/src-tauri/target/` and `test/freeze_check/target/`.

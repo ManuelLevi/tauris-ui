@@ -8,6 +8,10 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.23 — 2026-10-22
+
+- Windows builds with the `files` feature without an unused-variable warning (CI treats warnings as errors). The checks before a release include a Windows clippy run, which works from a Mac.
+
 ## 0.4.22 — 2026-10-22
 
 Fixes from the fourth round of the Opus reviewers:
