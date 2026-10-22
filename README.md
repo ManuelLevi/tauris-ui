@@ -483,6 +483,8 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 | `sortable` | on when `sort` is given | A click on a column header sorts by it |
 | `sort` | none | The first order: `{ key, up }` |
 | `multiple` | `false` | ⌘-click (Ctrl-click) and Shift-click select several rows; ⌘A selects every row shown |
+| `header` | `true` | The column headers (`false`: none, for a tree in a sidebar) |
+| `fit` | `false` | The first column takes the room the others leave, so the tree fits its width and never scrolls sideways |
 | `styles` | `true` | Add the stylesheet |
 
 **Keyboard** (as in Windows and Qt):
@@ -497,7 +499,7 @@ tree.on("sort", order => remember(order));                   // { key, up }, or 
 - While editing: Tab and Shift+Tab save and go to the row's next or previous editable value (a checkbox takes the focus, and Space flips it); past the last one, back to the row. Enter saves, and Escape cancels.
 - Typing a letter jumps to the next row starting with it.
 
-**Events:** `select` (`{ node, nodes }`: the row with the focus, and every selected row), `toggle`, `change` (`{ node, column, value }`, already written into `node.values`), `activate`, `sort` (`{ key, up }`, or `null`), and `resize` (`{ column, index, width, widths }`: a column the person made wider or narrower).
+**Events:** `select` (`{ node, nodes, how }`: the row with the focus, every selected row, and `how`: `"mouse"`, `"keyboard"`, or `"api"` when the app selected), `contextmenu` (`{ node, x, y, how }`: a right click on a row, or the menu key or ⇧F10; open your menu there with `TaurisMenu.open(items, { x, y })`), `toggle`, `change` (`{ node, column, value }`, already written into `node.values`), `activate`, `sort` (`{ key, up }`, or `null`), and `resize` (`{ column, index, width, widths }`: a column the person made wider or narrower).
 
 **Methods:**
 - `setData(nodes)`

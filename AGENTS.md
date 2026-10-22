@@ -90,7 +90,7 @@ Do all of these, every time:
    ```
    The page suites also run in CI's two browsers, from Playwright 1.48: its Chromium (older than Chrome: it hangs on some CSS current Chrome takes) and its WebKit, the engine Tauri uses on macOS and Linux. In a virtualenv with `pip install playwright==1.48.0 pillow && python -m playwright install chromium webkit`, run each suite with `TAURIS_TEST_CHROMIUM=1`, then with `TAURIS_TEST_WEBKIT=1`.
 9. **Delete the build output** when finished: `target/`, `examples/basic/src-tauri/target/`, `examples/all/src-tauri/target/` and `test/freeze_check/target/`.
-10. **Commit and push the release** once every check passes, as `tauris-ui X.Y.Z: what changed`. Do not ask the maintainer first. Then watch CI (`gh run watch`): the release is done when every job is green (Windows and Linux build what a Mac does not); a red or stuck job is fixed and pushed at once.
+10. **Commit and push the release** once every check passes, as `tauris-ui X.Y.Z: what changed`, and tag it `vX.Y.Z` (`git tag vX.Y.Z && git push origin vX.Y.Z`), so an app can pin it. Do not ask the maintainer first. Then watch CI (`gh run watch`): the release is done when every job is green (Windows and Linux build what a Mac does not); a red or stuck job is fixed and pushed at once.
 
 ## Where things are
 

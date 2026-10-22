@@ -103,6 +103,11 @@
     sort: null,
     // add the stylesheet (false: bring your own)
     styles: true,
+    // the column headers (false: none; a tree in a sidebar)
+    header: true,
+    // the first column takes the room the others leave, so the tree fits its
+    // width and never scrolls sideways (a tree in a sidebar)
+    fit: false,
   };
 
   const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -173,6 +178,17 @@
     const emit = (event, payload) => listeners.get(event)?.forEach(fn => {
       try { fn(payload); } catch (err) { console.error(`[tauris-ui tree] a "${event}" listener failed`, err); }
     });
+    // How the selection is being made, for "select": the person's mouse or keys, or the app ("api").
+    let selectHow = "api";
+    const as = (how, fn) => (...args) => {
+      const was = selectHow;
+      selectHow = how;
+      try {
+        return fn(...args);
+      } finally {
+        selectHow = was;
+      }
+    };
 
     // ---------- the frame ----------
     // .tv (the element given) > .tv-scroll > [.tv-head] + .tv-body (role tree).
@@ -185,7 +201,7 @@
     if (opt.bandGroups) root.classList.add("tv-band-groups");
     const scroller = el("div", "tv-scroll");
     // Hidden from screen readers only when nothing in it can be used (no sorting, one column).
-    const head = cols ? el("div", "tv-head", { "aria-hidden": cols.some(clickable) || cols.length > 1 ? null : "true" }, cols.map(headCell)) : null;
+    const head = cols && opt.header !== false ? el("div", "tv-head", { "aria-hidden": cols.some(clickable) || cols.length > 1 ? null : "true" }, cols.map(headCell)) : null;
     // tabindex -1: it holds the focus while it shows no rows (a filter that matches nothing).
     const body = el("div", "tv-body", { role: "tree", tabindex: "-1", "aria-label": opt.label, "aria-multiselectable": opt.multiple ? "true" : null });
     if (head) scroller.append(head);
@@ -1002,7 +1018,7 @@
     // "select": the row with the focus, and every selected row, top to bottom.
     function emitSelect() {
       const all = rows.filter(r => picked.has(r.key)).map(r => r.node);
-      emit("select", { node: selectedKey === null ? null : nodes.get(selectedKey) ?? null, nodes: all });
+      emit("select", { node: selectedKey === null ? null : nodes.get(selectedKey) ?? null, nodes: all, how: selectHow });
     }
 
     // The selection becomes these keys, with `key` selected and focused.
@@ -1109,15 +1125,15 @@
     // row.focus()): that row is the one the keys act on, selected as a key would.
     let pressedAt = -Infinity; // a press focuses its row itself (or, a right click, leaves it alone)
     body.addEventListener("pointerdown", () => { pressedAt = performance.now(); }, { capture: true, signal });
-    body.addEventListener("focusin", e => {
+    body.addEventListener("focusin", as("keyboard", e => {
       if (performance.now() - pressedAt < 500) return;
       const rowEl = e.target instanceof Element && e.target.classList.contains("tv-row") ? e.target : null;
       const k = rowEl?.dataset.key;
       if (k == null || k === focusKey || !index.has(k) || editing) return;
       go(index.get(k));
-    }, { signal });
+    }), { signal });
 
-    body.addEventListener("keydown", e => {
+    body.addEventListener("keydown", as("keyboard", e => {
       if (e.target.closest(".tv-editor, .tv-picker")) return;
       // A checkbox reached with Tab: Space flips it, Tab goes on, Enter or Escape back to the row.
       const check = e.target.closest?.(".tv-cell[role=checkbox]");
@@ -1151,6 +1167,17 @@
       if (e.key.length !== 1 && !KEEP_TYPED.has(e.key)) typed = "";
       const at = index.get(focusKey);
       if (at === undefined) return;
+      // The menu key or ⇧F10: the app's menu, under the row with the focus.
+      if ((e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey)) && listeners.get("contextmenu")?.size) {
+        const rowEl = pool.get(focusKey);
+        const node = nodes.get(focusKey);
+        if (rowEl && node) {
+          e.preventDefault();
+          const r = rowEl.getBoundingClientRect();
+          emit("contextmenu", { node, x: r.left + 12, y: r.bottom, how: "keyboard" });
+        }
+        return;
+      }
       const toggleKey = MAC ? e.metaKey : e.ctrlKey;
       // ⌘A (Ctrl+A): every row shown; never the page's own Select All.
       if (toggleKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a") {
@@ -1247,13 +1274,13 @@
             typeAhead(e.key, at, keyTime(e));
           }
       }
-    }, { signal });
+    }), { signal });
 
     // ---------- mouse ----------
     // Selection happens on press, as in desktop trees. The press is held back
     // from the browser so focus and text selection stay under our control.
 
-    body.addEventListener("mousedown", e => {
+    body.addEventListener("mousedown", as("mouse", e => {
       // A right click (Control-click on a Mac) leaves the selection to the app's own menu.
       // A right click (Control-click on a Mac) leaves the selection and the
       // focus to the app's own menu: the browser does not move the focus either.
@@ -1327,6 +1354,18 @@
       // A checkbox flips only when its box is pressed.
       if (editorOf(row.node, cols[ci]).type === "checkbox" && !e.target.closest(".tv-check")) return;
       beginEdit(k, ci, e.target);
+    }), { signal });
+
+    // A right click on a row: "contextmenu", where to open the app's own menu (the
+    // selection stays as it is). With a listener, the browser's own menu stays shut.
+    body.addEventListener("contextmenu", e => {
+      if (!listeners.get("contextmenu")?.size) return;
+      const rowEl = e.target instanceof Element ? e.target.closest(".tv-row") : null;
+      if (!rowEl || e.target.closest(".tv-editor, .tv-picker")) return;
+      const node = nodes.get(rowEl.dataset.key);
+      if (!node) return;
+      e.preventDefault();
+      emit("contextmenu", { node, x: e.clientX, y: e.clientY, how: "mouse" });
     }, { signal });
 
     body.addEventListener("dblclick", e => {
@@ -1352,9 +1391,19 @@
       if (editing) finishEdit(true, false);
       focusRow();
     }, { signal });
+    // fit: the first column takes the room the others leave (never less than its minWidth).
+    function fitWidths() {
+      if (!cols || !opt.fit || !scroller.clientWidth) return;
+      const others = widths.slice(1).reduce((a, b) => a + b, 0);
+      const w = Math.max(cols[0].minWidth, Math.floor(scroller.clientWidth - others));
+      if (w === widths[0]) return;
+      widths[0] = w;
+      applyWidths();
+    }
     // A tree mounted while hidden measured nothing: measure again once it shows.
     const resized = new ResizeObserver(() => {
       measure();
+      fitWidths();
       schedule();
     });
     resized.observe(scroller);
@@ -1470,6 +1519,7 @@
     // ---------- start ----------
 
     applyWidths();
+    fitWidths();
     paintHead();
     setData(opt.data);
 
@@ -1575,6 +1625,7 @@
           if (i < widths.length && Number.isFinite(w)) widths[i] = Math.max(cols[i].minWidth, Math.round(w));
         });
         applyWidths();
+        fitWidths();
       },
       /** Sorts by a column's key ("label": the first column), up: true for A to Z. null: the data's
        * own order. Fires "sort". Returns false for a column that cannot sort. */

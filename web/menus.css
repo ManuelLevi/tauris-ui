@@ -61,6 +61,9 @@
     --tmn-tool-pad: 10px;             /* beside the content of a button */
     --tmn-tool-gap: 8px;              /* between its icon and its text */
     --tmn-tool-icon: 13px;
+    /* motion (none with reduced motion) */
+    --tmn-pop-time: 0.09s;            /* a menu appearing */
+    --tmn-tool-time: 0.1s;            /* a toolbar button's fill changing */
     --tmn-tool-hover-bg: var(--tauris-hover, #e6e8ec);
     --tmn-tool-border: var(--tauris-line, #c4c6cc);
     --tmn-tool-on-bg: #d9d9da;        /* pressed (the current view), or with its menu open: a neutral grey, not the hover colour */
@@ -193,7 +196,7 @@
     -webkit-user-select: none;
     user-select: none;
     cursor: default;
-    animation: tmn-in 0.09s ease-out both;
+    animation: tmn-in var(--tmn-pop-time) ease-out both;
   }
 
   @keyframes tmn-in {
@@ -338,7 +341,7 @@
     cursor: default;
     -webkit-user-select: none;
     user-select: none;
-    transition: background-color 0.1s, border-color 0.1s;
+    transition: background-color var(--tmn-tool-time), border-color var(--tmn-tool-time);
   }
 
   .tmn-tool:hover { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
@@ -433,7 +436,7 @@ button:where(.tmn-tool) {
   box-shadow: none;
   outline: none;
   font: var(--tmn-tool-font-size) var(--tmn-font);
-  transition: background-color 0.1s, border-color 0.1s;
+  transition: background-color var(--tmn-tool-time, 0.1s), border-color var(--tmn-tool-time, 0.1s);
 }
 
 button:where(.tmn-tool):hover { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }

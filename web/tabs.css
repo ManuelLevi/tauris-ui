@@ -14,6 +14,10 @@
     --tt-scheme: dark;             /* scrollbars and native controls inside follow it */
     /* strip */
     --tt-strip-h: 40px;
+    /* motion (none with reduced motion) */
+    --tt-shift-time: 160ms;        /* tabs making room for a dragged one */
+    --tt-settle-time: 140ms;       /* a dropped tab sliding into its place */
+    --tt-appear-time: 160ms;       /* a new tab growing in */
     --tt-strip-bg: var(--tauris-chrome, #18181b);
     --tt-line: var(--tauris-line, #2c2c31);             /* the line under the strip */
     --tt-inset-left: 84px;          /* room for the macOS window buttons (set by the plugin) */
@@ -194,8 +198,8 @@
     box-shadow: inset 0 0 0 2px var(--tt-focus, var(--tauris-accent-ink, var(--tt-accent)));
   }
 
-  .tt-tab.tt-shifting { transition: transform 160ms ease; }
-  .tt-tab.tt-settling { transition: transform 140ms ease-out; }
+  .tt-tab.tt-shifting { transition: transform var(--tt-shift-time) ease; }
+  .tt-tab.tt-settling { transition: transform var(--tt-settle-time) ease-out; }
 
   /* A thin line between idle tabs; gone next to the active or hovered tab. */
   .tt-tab::after {
@@ -283,7 +287,7 @@
     color: var(--tt-ghost-fg, var(--tt-fg-active));
   }
 
-  .tt-tab.tt-appear { animation: tt-pop 160ms ease-out; }
+  .tt-tab.tt-appear { animation: tt-pop var(--tt-appear-time) ease-out; }
 
   @keyframes tt-pop {
     from { opacity: 0; transform: translateX(var(--dx, 0px)) scale(0.92); }

@@ -22,6 +22,11 @@
     --tv-box-radius: 1px;
     --tv-pad: 4px;                  /* left of the top level */
     --tv-icon-gap: 4px;             /* between an icon and its label */
+    --tv-icon-size: 16px;           /* a row's icon */
+    --tv-arrow-size: 7px;           /* the sort arrow in a header */
+    /* --tv-arrow-color: unset, --tv-focus: the sort arrow */
+    /* --tv-sel-hover-bg: unset, --tv-sel-bg: the selected row under the pointer while the tree has focus */
+    /* --tv-sel-inactive-hover-bg: unset, --tv-sel-inactive-bg: the same while focus is elsewhere */
     --tv-cell-pad: 6px;             /* left and right inside a column */
     --tv-head-h: 20px;
     --tv-head-font-size: 11px;
@@ -234,6 +239,8 @@
     --tv-muted: var(--tv-sel-inactive-fg, var(--tv-fg));  /* secondary text stays readable on the selection */
   }
 
+  .tv-row[aria-selected="true"]:hover { background: var(--tv-sel-inactive-hover-bg, var(--tv-sel-inactive-bg)); }
+
   .tv-body:focus-within .tv-row[aria-selected="true"] {
     background: var(--tv-sel-bg);
     color: var(--tv-sel-fg);
@@ -244,6 +251,7 @@
     --tv-muted: var(--tv-sel-fg);           /* secondary text on the selection stays readable */
     --tv-grid: transparent;
   }
+  .tv-body:focus-within .tv-row[aria-selected="true"]:hover { background: var(--tv-sel-hover-bg, var(--tv-sel-bg)); }
 
   .tv-body:focus-within .tv-row[aria-selected="true"] .tv-svg { color: var(--tv-sel-fg); }
 
@@ -356,8 +364,8 @@
 
   .tv-icon {
     flex: none;
-    width: 16px;
-    height: 16px;
+    width: var(--tv-icon-size);
+    height: var(--tv-icon-size);
     margin-right: var(--tv-icon-gap);
   }
 
@@ -433,8 +441,8 @@
   .tv-arrow {
     flex: none;
     margin-left: 4px;
-    font-size: 7px;
-    color: var(--tv-focus);
+    font-size: var(--tv-arrow-size);
+    color: var(--tv-arrow-color, var(--tv-focus));
   }
 
   .tv-arrow:empty { display: none; }

@@ -1122,6 +1122,50 @@ with sync_playwright() as p:
     check("the default look follows light mode", bg == "rgb(255, 255, 255)", bg)
     page.close()
 
+    # ---------- a tree in a sidebar: no header, fitting its width; how a row was chosen; its menu ----------
+    page = fresh(browser)
+    page.evaluate("""() => {
+      const host = document.createElement('div'); host.id = 'side-tree'; host.style.cssText = 'position:fixed;left:0;top:0;width:200px;height:300px';
+      document.body.append(host);
+      window.heard = [];
+      window.side = TaurisTree.mount(host, { label: 'Places', header: false, fit: true,
+        columns: [{ label: 'Name', width: 400 }, { label: 'N', key: 'n', width: 50, align: 'right' }],
+        data: [{ id: 'p', label: 'Projects', icon: 'folder', expanded: true, children: [{ id: 'a', label: 'Atlas', icon: 'doc', values: { n: 3 } }, { id: 'b', label: 'Borealis', icon: 'doc', values: { n: 1 } }] }] });
+      side.on('select', e => heard.push(['select', e.node && e.node.id, e.how]));
+      side.on('contextmenu', e => heard.push(['menu', e.node.id, e.how, e.x > 0 && e.y > 0]));
+      return 0; }""")
+    check("header: false: no column headers", page.locator("#side-tree .tv-head").count() == 0)
+    widths = page.evaluate("side.widths()")
+    room = page.evaluate("document.querySelector('#side-tree .tv-scroll').clientWidth")
+    check("fit: the first column takes the room the others leave (no sideways scroll)",
+          widths[1] == 50 and widths[0] == room - 50
+          and page.evaluate("(() => { const s = document.querySelector('#side-tree .tv-scroll'); return s.scrollWidth <= s.clientWidth; })()"), (widths, room))
+    page.evaluate("document.getElementById('side-tree').style.width = '260px'")
+    check("and follows its width", lambda: page.evaluate("side.widths()[0]") == page.evaluate("document.querySelector('#side-tree .tv-scroll').clientWidth") - 50,
+          lambda: page.evaluate("side.widths()"))
+    page.click('#side-tree .tv-row[data-key="a"] .tv-label')
+    page.keyboard.press("ArrowDown")
+    page.evaluate("side.select('p')")
+    check("select says how: the mouse, the keys, or the app (api)",
+          page.evaluate("heard") == [["select", "a", "mouse"], ["select", "b", "keyboard"], ["select", "p", "api"]], page.evaluate("heard"))
+    page.evaluate("heard.length = 0")
+    page.click('#side-tree .tv-row[data-key="a"] .tv-label', button="right")
+    page.focus('#side-tree .tv-row[data-key="p"]')
+    page.keyboard.press("Shift+F10")
+    check("contextmenu: a right click on a row and the menu key, where to open the app's menu (a right click selects nothing)",
+          page.evaluate("heard") == [["menu", "a", "mouse", True], ["menu", "p", "keyboard", True]], page.evaluate("heard"))
+    check("with a listener, the browser's own menu stays shut",
+          page.evaluate("(() => { const r = document.querySelector('#side-tree .tv-row'); const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }); r.dispatchEvent(e); return e.defaultPrevented; })()"))
+    page.evaluate("""() => { const t = document.getElementById('side-tree'); t.style.setProperty('--tv-icon-size', '20px'); t.style.setProperty('--tv-sel-inactive-hover-bg', 'rgb(1, 2, 3)'); return 0; }""")
+    page.focus("#field" if page.locator("#field").count() else "body")
+    page.evaluate("document.activeElement && document.activeElement.blur()")
+    page.hover('#side-tree .tv-row[data-key="p"] .tv-label')
+    check("the look's variables: a row's icon size, a selected row's tint under the pointer",
+          lambda: page.evaluate("Math.round(document.querySelector('#side-tree .tv-icon').getBoundingClientRect().width)") == 20
+          and page.evaluate("getComputedStyle(document.querySelector('#side-tree .tv-row[data-key=\"p\"]')).backgroundColor") == "rgb(1, 2, 3)",
+          lambda: page.evaluate("getComputedStyle(document.querySelector('#side-tree .tv-row[data-key=\"p\"]')).backgroundColor"))
+    page.close()
+
     browser.close()
 
 print()

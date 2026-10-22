@@ -8,6 +8,17 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.36 — 2026-10-22
+
+- Tree: a `contextmenu` event for a right click on a row and for the menu key (⇧F10), with where to open the app's menu.
+- Tree: the `select` event says `how`: `"mouse"`, `"keyboard"`, or `"api"` when the app selected.
+- Tree: `header: false` hides the column headers; `fit: true` makes the tree fit its width (no sideways scroll).
+- New style variables, all set to today's values:
+  - tabs `--tt-shift-time`, `--tt-settle-time`, `--tt-appear-time`;
+  - menus `--tmn-pop-time`, `--tmn-tool-time`;
+  - tree `--tv-icon-size`, `--tv-arrow-size`, `--tv-arrow-color`, `--tv-sel-hover-bg`, `--tv-sel-inactive-hover-bg`.
+- Every release since 0.4.7 has a git tag (`v0.4.7` …), so an app can pin one.
+
 ## 0.4.35 — 2026-10-22
 
 - New: `TaurisTable` (from MLPC's tables): a dense data table. 25px rows under a header that stays, ▲▼ sorting by a click on a header (natural order, within groups), rows in groups (a colour square, a name, a count), the keys of a desktop list (↑ ↓, Home End, ⌘↑ ⌘↓, Page Up and Down, Enter, ⇧F10, typing a name), a row's own buttons (shown on hover and selection; toggles; Copy with a tick), `flash(id)` for a row just added. `Component::Table`.

@@ -76,16 +76,24 @@ declare global {
     multiple?: boolean;
     /** Add the stylesheet (false: bring your own). */
     styles?: boolean;
+    /** The column headers (false: none; a tree in a sidebar). Default true. */
+    header?: boolean;
+    /** The first column takes the room the others leave, so the tree fits its width and never scrolls sideways. Default false. */
+    fit?: boolean;
   }
 
   interface TaurisTreeEvents<V extends object = Record<string, unknown>> {
-    /** node: the selected row with the focus; nodes: every selected row, top to bottom. */
-    select: { node: TaurisTreeNode<V> | null; nodes: TaurisTreeNode<V>[] };
+    /** node: the selected row with the focus; nodes: every selected row, top to bottom;
+     *  how: by the person's mouse or keys, or by the app ("api": select(), setData(), a sort). */
+    select: { node: TaurisTreeNode<V> | null; nodes: TaurisTreeNode<V>[]; how: "mouse" | "keyboard" | "api" };
     toggle: { node: TaurisTreeNode<V>; expanded: boolean };
     /** An edited value, already written into node.values. */
     change: { node: TaurisTreeNode<V>; column: keyof V & string; value: unknown };
     /** Enter or double-click on a row. */
     activate: { node: TaurisTreeNode<V> };
+    /** A right click on a row, or the menu key (⇧F10) on the row with the focus: where to open the app's menu
+     *  (TaurisMenu.open(items, { x, y })). With a listener, the browser's own menu stays shut. */
+    contextmenu: { node: TaurisTreeNode<V>; x: number; y: number; how: "mouse" | "keyboard" };
     /** The order changed (a header, or sort()); null is the data's own order. */
     sort: TaurisTreeSort | null;
     /** The person made a column wider or narrower (its edge dragged, or the keys). Keep `widths` to give them back. */
