@@ -812,6 +812,9 @@ with sync_playwright() as p:
     page.click(".tf-file:nth-child(1) .tf-c-name")
     page.click(".tf-file:nth-child(2) .tf-c-name", modifiers=["Meta"])
     page.click(".tf-file:nth-child(1) .tf-c-name", modifiers=["Control"])
+    # macOS itself sends the menu event for a Control-click; elsewhere the test does.
+    if page.locator(".tmn-menu").count() == 0:
+        page.dispatch_event(".tf-file:nth-child(1) .tf-c-name", "contextmenu", {"button": 2, "ctrlKey": True})
     check("on a Mac, Control-click is a right click: the selection stays, and its menu acts on both",
           len(sel_names()) == 2 and page.locator(".tmn-menu").count() == 1
           and page.get_attribute(".tmn-item:has-text('Rename')", "aria-disabled") == "true", sel_names())
