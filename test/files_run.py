@@ -334,14 +334,16 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     check("Escape keeps the file and gives the focus back to the list",
           page.is_hidden(".tf-veil") and len(names(page)) == 8 and page.evaluate("document.activeElement.classList.contains('tf-list')"))
-    page.keyboard.press("ControlOrMeta+Backspace")  # ⌘⌫ on a Mac, Ctrl+Backspace elsewhere
+    # ⌘⌫ on a Mac; elsewhere Ctrl+Backspace deletes a word, so Delete.
+    erase = "Meta+Backspace" if page.evaluate("/Mac|iPhone|iPad/.test(navigator.platform)") else "Delete"
+    page.keyboard.press(erase)
     page.keyboard.press("Enter")
     check("Enter on the focused Cancel keeps the file", len(names(page)) == 8 and page.is_hidden(".tf-veil"))
-    page.keyboard.press("ControlOrMeta+Backspace")
+    page.keyboard.press(erase)
     page.keyboard.press("Tab")
     page.keyboard.press("Enter")
     page.wait_for_timeout(200)
-    check("⌘⌫ asks too; Tab and Enter delete; the next file is selected",
+    check("⌘⌫ (Delete off a Mac) asks too; Tab and Enter delete; the next file is selected",
           "Kickoff notes.md" not in names(page) and selected(page) == "Launch plan.pptx" and message(page) == "Deleted Kickoff notes.md."
           and page.inner_text(".tf-sub").startswith("Documents · 7 files"))
     check("after deleting, the list keeps the focus", page.evaluate("document.activeElement.classList.contains('tf-list')"))
