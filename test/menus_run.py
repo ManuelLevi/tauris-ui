@@ -535,8 +535,8 @@ with sync_playwright() as p:
           page.locator(".tmn-menu").count() == 2 and focused(page) == "r2", (page.locator(".tmn-menu").count(), focused(page)))
     page.evaluate("b7.close(); 0")
     after = page.evaluate("document.activeElement.className || document.activeElement.id")
-    check("close() from the app leaves the focus in the bar (the menu was opened from the keys), not on the page",
-          after == "tmn-title", (before, after))
+    check("a menu the app opened (a shortcut) and closed: the focus goes back to the field it was in",
+          after == before and after != "", (before, after))
     page.locator("nav .tmn-title", has_text="File").first.click()
     page.locator("nav .tmn-title", has_text="Edit").first.dispatch_event("pointerdown", {"button": 2})
     check("a right press on the bar closes the open menu", page.locator(".tmn-menu").count() == 0)
@@ -554,6 +554,40 @@ with sync_playwright() as p:
     check("the shortcut of a danger item is as readable as its label",
           page.evaluate("getComputedStyle([...document.querySelectorAll('.tmn-item.tmn-danger .tmn-shortcut')][0]).opacity") == "1")
     check("a long menu does not hand the wheel to the page", css(page, ".tmn-menu", "overscroll-behavior-y") == "contain")
+    page.close()
+
+    # ---------- an eighth review ----------
+    page = fresh(browser)
+    page.evaluate("""() => { window.ran = 0; demo.bar.setMenus([{ label: 'File', items: [{ label: 'A', action: () => { ran++; } }] }]); return 0; }""")
+    page.locator(title("File")).focus()
+    page.evaluate("""() => { const t = document.activeElement;
+      for (let n = 0; n < 4; n++) t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: n > 0, bubbles: true }));
+      const m = document.querySelector('.tmn-item');
+      for (let n = 0; n < 3; n++) (document.activeElement || m).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })); return 0; }""")
+    check("holding Enter on a title opens its menu once and chooses nothing", page.locator(".tmn-menu").count() == 1 and page.evaluate("ran") == 0, page.evaluate("ran"))
+    page.keyboard.press("Escape")
+    page.evaluate("""() => { const b = document.createElement('div'); b.id = 'b8'; b.textContent = 'More'; document.body.append(b);
+      window.b8 = TaurisMenu.button(b, { items: [{ label: 'Go', action: () => { window.went = true; } }], onClose: () => { throw new Error('no sound'); } }); return 0; }""")
+    page.click("#b8")
+    page.click("#b8", button="right")
+    check("a right press on a menu button closes its menu", page.locator(".tmn-menu").count() == 0)
+    page.click("#b8")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Enter")
+    check("an onClose that throws stops nothing: the item still runs", page.evaluate("window.went") is True)
+    page.evaluate("""() => { const d = document.createElement('dialog'); d.innerHTML = '<div id="in-dialog">Open</div>'; document.body.append(d); d.showModal();
+      TaurisMenu.button(d.querySelector('#in-dialog'), { items: [{ label: 'One' }] }); return 0; }""")
+    page.click("#in-dialog")
+    page.evaluate("document.querySelector('dialog').close()")
+    page.wait_for_timeout(50)  # a dialog's close event comes a moment later
+    check("a menu inside a dialog closes with it", page.locator(".tmn-menu").count() == 0 and page.get_attribute("#in-dialog", "aria-expanded") == "false")
+    page.evaluate("""() => { window.long = Array.from({ length: 60 }, (_, n) => ({ label: 'Item ' + n }));
+      const b = document.createElement('div'); b.id = 'long'; b.textContent = 'Long'; document.body.prepend(b);
+      window.lb = TaurisMenu.button(b, { items: long }); return 0; }""")
+    page.click("#long")
+    page.evaluate("document.querySelector('.tmn-menu').scrollTop = 300")
+    page.evaluate("lb.setItems(long.map(i => ({ ...i }))); 0")
+    check("new items in a scrolled menu keep its place", page.evaluate("document.querySelector('.tmn-menu').scrollTop") == 300)
     page.close()
 
     # ---------- onOpen and onClose (for a sound) ----------

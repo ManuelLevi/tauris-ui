@@ -56,10 +56,31 @@ pub(crate) fn restore<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     if crate::windows::window_count(app) > 0 {
         return Ok(());
     }
-    if !restore_saved(app) {
+    // The new window too is opened by one caller only.
+    let Some(_one) = Restoring::claim(app) else { return Ok(()) };
+    if crate::windows::window_count(app) == 0 && !open_saved(app) {
         crate::windows::create_window(app, vec![default_tab(app)], None, true)?;
     }
     Ok(())
+}
+
+// One restore at a time: two callers that both found no window (a Dock click
+// and the app's own open_or_focus) must not each open them all. Never waited
+// for here: the other one may need this thread to open its windows.
+struct Restoring(&'static AtomicBool);
+
+impl Restoring {
+    fn claim<R: Runtime>(app: &AppHandle<R>) -> Option<Self> {
+        let flag = &inner(app).restoring;
+        // `then`, not `then_some`: a guard made and dropped would clear the flag.
+        (!flag.swap(true, Ordering::SeqCst)).then(|| Restoring(flag))
+    }
+}
+
+impl Drop for Restoring {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 // Opens the remembered windows, frontmost last; false when there are none
@@ -67,25 +88,17 @@ pub(crate) fn restore<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 // An unreadable file is kept aside as `<name>.unreadable` so it is not lost
 // when the next layout is saved.
 pub(crate) fn restore_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
-    // One restore at a time: two callers that both found no window (a Dock
-    // click and the app's own open_or_focus) must not each open them all.
-    // Never waited for: the other one may need this thread to open its windows.
-    let state = inner(app);
     // Another caller is opening them: they are on their way (true), and no
     // other window should open in their place.
-    if state.restoring.swap(true, Ordering::SeqCst) {
-        return true;
-    }
-    struct Done(&'static AtomicBool);
-    impl Drop for Done {
-        fn drop(&mut self) {
-            self.0.store(false, Ordering::SeqCst);
-        }
-    }
-    let _done = Done(&state.restoring);
+    let Some(_one) = Restoring::claim(app) else { return true };
     if crate::windows::window_count(app) > 0 {
         return true;
     }
+    open_saved(app)
+}
+
+// The remembered windows open (the caller holds the restore).
+fn open_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
     let Some(file) = layout_file(app).filter(|f| f.is_file()) else { return false };
     let saved: Vec<SavedWin> = match fs::read_to_string(&file).map(|t| serde_json::from_str(&t)) {
         Ok(Ok(saved)) => saved,

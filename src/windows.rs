@@ -47,13 +47,15 @@ pub(crate) struct Inner<R: Runtime> {
     windows_q: Queue<R>,
     hook_q: Queue<R>,
     // Held while the app's on_change hook runs: one call at a time.
-    hook: Mutex<()>,
+    pub(crate) hook: Mutex<()>,
     // Held while a change decides whether its hook call runs now or queues,
     // so calls reach the hook in the order they were made.
     hook_gate: Mutex<()>,
-    // Windows with a hook call waiting on the worker, not started yet: another
-    // change to one of them adds no call (the hook reads the tabs as they are).
-    hook_waiting: Mutex<std::collections::HashSet<String>>,
+    // Windows with a hook call waiting on the worker, and the newest call's
+    // number: an older call for the same window skips itself (the hook reads
+    // the tabs as they are), and the newest keeps its place in the order.
+    hook_waiting: Mutex<std::collections::HashMap<String, u64>>,
+    hook_seq: AtomicUsize,
     // The app is quitting: no new windows.
     exiting: AtomicBool,
     // Remembered windows are being opened (see persist::restore_saved).
@@ -71,7 +73,8 @@ impl<R: Runtime> Inner<R> {
             hook_q: Queue::new(),
             hook: Mutex::new(()),
             hook_gate: Mutex::new(()),
-            hook_waiting: Mutex::new(std::collections::HashSet::new()),
+            hook_waiting: Mutex::new(std::collections::HashMap::new()),
+            hook_seq: AtomicUsize::new(0),
             exiting: AtomicBool::new(false),
             restoring: AtomicBool::new(false),
             config,
@@ -130,9 +133,17 @@ pub(crate) fn window_tabs<R: Runtime>(app: &AppHandle<R>, label: &str) -> Window
     WindowTabs { label: label.to_string(), tabs, active }
 }
 
+// Read in one go: a window closing meanwhile is not reported as an empty one.
 pub(crate) fn all_windows<R: Runtime>(app: &AppHandle<R>) -> Vec<WindowTabs> {
-    let labels: Vec<String> = inner(app).model().wins.iter().map(|w| w.label.clone()).collect();
-    labels.iter().map(|l| window_tabs(app, l)).collect()
+    let m = inner(app).model();
+    m.wins
+        .iter()
+        .map(|w| WindowTabs {
+            label: w.label.clone(),
+            tabs: w.tabs.iter().filter_map(|id| m.tabs.get(id).cloned()).collect(),
+            active: w.active,
+        })
+        .collect()
 }
 
 thread_local! {
@@ -144,6 +155,9 @@ thread_local! {
     // Set on the worker that opens windows: a hook run there would hold up the
     // next ⌘N, so its calls go to the hook's worker.
     static ON_WINDOWS_WORKER: Cell<bool> = const { Cell::new(false) };
+    // Set while an async page command runs (on the async runtime's thread):
+    // its hook calls go to the worker too, as a plain command's do.
+    static DEFER_HOOK: Cell<bool> = const { Cell::new(false) };
 }
 
 // Tauri calls a plugin's on_event, and its plain (not async) commands, while
@@ -209,6 +223,23 @@ pub(crate) fn send<R: Runtime>(app: &AppHandle<R>, kind: Kind, mut job: Job<R>) 
     false
 }
 
+// Marks this thread as running an async page command, until dropped: the
+// app's hook is called on its worker, not on the async runtime's thread.
+pub(crate) struct DeferHook(bool);
+
+impl DeferHook {
+    pub(crate) fn enter() -> Self {
+        DeferHook(DEFER_HOOK.with(|d| d.replace(true)))
+    }
+}
+
+impl Drop for DeferHook {
+    fn drop(&mut self) {
+        let was = self.0;
+        DEFER_HOOK.with(|d| d.set(was));
+    }
+}
+
 // Marks this thread as running inside Tauri's plugin lock, until dropped.
 pub(crate) struct InPlugin(bool);
 
@@ -262,8 +293,8 @@ pub(crate) fn begin_exit<R: Runtime>(app: &AppHandle<R>) {
 // job (⌘N, the Dock click), so a slow hook never holds up the next one. Calls
 // never overlap and keep their order: while earlier ones wait on the worker,
 // or the hook is running on another thread, this one waits on the worker too.
-// A window that already has a call waiting gets no second one. Changes the
-// hook itself makes do not call it again.
+// Several changes to one window while its call waits make one call, at the
+// place of the newest. Changes the hook itself makes do not call it again.
 pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let state = inner(app);
     if state.config.on_change.is_none() || IN_HOOK.with(|h| h.get()) {
@@ -271,7 +302,7 @@ pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     }
     // The gate is held only to decide, never while the hook runs.
     let gate = state.hook_gate.lock().unwrap_or_else(PoisonError::into_inner);
-    let defer = IN_PLUGIN.with(|p| p.get()) || ON_WINDOWS_WORKER.with(|w| w.get());
+    let defer = IN_PLUGIN.with(|p| p.get()) || ON_WINDOWS_WORKER.with(|w| w.get()) || DEFER_HOOK.with(|d| d.get());
     if !defer && state.hook_q.pending.load(Ordering::SeqCst) == 0 {
         // try_lock: a thread here never waits for the hook (the main thread
         // waiting could stop a hook that is opening a window).
@@ -287,23 +318,32 @@ pub(crate) fn changed<R: Runtime>(app: &AppHandle<R>, label: &str) {
             return;
         }
     }
-    // A call for this window is already waiting: it will see this change too.
+    // A call for this window already waiting skips itself: this newer one,
+    // later in the queue, tells the hook (the tabs as they are by then).
     let waiting = |s: &'static Inner<R>| s.hook_waiting.lock().unwrap_or_else(PoisonError::into_inner);
-    if !waiting(state).insert(label.to_string()) {
-        return;
-    }
+    let seq = state.hook_seq.fetch_add(1, Ordering::SeqCst) as u64;
+    waiting(state).insert(label.to_string(), seq);
     let queued = label.to_string();
     let sent = send(
         app,
         Kind::Hook,
         Box::new(move |app| {
-            waiting(inner(app)).remove(&queued);
+            {
+                let mut w = waiting(inner(app));
+                if w.get(&queued) != Some(&seq) {
+                    return;
+                }
+                w.remove(&queued);
+            }
             let _one = inner(app).hook.lock().unwrap_or_else(PoisonError::into_inner);
             run_hook(app, &queued);
         }),
     );
     if !sent {
-        waiting(state).remove(label);
+        let mut w = waiting(state);
+        if w.get(label) == Some(&seq) {
+            w.remove(label);
+        }
     }
     drop(gate);
 }
@@ -323,7 +363,9 @@ fn run_hook<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let _leave = Leave;
     // A hook that panics is the app's bug; the tabs carry on (on every thread
     // alike: the window being closed still closes, the layout is still saved).
-    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook(app, label))).is_err() {
+    if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook(app, label))) {
+        // Not dropped: a payload whose drop panics would panic here.
+        std::mem::forget(payload);
         eprintln!("tauris-ui: the app's on_change hook panicked (window {label})");
     }
 }
@@ -367,7 +409,8 @@ pub(crate) fn open_window<R: Runtime>(
         "tauris-ui: window {label} opened inside Tauri's plugin lock; it would freeze the app (use after_event)"
     );
     let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_window(app, label, frame, focused)))
-        .unwrap_or_else(|_| {
+        .unwrap_or_else(|payload| {
+            std::mem::forget(payload); // its drop could panic too
             Err(tauri::Error::Io(std::io::Error::other(format!(
                 "window {label} did not open: the app's window hook panicked"
             ))))
@@ -458,7 +501,10 @@ pub(crate) fn owns<R: Runtime>(app: &AppHandle<R>, label: &str, tab: u64) -> boo
 pub(crate) fn add_tab<R: Runtime>(app: &AppHandle<R>, label: &str, tab: NewTab, after_active: bool) -> Option<u64> {
     let id = {
         let mut m = inner(app).model();
-        m.win(label)?;
+        // A window still opening takes nothing: if it fails, what it held goes with it.
+        if m.win(label)?.opening {
+            return None;
+        }
         let id = m.create_tab(tab);
         let win = m.win(label)?;
         let at = if after_active {
@@ -769,8 +815,18 @@ pub(crate) fn window_count<R: Runtime>(app: &AppHandle<R>) -> usize {
 
 // The frontmost window; with none open, the remembered ones come back first.
 fn front_or_restored<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    if frontmost(app).is_none() {
-        crate::persist::restore_saved(app);
+    if frontmost(app).is_none() && crate::persist::restore_saved(app) {
+        // Another thread is opening the windows: the first one to open takes
+        // the tab, not a window of its own. Not on the main thread, which may
+        // be the one they need to open.
+        let main = std::thread::current().name() == Some("main");
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !main && frontmost(app).is_none() && inner(app).restoring.load(Ordering::SeqCst) {
+            if std::time::Instant::now() >= until {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
     frontmost(app)
 }

@@ -23,15 +23,15 @@ Set a few `--tauris-*` colours once, and the tabs, the tree, the files table and
   --tauris-bg: #ffffff;                   /* lists, fields, menus, the active tab */
   --tauris-chrome: #e9e9eb;               /* bars and column headers */
   --tauris-fg: #1e1f22;
-  --tauris-dim: #5f6370;                  /* secondary text */
+  --tauris-dim: #555a66;                  /* secondary text: readable on --tauris-chrome and --tauris-hover */
   --tauris-line: #c4c6cc;                 /* borders and separators */
-  --tauris-hover: #d3d7df;                /* a step from --tauris-chrome, so a hovered or open title shows */
+  --tauris-hover: #dcdfe5;                /* a step from --tauris-chrome, so a hovered title shows */
   --tauris-accent: #2675bf;
   --tauris-accent-ink: #2675bf;           /* the accent as text and focus lines; keep it readable on --tauris-bg */
   --tauris-on-accent: #ffffff;            /* text on the accent (the files' Add button, the tree's ticks) */
   --tauris-sel-bg: #2675bf;               /* the selected row, the chosen menu item */
   --tauris-sel-fg: #ffffff;
-  --tauris-sel-inactive: #d7d9e0;         /* the tree's selection while it does not have the focus */
+  --tauris-sel-inactive: #c9d6ea;         /* a selection without the focus; an open menu's title, a pressed button */
   --tauris-faint: #a3a6ad;                /* faint and disabled text */
   --tauris-focus: rgb(38 117 191 / 0.32); /* the soft halo around a focus line */
 }
@@ -51,10 +51,10 @@ Set them on `:root` (on another element they do not reach the components). Which
 | `--tauris-chrome`, `--tauris-dim` | ✓ | ✓ | ✓ | ✓ (chrome) |
 | `--tauris-accent` | ✓ | ✓ (also its focus lines) | ✓ | ✓ (focus lines, without `--tauris-accent-ink`) |
 | `--tauris-sel-bg`, `--tauris-sel-fg` | | ✓ | ✓ | ✓ |
-| `--tauris-sel-inactive` | | ✓ | | |
+| `--tauris-sel-inactive` | | ✓ | | ✓ (an open title, a pressed button) |
 | `--tauris-faint` | | | | ✓ |
 | `--tauris-focus` | | | ✓ | ✓ |
-| `--tauris-accent-ink` | | | ✓ | ✓ (focus lines) |
+| `--tauris-accent-ink` | ✓ (focus lines) | ✓ (focus lines, the sort arrow) | ✓ | ✓ (focus lines) |
 | `--tauris-mono` | | | ✓ | |
 | `--tauris-on-accent` | | ✓ (the checkbox tick) | ✓ | |
 
@@ -328,7 +328,7 @@ Calls that open windows return `tauri::Result`. A page can only change the tabs 
 | `window_prefix("tabs-")` | Window names. The capability must cover them. |
 | `window_url("index.html")` | The page each window loads. |
 | `layout_file(\|app\| Some(path))` / `no_layout()` | `tabs.json` in the app's data folder. |
-| `on_change(\|app, label\| ...)` | Called after anything about a window's tabs changes, from Rust or the page. It may use `app.tabs()`; its own changes don't call it again. |
+| `on_change(\|app, label\| ...)` | Called after anything about a window's tabs changes, from Rust or the page. It may use `app.tabs()`; its own changes don't call it again. Several changes to one window while its call waits on the worker make one call. |
 | `drop_slack(above, below)`, `drag_opacity(0.2..1)` | 10, 16 px; 1.0 |
 
 Set `TAURIS_UI_LOG=1` to print every window's tabs after each change.
@@ -667,7 +667,7 @@ Types are in `web/menus.d.ts`. **The look:** `--tmn-*` variables at the top of `
 
 ## Terminal
 
-An optional look for an app or a part of one: amber on black, IBM Plex Mono at 12/18 px, square corners, 1 px gaps between panes. It changes nothing outside the element you mark as a terminal (`.tm`), and its stylesheet is added only when a page uses it. Like the tree, it lives in the page: the plugin delivers it, and it needs no capability.
+An optional look for an app or a part of one: amber on black, IBM Plex Mono at 12/18 px, square corners, 1 px gaps between panes. It changes nothing outside the element you mark as a terminal (`.tm`), and its stylesheet is added only when a page uses it. A page that brings its own passes `{ styles: false }` to `mount` (and to `commandLine`, `log` or `pane` made before it). Like the tree, it lives in the page: the plugin delivers it, and it needs no capability.
 
 Most of it is CSS classes on your own markup. Every class is listed at the top of `web/terminal.css`; every colour and size is a `--tm-*` variable. Open `test/terminal_demo.html` in a browser to see every part.
 
@@ -752,7 +752,7 @@ cargo +1.90 build                          # the oldest Rust the library builds 
 - The page tests run in Chrome. Tauri on macOS uses WebKit, and on Windows WebView2 (Chromium).
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
 - The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
-- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once; one made inside that lock, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows (and must not need the main thread). A quitting app waits for it (half a second at most; it cannot open windows then).
+- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once; one made inside that lock, by an async page command, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows (and must not need the main thread). A quitting app waits for it (half a second at most; it cannot open windows then).
 - A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing

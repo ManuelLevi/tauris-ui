@@ -556,9 +556,17 @@ with sync_playwright() as p:
     page.click('#sortHost .tv-row[data-key="b169"] .tv-label', modifiers=["ControlOrMeta"])
     check("taking out the row with the focus moves it to the nearest selected row",
           page.evaluate("st.selection().map(n => n.id)") == ["b49", "anna"] and page.evaluate("st.selected().id") == "b49")
-    if mac:
-        page.click('#sortHost .tv-row[data-key="zoe"] .tv-label', modifiers=["Control"])
-        check("on a Mac, Control-click (a right click) changes nothing", page.evaluate("st.selection().map(n => n.id)") == ["b49", "anna"])
+    page.close()
+    # A Mac, on any machine: the page is told so.
+    page = browser.new_page(viewport={"width": 1200, "height": 800}, device_scale_factor=2)
+    page.add_init_script("Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' })")
+    page.goto(DEMO.as_uri())
+    page.wait_for_selector(".tv-row")
+    page.evaluate("(" + SORT_TREE + ")({ multiple: true })")
+    page.evaluate("sortHost.id = 'sortHost'; st.select(['b49', 'anna'])")
+    page.click('#sortHost .tv-row[data-key="zoe"] .tv-label', modifiers=["Control"])
+    check("on a Mac, Control-click (a right click) changes nothing", page.evaluate("st.selection().map(n => n.id)") == ["b49", "anna"],
+          page.evaluate("st.selection().map(n => n.id)"))
     page.close()
 
     # ---------- a second review ----------
@@ -716,6 +724,23 @@ with sync_playwright() as p:
     page.evaluate("demo.settings.select('general.name'); document.body.focus()")
     got = page.evaluate("getComputedStyle(document.querySelector('#settings .tv-row[aria-selected=\"true\"]')).color")
     check("colours set on the tree itself reach what follows them (the selection without the focus)", got == "rgb(17, 17, 17)", got)
+    page.close()
+
+    # ---------- an eighth review ----------
+    page = fresh(browser)
+    page.evaluate("demo.settings.expandAll(); demo.settings.select('general'); demo.settings.focus()")
+    events(page)
+    page.keyboard.type("open at")
+    check("a space in a typed name is part of it, not a press on the row",
+          selected(page, "settings") == "general.login" and events(page, "change") == [], (selected(page, "settings"), events(page, "change")))
+    page.evaluate("demo.settings.edit('general.name')")
+    page.keyboard.type("Half")
+    page.evaluate("demo.settings.collapse('editor'); demo.settings.expand('editor')")
+    check("opening or closing another folder keeps the editor open", page.locator("#settings .tv-editor").count() == 1 and events(page, "change") == [])
+    page.keyboard.press("Escape")
+    page.evaluate("demo.settings.select('general.name'); document.body.focus()")
+    bar = page.evaluate("getComputedStyle(document.querySelector('#settings .tv-row[aria-selected=\"true\"]')).boxShadow")
+    check("a selection without the focus has a bar of the selection's colour", bar != "none", bar)
     page.close()
 
     # ---------- one look for every component ----------

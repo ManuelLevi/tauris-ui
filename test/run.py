@@ -678,6 +678,23 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.close()
 
+    page = fresh(browser)
+    box = page.locator(".tt-tab").nth(0).bounding_box()
+    page.mouse.move(box["x"] + 20, box["y"] + 10)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 32, box["y"] + 10, steps=3)
+    page.mouse.move(box["x"] + 20, box["y"] + 10, steps=3)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    left = page.evaluate("document.querySelector('.tt-tab').className")
+    check("a drag released where it began leaves the tab with no drag look", left.split() == ["tt-tab", "tt-active"], left)
+    page.locator(".tt-tab").first.focus()
+    page.keyboard.press("Shift+F10")
+    page.click(".tt-menu-sep") if page.locator(".tt-menu-sep").count() else page.click(".tt-menu", position={"x": 2, "y": 2})
+    page.keyboard.press("Escape")
+    check("a click on the menu's padding or a line keeps its keys (Escape still closes it)", page.locator(".tt-menu").count() == 0)
+    page.close()
+
     # --- the terminal as the plugin delivers it: no stylesheet until it is used ---
     term_js = (WEB / "terminal.js").read_text().replace('"__TAURIS_TERMINAL_CSS__"', json.dumps((WEB / "terminal.css").read_text()))
     page = browser.new_page(viewport={"width": 600, "height": 300})

@@ -273,7 +273,9 @@ fn a_restore_on_its_way_opens_no_other_window() {
 // app had put in the dragged window; that window leaves the layout.
 #[test]
 fn a_dropped_tab_lands_in_the_window_under_it() {
-    let app = app(quiet());
+    let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let h = heard.clone();
+    let app = app(quiet().on_change(move |_, label| h.lock().unwrap().push(label.to_string())));
     app.tabs().start().unwrap();
     let moving = app.tabs().new_window_with(NewTab::new("Report")).unwrap();
     let report = app.tabs().windows()[1].tabs[0].id;
@@ -289,6 +291,10 @@ fn a_dropped_tab_lands_in_the_window_under_it() {
     assert_eq!(titles(&app), [["Report", "Home", "Extra"]]);
     assert!(app.tabs().tab(extra).is_some());
     assert_eq!(app.tabs().windows()[0].active, Some(report));
+    // The app hears of both windows: the one the tab went to, and the one that went.
+    windows::settle(app.handle(), std::time::Duration::from_secs(2));
+    let heard = heard.lock().unwrap();
+    assert!(heard.contains(&"tabs-1".to_string()) && heard.contains(&moving), "{heard:?}");
 }
 
 // While remembered windows are opening, nothing overwrites the file.
@@ -871,7 +877,8 @@ fn changes_to_a_window_waiting_for_the_hook_add_no_calls() {
     drop(held);
     windows::settle(app.handle(), std::time::Duration::from_secs(2));
     // One call running when the others came, and one more for them all.
-    assert!(calls.load(Ordering::SeqCst) <= 2, "{} calls", calls.load(Ordering::SeqCst));
+    let made = calls.load(Ordering::SeqCst);
+    assert!((1..=2).contains(&made), "{made} calls");
 }
 
 // Quitting also waits for a hook call running on another thread (an async command's).
@@ -885,7 +892,8 @@ fn quitting_waits_for_a_hook_call_on_another_thread() {
     }));
     let handle = app.handle().clone();
     let caller = std::thread::spawn(move || windows::changed(&handle, "tabs-1"));
-    std::thread::sleep(std::time::Duration::from_millis(30));
+    // The hook has begun on the other thread (it holds the hook's lock).
+    eventually("the hook to begin", || windows::inner(app.handle()).hook.try_lock().is_err());
     crate::exiting(app.handle());
     assert_eq!(done.load(Ordering::SeqCst), 1, "the app quit in the middle of the hook");
     caller.join().unwrap();
@@ -902,6 +910,9 @@ fn a_panic_that_panics_when_dropped_does_not_stop_the_worker() {
     }
     let app = app(quiet());
     windows::after_event(app.handle(), |_| std::panic::panic_any(Bomb));
+    // The bomb has gone off before the next job is sent: that job finds the same worker.
+    windows::settle(app.handle(), std::time::Duration::from_secs(1));
+    std::thread::sleep(std::time::Duration::from_millis(20));
     let done = Arc::new(AtomicUsize::new(0));
     let d = done.clone();
     windows::after_event(app.handle(), move |_| {
@@ -909,6 +920,78 @@ fn a_panic_that_panics_when_dropped_does_not_stop_the_worker() {
     });
     eventually("the job after it", || done.load(Ordering::SeqCst) == 1);
     windows::settle(app.handle(), std::time::Duration::from_secs(1));
+}
+
+// Merged calls keep the place of the newest: changes to a, b, then a again
+// reach the hook as b, then a.
+#[test]
+fn merged_hook_calls_keep_the_newest_place() {
+    let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let gate = Arc::new(std::sync::Mutex::new(()));
+    let (o, g) = (order.clone(), gate.clone());
+    let app = app(quiet().on_change(move |_, label| {
+        drop(g.lock());
+        o.lock().unwrap().push(label.to_string());
+    }));
+    let held = gate.lock().unwrap();
+    {
+        let _locked = windows::InPlugin::enter();
+        windows::changed(app.handle(), "x");
+    }
+    eventually("the first call to begin", || windows::inner(app.handle()).hook.try_lock().is_err());
+    {
+        let _locked = windows::InPlugin::enter();
+        for label in ["a", "b", "a"] {
+            windows::changed(app.handle(), label);
+        }
+    }
+    drop(held);
+    windows::settle(app.handle(), std::time::Duration::from_secs(2));
+    assert_eq!(*order.lock().unwrap(), ["x", "b", "a"]);
+}
+
+// An async page command (dragging a tab out, moving it to a new window) runs
+// the app's hook on its worker, not on the async runtime's thread.
+#[test]
+fn async_page_commands_defer_the_hook() {
+    let threads = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let t = threads.clone();
+    let app = app(quiet().on_change(move |_, _| t.lock().unwrap().push(std::thread::current().id())));
+    app.tabs().start().unwrap();
+    app.tabs().open(NewTab::new("Report")).unwrap();
+    threads.lock().unwrap().clear();
+    {
+        let _later = windows::DeferHook::enter();
+        windows::changed(app.handle(), "tabs-1");
+    }
+    windows::settle(app.handle(), std::time::Duration::from_secs(2));
+    let here = std::thread::current().id();
+    assert!(!threads.lock().unwrap().is_empty() && threads.lock().unwrap().iter().all(|id| *id != here));
+}
+
+// A window still opening takes no tab: if it fails, the tab would go with it.
+#[test]
+fn a_window_still_opening_takes_no_tab() {
+    let app = app(quiet());
+    let label = windows::inner(app.handle()).model().create_win(vec![]);
+    assert_eq!(windows::add_tab(app.handle(), &label, NewTab::new("Late"), false), None);
+}
+
+// A tab opened while another thread restores the windows waits for the first
+// of them, rather than opening a window of its own.
+#[test]
+fn a_tab_opened_during_a_restore_goes_to_the_restored_window() {
+    let app = app(quiet());
+    windows::inner(app.handle()).restoring.store(true, Ordering::SeqCst);
+    let handle = app.handle().clone();
+    let restorer = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        windows::create_window(&handle, vec![NewTab::new("Restored")], None, true).unwrap();
+        windows::inner(&handle).restoring.store(false, Ordering::SeqCst);
+    });
+    app.tabs().open(NewTab::new("Late")).unwrap();
+    restorer.join().unwrap();
+    assert_eq!(titles(&app), [["Restored", "Late"]]);
 }
 
 // Debug builds stop a window opened inside Tauri's plugin lock at once.

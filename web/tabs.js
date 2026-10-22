@@ -301,7 +301,7 @@
       let items = defaultItems(tab);
       if (typeof opt.contextMenu === "function") items = opt.contextMenu(tab, items) || items;
       if (!items.length) return;
-      menu = el("div", "tt-menu", { role: "menu", "aria-label": tab ? tab.title : L.tabs }, items.map(item => {
+      menu = el("div", "tt-menu", { role: "menu", tabindex: "-1", "aria-label": tab ? tab.title : L.tabs }, items.map(item => {
         if (item === "-") return el("div", "tt-menu-sep", { role: "separator" });
         const row = el("div", `tt-menu-item${item.danger ? " tt-danger" : ""}`,
           { role: "menuitem", tabindex: "-1", "aria-disabled": item.disabled ? "true" : null },
@@ -322,6 +322,10 @@
       menuReturnTab = returnFocus && tab ? tab.id : null;
       menuItems()[0]?.focus({ preventScroll: true });
       menu.addEventListener("keydown", onMenuKey);
+      // A press on its padding or a line keeps the focus (and the keys) in the menu.
+      menu.addEventListener("pointerdown", e => {
+        if (!e.target.closest(".tt-menu-item")) e.preventDefault();
+      });
     }
 
     const menuItems = () => menu ? [...menu.querySelectorAll('.tt-menu-item:not([aria-disabled="true"])')] : [];
@@ -362,7 +366,8 @@
         shown.forEach((node, i) => {
           if (node.classList.contains("tt-active") === (tabs[i].id === active)) return;
           const next = tabElement(tabs[i]);
-          if (next.innerHTML !== node.innerHTML) return node.replaceWith(next);
+          // What renderTab returns is the app's (its handlers, its references): it is used.
+          if (opt.renderTab || next.innerHTML !== node.innerHTML) return node.replaceWith(next);
           node.className = next.className;
           node.setAttribute("aria-selected", next.getAttribute("aria-selected"));
         });
@@ -542,9 +547,15 @@
     // the pointer, and a quick move can leave the strip in one step.
     window.addEventListener("pointermove", e => {
       if (!drag || drag.handedOff) return;
+      // The release was lost (a dialog, the window going to the back): no drag without the button.
+      if (e.buttons === 0) return endDrag();
       if (!drag.moved) {
         if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < opt.moveThreshold) return;
         drag.moved = true;
+        // The strip may have been drawn again since the press: its elements as they are now.
+        drag.els = [...tabsEl.querySelectorAll(".tt-tab:not(.tt-ghost)")];
+        drag.from = Math.max(0, drag.els.findIndex(n => Number(n.dataset.id) === drag.id));
+        drag.to = drag.from;
         // The pointer is held by the strip only once the drag begins, so a plain
         // click or double-click still reaches what was pressed (a renderTab's span).
         try { strip.setPointerCapture(drag.pointer); } catch { /* the pointer is gone */ }
@@ -621,12 +632,17 @@
       drag.preview?.remove();
       const id = drag.id;
       // Rust could not take the tab (not macOS, or no new window): it stays.
-      call("drag_out", { tab: id, grabX, grabY }).catch(() => { drag = null; quiet(load()); });
+      call("drag_out", { tab: id, grabX, grabY }).catch(() => {
+        if (drag) resetDragStyles();
+        drag = null;
+        quiet(load());
+      });
     }
 
     function endDrag() {
       if (!drag) return;
       const finished = drag;
+      if (finished.moved && !finished.handedOff) resetDragStyles(); // the tabs drawn in place keep no drag look
       drag = null;
       cancelAnimationFrame(finished.frame);
       finished.preview?.remove();
@@ -655,6 +671,13 @@
         dropped.getBoundingClientRect();
         dropped.classList.add("tt-settling");
         dropped.style.setProperty("--dx", "0px");
+        // Settled: the tab keeps no trace of the glide (it may stay this element).
+        const settled = () => {
+          dropped.classList.remove("tt-settling");
+          dropped.style.removeProperty("--dx");
+        };
+        dropped.addEventListener("transitionend", settled, { once: true });
+        setTimeout(settled, 300); // no transition (reduced motion, no move): still cleared
       }
       emit("drop", { tab, index: finished.to });
 

@@ -4,6 +4,7 @@ way, and what the checker says about them.
     python test/doctor_run.py
 """
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,18 +27,29 @@ GOOD_CAP = {"identifier": "default", "windows": ["*"], "permissions": ["core:def
 
 
 def app(page="<script>TaurisFiles.mount(document.body, { pick: async () => [] })</script>", rust=GOOD_RUST,
-        dependency=None, capability=GOOD_CAP, conf_app=None, workspace=None, extra=None):
-    """Writes a small app and runs the checker on it: (its output, exit code)."""
+        dependency=None, capability=GOOD_CAP, conf_app=None, workspace=None, extra=None, conf=None, manifest=None,
+        tsconfig=False):
+    """Writes a small app and runs the checker on it: (its output, exit code).
+    The app is deleted afterwards."""
     root = Path(tempfile.mkdtemp(prefix="tauris-doctor-"))
+    try:
+        return checked(root, page, rust, dependency, capability, conf_app, workspace, extra, conf, manifest, tsconfig)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def checked(root, page, rust, dependency, capability, conf_app, workspace, extra, conf, manifest, tsconfig):
     tauri = root / "src-tauri"
     (tauri / "src").mkdir(parents=True)
     (tauri / "capabilities").mkdir()
     (root / "dist").mkdir()
     dep = dependency or f'{{ path = "{LIBRARY}", version = "0.4" }}'
-    (tauri / "Cargo.toml").write_text(f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauris-ui = {dep}\n')
+    (tauri / "Cargo.toml").write_text(manifest or f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauris-ui = {dep}\n')
+    if tsconfig:
+        (root / "tsconfig.json").write_text("{}")
     if workspace:
         (root / "Cargo.toml").write_text(workspace)
-    conf = {"app": conf_app or {"withGlobalTauri": True}, "build": {"frontendDist": "../dist"}}
+    conf = {"app": conf_app or {"withGlobalTauri": True}, "build": {"frontendDist": "../dist"}, **(conf or {})}
     (tauri / "tauri.conf.json").write_text(json.dumps(conf))
     if capability is not None:
         (tauri / "capabilities" / "default.json").write_text(json.dumps(capability))
@@ -112,6 +124,60 @@ out, _ = app(dependency=f'{{ path = "{LIBRARY}", version = "*" }}')
 check('version "*" counts as no version', "accepts any version" in out, out)
 out, _ = app(dependency="{ workspace = true }", workspace=f'[workspace]\nmembers = ["src-tauri"]\n[workspace.dependencies]\ntauris-ui = {{ path = "{LIBRARY}", version = "0.4" }}\n')
 check("{ workspace = true } is read from the workspace", "ok    Cargo.toml depends on this tauris-ui" in out, out)
+
+# ---------- a sixth review ----------
+TABS = "<script>TaurisTabs.mount(document.getElementById('strip'))</script>"
+out, _ = app(page="<script>const h = `${a.map(x => `[l](https://e.com/${x})`)}`; TaurisFiles.mount(el, { pick: f });</script>")
+check("a template inside a template's ${ } ends where it should", "components in use: files" in out, out)
+out, _ = app(page="<script>const o = '<!--'; TaurisFiles.mount(el, { pick: f }); const c = '-->';</script>")
+check("<!-- inside a script's string is not a comment", "components in use: files" in out, out)
+out, _ = app(page="<script>TaurisFiles.mount(el, { pick: f })</script>", extra={"tabs.d.ts": (Path(__file__).parent.parent / "web" / "tabs.d.ts").read_text()})
+check("copied typings are not the app using a component", "tabs" not in out.split("components in use:")[1].split("\n")[0], out)
+out, _ = app(page="<script src='tabs.js'></script>", extra={"tabs.js": "TaurisTabs.mount(document.getElementById('strip'))"})
+check("an app's own tabs.js that mounts the strip is not a copy of the library's", "own copy of the library's tabs.js" not in out, out)
+out, _ = app(page="<script src='tabs.js'></script>", extra={"tabs.js": "window.TaurisTabs = { mount() {} }; const CSS = '__TAURIS_TABS_CSS__';"})
+check("a copy of the library's tabs.js is found", "own copy of the library's tabs.js" in out, out)
+out, code = app(capability=None)
+check("an app with its own pick needs no capability for the picker", "no capability grants" not in out and code == 0, out)
+out, code = app(page="<script>TaurisFiles.mount(el)</script>", dependency=f'{{ path = "{LIBRARY}", version = "0.4", features = ["files"] }}',
+                capability={**GOOD_CAP, "windows": ["settings"]}, manifest=None)
+check("a capability for other windows does not cover the app's", "does not cover the app's windows" in out and code == 1, out)
+out, _ = app(capability={**GOOD_CAP, "windows": ["tabs-1"]}, page=TABS)
+check("a capability for tabs-1 alone does not cover every tab window", "not the tab windows" in out, out)
+for name, decl in [("a typed declaration", "const opts: TaurisFilesOptions<F> = { pick: f }; TaurisFiles.mount(el, opts)"),
+                   ("a trailing comma", "const opts = { pick: f }; TaurisFiles.mount(el, opts,)"),
+                   ("a spread", "const base = { pick: f }; const opts = { ...base, onAdd }; TaurisFiles.mount(el, opts)"),
+                   ("a getter", "TaurisFiles.mount(el, { get pick() { return f } })")]:
+    out, _ = app(page=f"<script>{decl}</script>")
+    check(f"pick given through {name}", "own picker" in out, out)
+for req, want in [(">0.4", False), ("<=0.4", True), ("<=1", None), ("<=0", True)]:
+    if want is None:
+        continue
+    check(f'"{req}" read as Cargo does', accepts(req, "0.4.17") == want, accepts(req, "0.4.17"))
+check('"<=1" takes 1.2.3', accepts("<=1", "1.2.3"))
+out, code = app(manifest="[package\nname = x")
+check("a Cargo.toml that cannot be read is said so, not a crash", "cannot be read" in out and code == 1 and "Traceback" not in out, out)
+renamed = f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\nui = {{ package = "tauris-ui", path = "{LIBRARY}", version = "0.4" }}\n'
+out, _ = app(manifest=renamed, rust="fn main() { tauri::Builder::default().plugin(ui::init(ui::Config::new())); }\n")
+check("a renamed dependency (ui = { package = \"tauris-ui\" })", "ok    Cargo.toml depends on this tauris-ui" in out and "ok    the plugin is registered" in out, out)
+for name, rust in [("init::<Wry>(...)", "fn main() { tauri::Builder::default().plugin(tauris_ui::init::<tauri::Wry>(tauris_ui::Config::new())); }\n"),
+                   ("use tauris_ui as ui", "use tauris_ui as ui;\nfn main() { tauri::Builder::default().plugin(ui::init(ui::Config::new())); }\n"),
+                   ("a raw byte string with // in it", 'fn main() { let s = br#"a//b"#; tauri::Builder::default().plugin(tauris_ui::init(tauris_ui::Config::new())); }\n')]:
+    out, _ = app(rust=rust)
+    check(f"the plugin found with {name}", "ok    the plugin is registered" in out, out)
+
+# ---------- what is wrong is said, and the exit code says so ----------
+for name, kwargs, says in [
+    ("a dependency path that leads nowhere", {"dependency": '{ path = "/nowhere", version = "0.4" }'}, "does not lead to tauris-ui"),
+    ("an older version asked for", {"dependency": f'{{ path = "{LIBRARY}", version = "0.3" }}'}, "which needs changes in the app"),
+    ("withGlobalTauri off", {"conf_app": {"withGlobalTauri": False}}, "dropped files are never heard"),
+    ("the tauris-ui layer declared", {"page": "<style>@layer reset, tauris-ui;</style><script>TaurisFiles.mount(el, { pick: f })</script>"}, "declares the tauris-ui layer"),
+    ("a capability only for main", {"page": TABS, "capability": {**GOOD_CAP, "windows": ["main"]}}, "not the tab windows"),
+    ("the example's identifier", {"conf": {"identifier": "dev.tauris-ui.example"}}, "the example's identifier"),
+    ("stale typings", {"tsconfig": True, "extra": {"files.d.ts": "// old\n"}}, "is out of date"),
+]:
+    out, code = app(**kwargs)
+    check(f"{name}: said, and the checker exits 1", says in out and code == 1 and "to fix." in out, (code, out[-300:]))
 
 print()
 print("ALL PASSED" if not failures else f"{len(failures)} FAILED: {failures}")

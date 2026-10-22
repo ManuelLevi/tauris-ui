@@ -308,7 +308,8 @@ impl<R: Runtime> Tabs<R> {
         windows::add_tab(&self.0, label, tab, false)
     }
 
-    /// Every window of tabs, frontmost last.
+    /// Every window of tabs, the most recently focused last (it may be one still
+    /// opening, or the one a tab is being dragged in; [`frontmost`](Self::frontmost) skips those).
     pub fn windows(&self) -> Vec<WindowTabs> {
         windows::all_windows(&self.0)
     }

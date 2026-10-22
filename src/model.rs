@@ -246,6 +246,10 @@ impl Model {
         active: Option<u64>,
         chosen: Option<u64>,
     ) -> Option<String> {
+        // The tab was closed meanwhile: nothing to put back.
+        if !self.tabs.contains_key(&tab) {
+            return None;
+        }
         let Some(win) = self.win(label) else {
             let Some(front) = self.frontmost() else {
                 self.tabs.remove(&tab);
@@ -411,6 +415,11 @@ mod tests {
         let c = m.create_tab(NewTab::new("c"));
         assert_eq!(m.put_back(&first, c, 0, None, None), None);
         assert!(!m.tabs.contains_key(&c));
+        // A tab closed meanwhile is not put back anywhere.
+        let w = m.create_win(vec![]);
+        m.opened(&w);
+        assert_eq!(m.put_back(&w, 999, 0, None, None), None);
+        assert!(m.win(&w).unwrap().tabs.is_empty());
     }
 
     // While a tab is dragged in a window of its own, what opens meanwhile goes

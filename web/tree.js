@@ -148,7 +148,7 @@
         compare: typeof c.compare === "function" ? c.compare : null,
       }))
       : null;
-    const widths = cols ? cols.map(c => c.width) : [];
+    const widths = cols ? cols.map(c => Math.max(c.minWidth, c.width)) : [];
     // A plain tree sorts by its labels.
     const sortCols = cols ?? [{ id: "label", label: "", sortable: true, sortValue: null, compare: null }];
     const canSort = c => Boolean(c && c.sortable && c.id !== null);
@@ -234,6 +234,7 @@
       head?.querySelectorAll('[role="separator"]').forEach(s => {
         const w = widths[[...head.children].indexOf(s)];
         s.setAttribute("aria-valuenow", String(w));
+        s.setAttribute("aria-valuemax", String(Math.max(4000, w)));
         s.setAttribute("aria-valuetext", `${w} pixels`);
       });
       root.style.setProperty("--tv-total", `${widths.reduce((a, b) => a + b, 0)}px`);
@@ -718,8 +719,9 @@
       input.focus({ preventScroll: true });
       // A column off to the side comes into view (rows scroll up and down by reveal).
       const box = scroller.getBoundingClientRect();
+      const right = box.left + scroller.clientWidth; // a scrollbar is not room
       const at = cell.getBoundingClientRect();
-      if (at.right > box.right) scroller.scrollLeft += Math.min(at.right - box.right, at.left - box.left);
+      if (at.right > right) scroller.scrollLeft += Math.min(at.right - right, at.left - box.left);
       if (at.left < box.left) scroller.scrollLeft -= box.left - at.left;
       if (input.tagName === "INPUT") input.select();
       if (input.tagName === "SELECT" && typeof input.showPicker === "function") {
@@ -869,7 +871,9 @@
         changed.push(n);
       }
       if (!changed.length) return;
-      finishEdit(true, false);
+      // An editor stays open unless its row is being hidden (a folder above it closing).
+      const hides = k => { for (let p = parents.get(k); p != null; p = parents.get(p)) if (!expanded.has(p)) return true; return false; };
+      if (editing && hides(editing.key)) finishEdit(true, false);
       rebuild();
       for (const n of changed) emit("toggle", { node: n, expanded: open });
     }
@@ -905,6 +909,8 @@
 
     body.addEventListener("keydown", e => {
       if (e.target.closest(".tv-editor, .tv-picker")) return;
+      // Any key but a letter (or Shift and the like) ends what was being typed.
+      if (e.key.length !== 1 && !["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) typed = "";
       const at = index.get(focusKey);
       if (at === undefined) return;
       const toggleKey = MAC ? e.metaKey : e.ctrlKey;
@@ -976,6 +982,11 @@
         }
         case " ": {
           handled();
+          // A space in the middle of typing a name is part of it ("open at login").
+          if (typed && performance.now() - typedAt < 700) {
+            typeAhead(" ", at);
+            break;
+          }
           const ci = checkboxColumn(row);
           if (opt.multiple && ci <= 0) {
             toggleFocused();
@@ -1129,7 +1140,7 @@
           cell.setAttribute("aria-orientation", "vertical");
           cell.setAttribute("aria-label", `${c.label}, width`);
           cell.setAttribute("aria-valuemin", String(c.minWidth));
-          cell.setAttribute("aria-valuemax", "4000");
+          cell.setAttribute("aria-valuemax", String(Math.max(4000, widths[i])));
           cell.setAttribute("aria-valuenow", String(widths[i]));
           cell.setAttribute("aria-valuetext", `${widths[i]} pixels`);
           cell.tabIndex = 0;

@@ -105,31 +105,41 @@ pub fn safe_name(name: &str) -> String {
     if trimmed.is_empty() {
         return "file".into();
     }
-    // Windows keeps these names for devices, with any extension ("con.txt" too).
-    let stem = trimmed.split('.').next().unwrap_or("").trim_end().to_uppercase();
+    // Most disks allow 255 bytes; 200 characters keeps full paths short.
+    const CHARS: usize = 200;
+    const BYTES: usize = 255;
+    // Cut first, then the device check on what is left ("CON" and spaces cut
+    // down to "CON.txt" is still caught); one character fewer makes room for its "_".
+    let cut = |room: usize| -> String {
+        if trimmed.chars().count() <= CHARS - room && trimmed.len() <= BYTES - room {
+            return trimmed.clone();
+        }
+        match trimmed.rsplit_once('.') {
+            Some((stem, ext)) if !ext.is_empty() && ext.chars().count() <= 10 => {
+                let kept = head(stem, CHARS - room - ext.chars().count() - 1, BYTES - room - ext.len() - 1);
+                format!("{}.{ext}", kept.trim_end_matches(edge))
+            }
+            _ => head(&trimmed, CHARS - room, BYTES - room).trim_end_matches(edge).to_string(),
+        }
+    };
+    let name = cut(0);
+    if is_device(&name) {
+        format!("_{}", cut(1))
+    } else {
+        name
+    }
+}
+
+// Windows keeps these names for devices, with any extension ("con.txt" too).
+fn is_device(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").trim_end().to_uppercase();
     let numbered = |prefix: &str| {
         stem.strip_prefix(prefix).is_some_and(|n| {
             let mut chars = n.chars();
             matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_digit() || matches!(c, '¹' | '²' | '³'))
         })
     };
-    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
-        || numbered("COM")
-        || numbered("LPT");
-    let trimmed = if device { format!("_{trimmed}") } else { trimmed };
-    // Most disks allow 255 bytes; 200 characters keeps full paths short.
-    const CHARS: usize = 200;
-    const BYTES: usize = 255;
-    if trimmed.chars().count() <= CHARS && trimmed.len() <= BYTES {
-        return trimmed;
-    }
-    match trimmed.rsplit_once('.') {
-        Some((stem, ext)) if !ext.is_empty() && ext.chars().count() <= 10 => {
-            let cut = head(stem, CHARS - ext.chars().count() - 1, BYTES - ext.len() - 1);
-            format!("{}.{ext}", cut.trim_end_matches(edge))
-        }
-        _ => head(&trimmed, CHARS, BYTES).trim_end_matches(edge).to_string(),
-    }
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$") || numbered("COM") || numbered("LPT")
 }
 
 // Characters that show nothing but change how a name reads (direction
@@ -315,9 +325,19 @@ pub fn open_path(path: impl AsRef<Path>) -> Result<(), String> {
     open::that_detached(path).map_err(|e| format!("Couldn't open {name}: {e}"))
 }
 
-// Files the system would run (or open a program or web page from) rather than show.
+// Files the system would run (or open a program or web page from) rather than
+// show: by the name of what a link points at (Windows ignores trailing dots
+// and spaces), and, on Unix, any file marked executable, whatever its name.
 #[cfg(any(feature = "files", test))]
 fn runs_something(path: &Path) -> bool {
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if std::fs::metadata(&target).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0) {
+            return true;
+        }
+    }
     const PROGRAMS: &[&str] = &[
         "app",
         "command",
@@ -368,8 +388,27 @@ fn runs_something(path: &Path) -> bool {
         "appimage",
         "deb",
         "rpm",
+        "jnlp",
+        "pif",
+        "chm",
+        "mobileconfig",
+        "docm",
+        "dotm",
+        "xlsm",
+        "xltm",
+        "xlam",
+        "pptm",
+        "potm",
+        "ppam",
+        "sldm",
+        "iqy",
+        "slk",
+        "msc",
+        "gadget",
     ];
-    let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let name =
+        target.file_name().map(|n| n.to_string_lossy().trim_end_matches(['.', ' ']).to_string()).unwrap_or_default();
+    let ext = Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     PROGRAMS.contains(&ext.as_str())
 }
 
@@ -515,6 +554,9 @@ mod tests {
         assert_eq!(safe_name("CONIN$"), "_CONIN$");
         assert_eq!(safe_name("conout$.log"), "_conout$.log");
         assert_eq!(safe_name("COM10.txt"), "COM10.txt");
+        // A long name cut down to a device name is caught after the cut.
+        let padded = format!("CON{}x.txt", " ".repeat(250));
+        assert!(safe_name(&padded).starts_with('_'), "{}", safe_name(&padded));
         let spaced = format!("{} {}", "x".repeat(199), "y".repeat(20));
         assert!(!safe_name(&spaced).ends_with(' '));
         let long = format!("{}.pdf", "x".repeat(300));
@@ -546,6 +588,24 @@ mod tests {
         assert_eq!(size_text(2_516_582), "2.4 MB");
         assert_eq!(size_text(50 * 1024 * 1024), "50 MB");
         assert_eq!(size_text(1536 * 1024 * 1024), "1.5 GB");
+    }
+
+    // What open_path refuses, before anything is opened.
+    #[cfg(feature = "files")]
+    #[test]
+    fn open_path_refuses_folders_and_programs() {
+        let dir = std::env::temp_dir().join(format!("tauris-ui-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(open_path("").unwrap_err(), "The file could not be found.");
+        assert_eq!(open_path(dir.join("gone.pdf")).unwrap_err(), "gone.pdf could not be found.");
+        assert_eq!(
+            open_path(&dir).unwrap_err(),
+            format!("{} is a folder, not a file.", dir.file_name().unwrap().to_string_lossy())
+        );
+        let program = dir.join("Q3 plan.command");
+        std::fs::write(&program, "x").unwrap();
+        assert_eq!(open_path(&program).unwrap_err(), "Q3 plan.command could be a program, so it is not opened.");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -584,7 +644,23 @@ mod tests {
             std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
         }
         assert!(runs_something(Path::new("Q3 plan.command")) && runs_something(Path::new("setup.EXE")));
+        assert!(runs_something(Path::new("a.exe. ")) && runs_something(Path::new("Budget.xlsm")));
         assert!(!runs_something(Path::new("Board deck.pdf")) && !runs_something(Path::new("notes")));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // A program with no extension, and a link named like a document pointing at one.
+            let tool = dir.join("tool");
+            std::fs::write(&tool, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(runs_something(&tool));
+            let run = dir.join("run.command");
+            std::fs::write(&run, "x").unwrap();
+            let link = dir.join("Invoice.pdf");
+            let _ = std::fs::remove_file(&link);
+            std::os::unix::fs::symlink(&run, &link).unwrap();
+            assert!(runs_something(&link));
+        }
         assert!(inspect(&file, Some(3000)).is_ok());
 
         std::fs::remove_dir_all(&dir).ok();

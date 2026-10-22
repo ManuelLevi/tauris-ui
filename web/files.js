@@ -230,7 +230,12 @@
     return (await invoke("save_dialog", { title: options.title ?? null, name: options.name ?? null })) ?? null;
   }
 
-  const textOf = e => (e instanceof Error ? e.message : typeof e === "string" ? e : e && typeof e.message === "string" ? e.message : String(e));
+  // A rejection as the person reads it; an empty one (undefined, null, "") says nothing.
+  const textOf = e => (e == null ? "" : e instanceof Error ? e.message : typeof e === "string" ? e
+    : typeof e.message === "string" ? e.message : String(e));
+  // Names compared as people read them: no case, no accents, one Unicode form
+  // ("relatorio" finds "Relatório", typed "João" finds macOS's decomposed one).
+  const fold = text => String(text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
   // ---------- the component ----------
 
@@ -327,7 +332,15 @@
     let unlisten = null;
 
     const keyOf = v => String(v);
-    const fileById = key => list.find(f => keyOf(f.id) === key) ?? null;
+    let byKey = new Map();
+    let byKeyOf = null;
+    const fileById = key => {
+      if (byKeyOf !== list) {
+        byKey = new Map(list.map(f => [keyOf(f.id), f]));
+        byKeyOf = list;
+      }
+      return byKey.get(key) ?? null;
+    };
 
     // ---------- the parts ----------
 
@@ -430,7 +443,8 @@
         }
         headRow.append(cell);
       }
-      if (actions().length) headRow.append(el("div", "tf-th tf-c-acts", { role: "columnheader", "aria-label": words.actions }));
+      // The buttons are for the mouse (the keys reach each action): no column for screen readers.
+      if (actions().length) headRow.append(el("div", "tf-th tf-c-acts", { "aria-hidden": "true" }));
       if (had) headRow.querySelector(`[data-col="${had}"] .tf-sort`)?.focus({ preventScroll: true });
     }
 
@@ -448,8 +462,8 @@
     const exact = new Intl.Collator(undefined, { sensitivity: "variant", numeric: true });
 
     function visible() {
-      const q = query.trim().toLowerCase();
-      const out = q ? list.filter(f => String(f.name ?? "").toLowerCase().includes(q)) : list.slice();
+      const q = fold(query.trim());
+      const out = q ? list.filter(f => fold(f.name).includes(q)) : list.slice();
       const dir = sort.up ? 1 : -1;
       // As Finder: the name without its extension first, so "Q3 plan.md" comes
       // before "Q3 plan 2.md"; then the extension.
@@ -506,7 +520,7 @@
           b.append(icon(act));
           box.append(b);
         }
-        row.append(el("div", "tf-cell tf-c-acts", { role: "gridcell" }, box));
+        row.append(el("div", "tf-cell tf-c-acts", { "aria-hidden": "true" }, box));
       }
       if (fresh.has(key)) row.classList.add("tf-fresh");
       return row;
@@ -564,6 +578,8 @@
       askNo.textContent = String(words.cancel);
       askYes.textContent = String(words.delete);
 
+      // Whether any file shown before is still there (a list changed, not replaced).
+      const keptAny = shown.some(f => fileById(keyOf(f.id)) !== null);
       // A selected file the app no longer has is not selected any more.
       const oldAt = selId != null ? shown.findIndex(f => keyOf(f.id) === selId) : -1;
       const hadSelection = sel.size > 0;
@@ -590,6 +606,7 @@
       root.classList.toggle("tf-has-acts", acts.length > 0);
       root.style.setProperty("--tf-acts-n", String(acts.length));
       grid.hidden = list.length === 0;
+      grid.tabIndex = shown.length ? 0 : -1; // a search that matches nothing: Tab goes past
       empty.hidden = list.length !== 0;
       noMatch.hidden = !(list.length && !shown.length);
       noMatchText.textContent = noMatch.hidden ? "" : say(words.noMatch, query.trim());
@@ -597,7 +614,8 @@
       clearSearch.hidden = !clearSearch.textContent;
       // The only selected file is gone from the app's list: the file now in its
       // place takes the selection and the focus, as in a file manager (and the tree).
-      if (hadSelection && !sel.size && oldAt >= 0 && shown.length && !list.some(f => keyOf(f.id) === selId)) {
+      // (Not when the whole list was replaced, say for another place: nobody chose that file.)
+      if (hadSelection && !sel.size && oldAt >= 0 && shown.length && !list.some(f => keyOf(f.id) === selId) && keptAny) {
         const k = keyOf(shown[Math.min(oldAt, shown.length - 1)].id);
         sel = new Set([k]);
         selId = anchor = k;
@@ -749,14 +767,14 @@
             fresh = new Set();
             for (const row of rows.values()) row.classList.remove("tf-fresh");
           }, 1400);
-          if (query && !added.some(f => String(f.name ?? "").toLowerCase().includes(query.trim().toLowerCase()))) {
+          if (query && !added.some(f => fold(f.name).includes(fold(query.trim())))) {
             query = "";
             searchInput.value = "";
           }
           draw();
           // Every file just added is selected, the first one with the focus.
-          anchor = keyOf(added[0].id);
           const shownKeys = added.map(f => keyOf(f.id)).filter(k => rows.has(k));
+          anchor = shownKeys[0] ?? keyOf(added[0].id);
           setSelection(several() ? shownKeys : shownKeys.slice(0, 1), anchor);
           message(say(L().addedFiles, added, place()), "ok");
         };
@@ -921,9 +939,11 @@
         for (const k of gone) rows.get(k)?.remove();
         drawCount();
       }
-      // The file after the last one deleted takes the selection, as in a file manager.
+      // The file after the last one deleted takes the selection, as in a file
+      // manager; when one failed, that one does (it is the one to try again).
       const left = new Set(list.map(f => keyOf(f.id)));
-      const next = before.slice(last + 1).find(f => left.has(keyOf(f.id)))
+      const stuck = failed ? files.find(f => !gone.has(keyOf(f.id)) && left.has(keyOf(f.id))) : null;
+      const next = stuck ?? before.slice(last + 1).find(f => left.has(keyOf(f.id)))
         ?? before.slice(0, Math.max(0, last)).reverse().find(f => left.has(keyOf(f.id)));
       const k = next ? keyOf(next.id) : null;
       sel = new Set(k == null ? [] : [k]);
@@ -980,7 +1000,8 @@
             finish(false);
           } else if (e.key === "Tab") {
             e.preventDefault();
-            (document.activeElement === askYes ? askNo : askYes).focus();
+            // Between the two answers; from the question itself, to the safe one.
+            (document.activeElement === askNo ? askYes : askNo).focus();
           }
         }, { signal: done.signal });
         // The safe answer has the focus: Tab reaches the red one.
@@ -1070,7 +1091,7 @@
         if (e.isComposing || e.keyCode === 229) return;
         if (e.key === "Enter") {
           e.preventDefault();
-          commit();
+          if (!e.repeat) commit(); // holding Enter asks the app once
         } else if (e.key === "Escape") {
           e.preventDefault();
           // Once the app is renaming, the answer is waited for.
@@ -1196,6 +1217,14 @@
       if (rowMenu(fileById(row.__tfKey), { x: e.clientX, y: e.clientY }, false)) e.preventDefault();
     }, { signal });
 
+    // A character typed, not a shortcut: AltGr (Ctrl+Alt on Windows) and a
+    // Mac's Option make letters too ("ą", "ø").
+    const typing = e => {
+      const altGr = typeof e.getModifierState === "function" && e.getModifierState("AltGraph");
+      if (e.metaKey) return false;
+      if (e.ctrlKey) return altGr || (e.altKey && !MAC);
+      return !e.altKey || MAC || altGr;
+    };
     let typed = "";
     let typedAt = 0;
     grid.addEventListener("keydown", e => {
@@ -1249,7 +1278,7 @@
       else if (e.key === "PageDown") to(i < 0 ? page : i + page);
       else if (e.key === "PageUp") to(i < 0 ? 0 : i - page);
       // Enter, F2 and Delete act on the selected files, never on a file that only has the focus.
-      else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         if (selection().length) openMany(selection());
       } else if (e.key === "F2") {
@@ -1270,7 +1299,7 @@
         else if (selId !== k) setSelection(sel, k, false);
         const r = rows.get(k)?.querySelector(".tf-c-name")?.getBoundingClientRect();
         if (r && rowMenu(fileById(k) ?? target, { x: r.left + 12, y: r.bottom }, true)) e.preventDefault();
-      } else if (e.key.length === 1 && (e.key !== " " || spelling) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      } else if (e.key.length === 1 && (e.key !== " " || spelling) && typing(e)) {
         // Typing jumps to the next file whose name starts with what was typed, and
         // selects it alone, as in a file manager. One letter again and again steps
         // through the files that start with it.
@@ -1283,8 +1312,8 @@
         // not Report 10 after the selected Report 2); one letter steps on.
         const from = typed.length > 1 && !same ? 0 : i + 1;
         const order = shown.slice(from).concat(shown.slice(0, from));
-        const hit = order.find(f => String(f.name ?? "").toLowerCase().startsWith(typed))
-          ?? (same ? order.find(f => String(f.name ?? "").toLowerCase().startsWith(want)) : undefined);
+        const hit = order.find(f => fold(f.name).startsWith(fold(typed)))
+          ?? (same ? order.find(f => fold(f.name).startsWith(fold(want))) : undefined);
         if (hit) {
           e.preventDefault();
           select(hit.id);
@@ -1298,7 +1327,8 @@
     }, { signal });
     searchInput.addEventListener("keydown", e => {
       if (e.isComposing || e.keyCode === 229) return; // the arrows and Escape belong to the input method then
-      if (e.key === "ArrowDown" && shown.length) {
+      if ((e.key === "ArrowDown" || (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey)) && shown.length) {
+        // Down or Enter: into the list, on the first match (unless a shown file has the focus).
         e.preventDefault();
         if (!current()) select(shown[0].id);
         grid.focus({ preventScroll: true });
@@ -1347,7 +1377,9 @@
     // one's; elsewhere, the first shown one with dropArea "window" takes it.
     function overMe(position) {
       const known = position && Number.isFinite(position.x) && Number.isFinite(position.y);
-      if (opt.dropArea === "element") return known ? inside(position) : true;
+      // No position (a fed event): only the first shown component that takes drops.
+      if (!known) return [...everyFiles].find(o => o.takes()) === me;
+      if (opt.dropArea === "element") return inside(position);
       const owner = known ? [...everyFiles].find(o => o.takes() && o.under(position)) : null;
       if (owner) return owner === me;
       return [...everyFiles].find(o => o.window()) === me;

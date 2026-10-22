@@ -45,10 +45,10 @@
     --tv-hover-bg: var(--tauris-hover, #1f1f24);
     --tv-sel-bg: var(--tauris-sel-bg, #2b5bd6);           /* the selected row while the tree has focus */
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
-    --tv-sel-line: rgb(255 255 255 / 0.7);
+    --tv-sel-line: color-mix(in srgb, var(--tv-sel-fg) 70%, transparent);
     --tv-sel-inactive-bg: var(--tauris-sel-inactive, #34343b);  /* the selected row while focus is elsewhere */
     /* --tv-sel-inactive-fg: unset, the text colour */
-    --tv-focus: var(--tauris-accent, #5b8cff);
+    --tv-focus: var(--tauris-accent-ink, var(--tauris-accent, #5b8cff));
     --tv-head-bg: var(--tauris-chrome, #1c1c20);
     --tv-head-fg: var(--tauris-dim, #9e9ea8);
     --tv-head-line: var(--tauris-line, #2f2f36);
@@ -89,9 +89,9 @@
       --tv-hover-bg: var(--tauris-hover, #f0f2f6);
       --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
       --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
-      --tv-sel-line: rgb(255 255 255 / 0.7);
+      --tv-sel-line: color-mix(in srgb, var(--tv-sel-fg) 70%, transparent);
       --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
-      --tv-focus: var(--tauris-accent, #2f6bff);
+      --tv-focus: var(--tauris-accent-ink, var(--tauris-accent, #2f6bff));
       --tv-head-bg: var(--tauris-chrome, #f6f6f8);
       --tv-head-fg: var(--tauris-dim, #5c5c66);
       --tv-head-line: var(--tauris-line, #dadade);
@@ -103,7 +103,7 @@
       --tv-check-border: var(--tauris-dim, #8b8b95);
       --tv-check-on: var(--tauris-accent, #2f6bff);
       --tv-swatch-line: rgb(0 0 0 / 0.22);
-      --tv-scroll-thumb: var(--tauris-line, #c8c8cf);
+      --tv-scroll-thumb: var(--tauris-line, #9c9ea6);
       --tv-icon-tint: 0.16;
       --tv-icon-folder: #cf9620;
       --tv-icon-file: #84848e;
@@ -128,9 +128,9 @@
     --tv-hover-bg: var(--tauris-hover, #f0f2f6);
     --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
-    --tv-sel-line: rgb(255 255 255 / 0.7);
+    --tv-sel-line: color-mix(in srgb, var(--tv-sel-fg) 70%, transparent);
     --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
-    --tv-focus: var(--tauris-accent, #2f6bff);
+    --tv-focus: var(--tauris-accent-ink, var(--tauris-accent, #2f6bff));
     --tv-head-bg: var(--tauris-chrome, #f6f6f8);
     --tv-head-fg: var(--tauris-dim, #5c5c66);
     --tv-head-line: var(--tauris-line, #dadade);
@@ -142,7 +142,7 @@
     --tv-check-border: var(--tauris-dim, #8b8b95);
     --tv-check-on: var(--tauris-accent, #2f6bff);
     --tv-swatch-line: rgb(0 0 0 / 0.22);
-    --tv-scroll-thumb: var(--tauris-line, #c8c8cf);
+    --tv-scroll-thumb: var(--tauris-line, #9c9ea6);
     --tv-icon-tint: 0.16;
     --tv-icon-folder: #cf9620;
     --tv-icon-file: #84848e;
@@ -214,6 +214,9 @@
 
   .tv-row[aria-selected="true"] {
     background: var(--tv-sel-inactive-bg);
+    /* A bar of the selection's colour at its start: the selection shows plainly while
+       the tree does not have the focus (its tint alone is faint). */
+    box-shadow: inset 2px 0 var(--tv-sel-bg);
     color: var(--tv-sel-inactive-fg, var(--tv-fg));
     --tv-muted: var(--tv-sel-inactive-fg, var(--tv-fg));  /* secondary text stays readable on the selection */
   }
@@ -547,6 +550,13 @@
     .tv-check { forced-color-adjust: none; border-color: CanvasText; background: Canvas; }
     /* the lines' colour is read where tree.js sets them, on the indent */
     .tv-indent { --tv-line: CanvasText; }
+    .tv-row[aria-selected="true"] .tv-indent { --tv-line: HighlightText; }
+    /* A colour stays its colour, with a line around it; the caret and a column's edge show. */
+    .tv-swatch { forced-color-adjust: none; border: 1px solid CanvasText; }
+    .tv-caret { forced-color-adjust: none; background: CanvasText; }
+    .tv-row[aria-selected="true"] .tv-caret { background: HighlightText; }
+    .tv-grip:hover::after,
+    .tv-grip.tv-grip-on::after { forced-color-adjust: none; background: Highlight; }
     .tv-indent::before { forced-color-adjust: none; }
     .tv-check.tv-on { background: Highlight; border-color: Highlight; }
     .tv-check.tv-on::after { border-color: HighlightText; }

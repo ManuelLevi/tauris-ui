@@ -30,6 +30,35 @@ REGEX_AFTER_WORD = {"return", "typeof", "case", "do", "else", "in", "of", "void"
 REGEX_AFTER = set("(,=:[!&|?{};+-*%<>~^")
 
 
+def end_of_template(text, i):
+    """Where the template literal starting at `i` ends: past its own backtick,
+    with ${ ... } expressions (and templates inside them) skipped whole."""
+    j, n = i + 1, len(text)
+    while j < n:
+        if text[j] == "\\":
+            j += 2
+        elif text[j] == "`":
+            return j + 1
+        elif text.startswith("${", j):
+            depth, j = 1, j + 2
+            while j < n and depth:
+                c = text[j]
+                if c == "`":
+                    j = end_of_template(text, j)
+                    continue
+                if c in "\"'":
+                    k = j + 1
+                    while k < n and text[k] != c:
+                        k += 2 if text[k] == "\\" else 1
+                    j = k + 1
+                    continue
+                depth += {"{": 1, "}": -1}.get(c, 0)
+                j += 1
+        else:
+            j += 1
+    return n
+
+
 def js_code(text):
     """JavaScript without its comments, so commented-out code counts as absent.
     Strings and regular expressions are kept whole: a quote or a `/*` inside
@@ -38,9 +67,13 @@ def js_code(text):
     last, word = "", ""  # the last character that is not a space, and the word ending there
     while i < n:
         c = text[i]
-        if c in "\"'`":
+        if c == "`":
+            j = end_of_template(text, i)
+            out.append(text[i:j])
+            i, last, word = j, c, ""
+        elif c in "\"'":
             j = i + 1
-            while j < n and text[j] != c:
+            while j < n and text[j] != c and text[j] != "\n":
                 j += 2 if text[j] == "\\" else 1
             out.append(text[i:j + 1])
             i, last, word = j + 1, c, ""
@@ -101,7 +134,7 @@ def rust_code(text):
                     depth, i = depth - 1, i + 2
                 else:
                     i += 1
-        elif (raw := re.match(r'r(#*)"', text[i:])) and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+        elif (raw := re.match(r'b?r(#*)"', text[i:])) and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
             close = '"' + raw.group(1)
             end = text.find(close, i + len(raw.group(0)))
             end = n if end < 0 else end + len(close)
@@ -144,7 +177,7 @@ def keys(obj):
         depth += 1 if c in "([{" else -1 if c in ")]}" else 0
         level.append(c if depth == 0 or (depth == 1 and c in "([{") else " ")
     flat = "".join(level)
-    plain = re.findall(r"(?:^|[,{]|\basync)\s*([A-Za-z_$][\w$]*)\s*(?=[:(,]|$)", flat)
+    plain = re.findall(r"(?:^|[,{]|\basync|\bget|\bset)\s*([A-Za-z_$][\w$]*)\s*(?=[:(,]|$)", flat)
     quoted = re.findall(r"(?:^|[,{])\s*[\"']([A-Za-z_$][\w$]*)[\"']\s*(?=:)", flat)
     return set(plain + quoted)
 
@@ -160,13 +193,22 @@ def own_picker(text):
             if "pick" in keys(balanced(args, brace, "{", "}")):
                 return True
             continue
-        given = re.search(r",\s*([A-Za-z_$][\w$]*)\s*$", args)
-        if not given:
-            continue
-        decl = re.search(rf"\b(?:const|let|var)\s+{re.escape(given.group(1))}\s*=\s*\{{", text)
-        if decl and "pick" in keys(balanced(text, decl.end() - 1, "{", "}")):
+        given = re.search(r",\s*([A-Za-z_$][\w$]*)\s*,?\s*$", args)
+        if given and has_pick(text, given.group(1)):
             return True
     return False
+
+
+def has_pick(text, name, seen=()):
+    """Whether the object variable `name` is declared with a pick key, itself
+    or through an object it spreads in ({ ...base })."""
+    decl = re.search(rf"\b(?:const|let|var)\s+{re.escape(name)}\s*(?::[^=;]+)?=\s*\{{", text)
+    if not decl or name in seen:
+        return False
+    body = balanced(text, decl.end() - 1, "{", "}")
+    if "pick" in keys(body):
+        return True
+    return any(has_pick(text, base, seen + (name,)) for base in re.findall(r"\.\.\.\s*([A-Za-z_$][\w$]*)", body))
 
 
 def workspace_spec(tauri):
@@ -194,13 +236,18 @@ def page_code(path):
         return css_code(text)
     if path.suffix not in {".html", ".vue", ".svelte"}:
         return js_code(text)
-    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    # HTML comments are left out of the page's markup, not out of its scripts
+    # (where "<!--" can be text in a string).
+    markup = lambda part: re.sub(r"<!--.*?-->", "", part, flags=re.S)
     out, at = [], 0
     for m in re.finditer(r"(<(script|style)\b[^>]*>)(.*?)(</\2\s*>)", text, flags=re.S | re.I):
-        out.append(text[at:m.start(3)])
+        before = text[at:m.start(3)]
+        if "<!--" in markup(before) or before.count("<!--") > before.count("-->"):
+            continue  # this script sits inside a comment: it is skipped with it below
+        out.append(markup(before))
         out.append(js_code(m.group(3)) if m.group(2).lower() == "script" else css_code(m.group(3)))
         at = m.end(3)
-    out.append(text[at:])
+    out.append(markup(text[at:]))
     return "".join(out)
 
 
@@ -260,6 +307,14 @@ def accepts(requirement, version):
             # The first number that is not 0 (or the last one given) stays.
             keep = next((k + 1 for k in range(n) if w[k] != 0), n)
             if v[:keep] != w[:keep] or v < w:
+                return False
+        elif sign == ">" and n < 3:
+            # ">0.4" is ">=0.5.0": past every 0.4.x.
+            if v[:n] <= w[:n]:
+                return False
+        elif sign == "<=" and n < 3:
+            # "<=0.4" takes every 0.4.x.
+            if v[:n] > w[:n]:
                 return False
         elif not {">=": v >= w, ">": v > w, "<=": v <= w, "<": v < w}[sign]:
             return False
@@ -332,11 +387,19 @@ def main():
     print(f"tauris-ui {library_version()}: checking {tauri}\n")
 
     # 1. dependency: where it points, and which versions it accepts
-    manifest_data = tomllib.loads((tauri / "Cargo.toml").read_text(encoding="utf-8"))
+    try:
+        manifest_data = tomllib.loads((tauri / "Cargo.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"  FIX   {tauri / 'Cargo.toml'} cannot be read: {e}")
+        return 1
     current = library_version()
     sections = [manifest_data.get("dependencies", {})]
     sections += [t.get("dependencies", {}) for t in manifest_data.get("target", {}).values()]
-    spec = next((d["tauris-ui"] for d in sections if "tauris-ui" in d), None)
+    # tauris-ui = ..., or another name for it: ui = { package = "tauris-ui", ... }
+    found = next(((key, d[key]) for d in sections for key in d
+                  if key == "tauris-ui" or (isinstance(d[key], dict) and d[key].get("package") == "tauris-ui")), None)
+    crate = found[0].replace("-", "_") if found else "tauris_ui"
+    spec = found[1] if found else None
     if spec is None:
         bad("Cargo.toml has no tauris-ui dependency",
             f'add under [dependencies]: tauris-ui = {{ path = "{LIBRARY}", version = "{series(current)}" }}')
@@ -383,7 +446,8 @@ def main():
     app = conf.get("app", {})
     rust = "\n".join(rust_code(read(p)) for p in (tauri / "src").rglob("*.rs"))
     files = page_files(tauri, conf)
-    text = "\n".join(page_code(p) for p in files)
+    # Copied typings (tabs.d.ts...) name every component: they are not the app using them.
+    text = "\n".join(page_code(p) for p in files if not p.name.endswith(".d.ts"))
     uses_tabs = "TaurisTabs" in text or bool(re.search(r"\.tabs\(\)", rust))
     uses_tree = "TaurisTree" in text
     uses_terminal = "TaurisTerminal" in text
@@ -402,8 +466,12 @@ def main():
 
     # 2. the plugin, which delivers every component
     # tauris_ui::init(...), or init(...) after `use tauris_ui::init` (or `{init, ...}`).
-    imported = re.search(r"\buse\s+tauris_ui::(?:init\b|\{[^}]*\binit\b)", rust)
-    if "tauris_ui::init(" in rust or (imported and re.search(r"\.plugin\(\s*init\(", rust)):
+    # Also under the name the app gave the crate (`use tauris_ui as ui`, a renamed
+    # dependency), and with a runtime spelled out (init::<Wry>(...)).
+    names = {crate, "tauris_ui"} | set(re.findall(r"\buse\s+(?:tauris_ui|" + re.escape(crate) + r")\s+as\s+(\w+)", rust))
+    called = any(re.search(rf"\b{re.escape(n)}::init\s*(?:::<[^>]*>)?\s*\(", rust) for n in names)
+    imported = any(re.search(rf"\buse\s+{re.escape(n)}::(?:init\b|\{{[^}}]*\binit\b)", rust) for n in names)
+    if called or (imported and re.search(r"\.plugin\(\s*init\s*(?:::<[^>]*>)?\s*\(", rust)):
         ok("the plugin is registered")
     else:
         bad("the plugin is not registered", ".plugin(tauris_ui::init(tauris_ui::Config::new())) on tauri::Builder")
@@ -437,7 +505,8 @@ def main():
             bad("no capability grants tauris-ui:default",
                 'add "tauris-ui:default" to "permissions" in src-tauri/capabilities/default.json')
         else:
-            covers = any(any(w == "*" or (w.endswith("*") and f"{prefix}1".startswith(w[:-1])) or w == f"{prefix}1"
+            # Every tab window (tabs-1, tabs-2, ...): a pattern, not one label.
+            covers = any(any(w == "*" or (w.endswith("*") and f"{prefix}1".startswith(w[:-1]))
                              for w in c.get("windows") or c.get("webviews") or []) for _, c in granting)
             if covers:
                 ok(f"a capability grants tauris-ui:default to the tab windows ({prefix}1, {prefix}2, ...)")
@@ -462,8 +531,18 @@ def main():
             else:
                 bad("app.withGlobalTauri is not true, so dropped files are never heard",
                     'set "app": { "withGlobalTauri": true } in tauri.conf.json')
-            if any("tauris-ui:default" in json.dumps(c.get("permissions", [])) for _, c in capabilities(tauri, app)):
-                ok("a capability grants tauris-ui:default (the system's picker)")
+            # Only the system's picker needs it: an app with its own pick does not.
+            labels = [w.get("label", "main") for w in app.get("windows", []) if isinstance(w, dict)] or ["main"]
+            reach = lambda c: any(pattern == "*" or pattern == label or (pattern.endswith("*") and label.startswith(pattern[:-1]))
+                                  for pattern in c.get("windows") or c.get("webviews") or [] for label in labels)
+            granting = [c for _, c in capabilities(tauri, app) if "tauris-ui:default" in json.dumps(c.get("permissions", []))]
+            if own_picker(text):
+                pass
+            elif any(reach(c) for c in granting):
+                ok("a capability grants tauris-ui:default to the app's windows (the system's picker)")
+            elif granting:
+                bad(f"the capability with tauris-ui:default does not cover the app's windows ({', '.join(labels)})",
+                    f'add {json.dumps(labels[0])} to its "windows"')
             else:
                 bad("no capability grants tauris-ui:default, so Add files… cannot open the system's picker",
                     'add "tauris-ui:default" to "permissions" in src-tauri/capabilities/default.json')
@@ -488,7 +567,9 @@ def main():
     # 5. the page's CSS and copies of the library's files
     for name, word in (("tabs.js", "TaurisTabs"), ("tree.js", "TaurisTree"), ("terminal.js", "TaurisTerminal"),
                        ("files.js", "TaurisFiles"), ("menus.js", "TaurisMenu")):
-        if any(p.name == name and word in read(p) for p in files):
+        # A copy defines the component (or still has the stylesheet's placeholder);
+        # an app's own tabs.js that only mounts the strip is not one.
+        if any(p.name == name and (f"window.{word} =" in read(p) or "__TAURIS_" in read(p)) for p in files):
             bad(f"the app has its own copy of the library's {name}", "delete it: the plugin injects the page script")
     if re.search(r"@layer[^;{]*tauris-ui", text):
         bad("the app's CSS declares the tauris-ui layer",

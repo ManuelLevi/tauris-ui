@@ -488,6 +488,19 @@ with sync_playwright() as p:
     check("Enter that confirms an input method's text sends nothing", page.input_value(".tm-cmd-input") == "日本語")
     page.close()
 
+    # ---------- a page that brings its own stylesheet ----------
+    term_js = (WEB / "terminal.js").read_text().replace('"__TAURIS_TERMINAL_CSS__"', json.dumps((WEB / "terminal.css").read_text()))
+    page = browser.new_page(viewport={"width": 600, "height": 300})
+    page.add_init_script(term_js)
+    page.goto("about:blank")
+    sheets = page.evaluate("""() => { const d = document.createElement('div'); document.body.append(d);
+      const c = document.createElement('div'); d.append(c); TaurisTerminal.commandLine(c, { styles: false });
+      const t = TaurisTerminal.mount(d, { styles: false }); TaurisTerminal.log(document.createElement('ul')); TaurisTerminal.pane(document.createElement('div'));
+      const before = document.adoptedStyleSheets.length; t.destroy(); TaurisTerminal.mount(document.createElement('div'));
+      return [before, document.adoptedStyleSheets.length]; }""")
+    check("styles: false keeps every part from adding the stylesheet; a later mount without it adds it", sheets == [0, 1], sheets)
+    page.close()
+
     # ---------- mount and destroy ----------
     page = fresh(browser)
     try:

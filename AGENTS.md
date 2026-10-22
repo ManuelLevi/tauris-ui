@@ -72,6 +72,7 @@ Do all of these, every time:
    python scripts/doctor.py examples/basic
    python test/doctor_run.py                 # the checker itself, on small apps set up right and wrong
    (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
+   cargo +1.90 build                         # the oldest Rust the library builds with
    ```
 9. **Delete the build output** when finished: `target/`, `examples/basic/src-tauri/target/` and `test/freeze_check/target/`.
 10. **Commit and push the release** once every check passes, as `tauris-ui X.Y.Z: what changed`. Do not ask the maintainer first.
@@ -100,7 +101,7 @@ Do all of these, every time:
 | `web/terminal.js`, `web/terminal.css`, `web/terminal.d.ts` | The terminal look: helpers, classes (`--tm-*` variables), types |
 | `web/files.js`, `web/files.css`, `web/files.d.ts` | The files component: script, look (`--tf-*` variables), types |
 | `web/menus.js`, `web/menus.css`, `web/menus.d.ts` | The in-window menus (not the native menu, which is `src/menu.rs`): script, look (`--tmn-*`), types |
-| `test/` | Headless tests: tabs (`run.py`, with a stand-in for Rust), tree (`tree_run.py`, `tree_demo.html`), terminal (`terminal_run.py`, `terminal_demo.html`), files and menus (`files_run.py`, `menus_run.py`, both on `files_demo.html`); `freeze_check/`, a real macOS app (see below) |
+| `test/` | Headless tests: tabs (`run.py`, with a stand-in for Rust), tree (`tree_run.py`, `tree_demo.html`), terminal (`terminal_run.py`, `terminal_demo.html`), files and menus (`files_run.py`, `menus_run.py`, both on `files_demo.html`); the checker (`doctor_run.py`, on small apps it writes); `mock_tauri.js`, Rust stood in for the tabs page; `freeze_check/`, a real macOS app (see below) |
 | `examples/basic/` | The smallest complete app |
 | `scripts/doctor.py` | Checks an app's setup and version requirement |
 

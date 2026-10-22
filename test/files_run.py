@@ -428,12 +428,6 @@ with sync_playwright() as p:
     check("taking out the file with the focus moves the focus to the nearest selected file; the keys still work",
           sel_names() == ["Brand assets.zip", "Budget 2027.xlsx"] and page.evaluate("demo.files.selected().name") == "Budget 2027.xlsx"
           and page.get_attribute(".tf-list", "aria-activedescendant") is not None)
-    if mac:
-        page.click(".tf-file:nth-child(1) .tf-c-name", modifiers=["Control"])
-        check("on a Mac, Control-click is a right click: the selection stays, and its menu acts on both",
-              sel_names() == ["Brand assets.zip", "Budget 2027.xlsx"] and page.locator(".tmn-menu").count() == 1
-              and page.get_attribute(".tmn-item:has-text('Rename')", "aria-disabled") == "true")
-        page.keyboard.press("Escape")
     page.click(".tf-file:nth-child(3) .tf-c-name")
     page.fill(".tf-q", "deck")
     page.wait_for_timeout(50)
@@ -723,6 +717,74 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.close()
 
+    # ---------- an eighth review ----------
+    page = fresh(browser)
+    page.evaluate("""demo.files.setFiles([{ id: 'a', name: 'Relatório 2026.pdf' }, { id: 'b', name: 'Joa\u0303o.txt' }, { id: 'c', name: 'ąbc.pdf' }, { id: 'd', name: 'Other.pdf' }])""")
+    page.fill(".tf-q", "relatorio")
+    check("search ignores accents", names(page) == ["Relatório 2026.pdf"], names(page))
+    page.fill(".tf-q", "João")
+    check("and Unicode forms (a decomposed name found by a typed one)", len(names(page)) == 1, names(page))
+    page.fill(".tf-q", "zzz")
+    check("a search that matches nothing takes the list out of the Tab order", page.evaluate("document.querySelector('.tf-list').tabIndex") == -1)
+    page.fill(".tf-q", "pdf")
+    page.keyboard.press("Enter")
+    check("Enter in the search goes into the list, on the first match", page.evaluate("document.activeElement.classList.contains('tf-list')") and selected(page) is not None)
+    page.evaluate("demo.files.select(null); window.opens = 0; demo.files.update({ onOpen: async () => { opens++; } }); 0")
+    page.evaluate("demo.files.select('d')")
+    page.keyboard.press("Shift+Enter")
+    check("Shift+Enter opens nothing (only plain Enter does)", page.evaluate("opens") == 0)
+    page.fill(".tf-q", "")
+    page.focus(".tf-list")
+    page.evaluate("""document.querySelector('.tf-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'ą', ctrlKey: true, altKey: true, modifierAltGraph: true, bubbles: true }))""")
+    check("a letter made with AltGr (Ctrl+Alt) still jumps to its name", selected(page) == "ąbc.pdf", selected(page))
+    check("the row's buttons make no column for screen readers",
+          page.evaluate("document.querySelectorAll('[role=columnheader][aria-label=\"Actions\"], .tf-c-acts[role=gridcell]').length") == 0)
+    page.evaluate("demo.files.select('d')")
+    page.evaluate("demo.files.update({ title: 'Other place', files: [{ id: 'x', name: 'x.pdf' }, { id: 'y', name: 'y.pdf' }] })")
+    check("a list replaced for another place leaves nothing selected", page.evaluate("demo.files.selection().length") == 0)
+    page.evaluate("""window.tries = 0; demo.files.update({ multiple: true, confirmDelete: false, files: ['1', '2', '3', '4'].map(n => ({ id: n, name: `File ${n}.pdf` })),
+      onDelete: async f => { if (f.id === '2') throw 'File 2 is in use.'; } }); demo.files.selectAll(); 0""")
+    page.focus(".tf-list")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(150)
+    check("a delete that fails among several: that file takes the selection, to try again", selected(page) == "File 2.pdf", selected(page))
+    page.evaluate("demo.files.update({ onOpen: () => Promise.reject() }); demo.files.open('2'); 0")
+    page.wait_for_timeout(100)
+    check("an empty refusal says nothing (no \"undefined\")", "undefined" not in message(page), message(page))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("window.tries = 0; demo.files.update({ onRename: async () => { tries++; throw 'Taken.'; } }); 0")
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("F2")
+    page.keyboard.type("x")
+    page.evaluate("""() => { const i = document.querySelector('.tf-rename');
+      for (let n = 0; n < 5; n++) i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: n > 0, bubbles: true })); return 0; }""")
+    page.wait_for_timeout(100)
+    check("holding Enter in the rename field asks the app once", page.evaluate("tries") == 1, page.evaluate("tries"))
+    page.keyboard.press("Escape")
+    page.fill(".tf-q", "report")
+    page.evaluate("demo.files.setFiles([{ id: 'r', name: 'report.pdf' }]); demo.files.update({ multiple: true }); demo.files.addPaths(['/x/b.txt', '/x/report2.pdf']); 0")
+    page.wait_for_timeout(500)
+    check("files added while a search is on: the focus is on one that is shown",
+          page.evaluate("document.querySelector('.tf-file.tf-focused .tf-c-name')?.textContent") == "report2.pdf")
+    page.close()
+
+    page = fresh(browser)
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("Delete")
+    page.click(".tf-ask-text")
+    page.keyboard.press("Tab")
+    check("Tab from the question's text goes to Cancel, not Delete", page.evaluate("document.activeElement.textContent") == "Cancel")
+    page.keyboard.press("Escape")
+    page.evaluate("""() => { const a = document.createElement('div'); a.id = 'other'; a.style.cssText = 'height: 100px'; document.body.append(a);
+      window.otherGot = []; window.other = TaurisFiles.mount(a, { dropArea: 'element', onAdd: async p => { otherGot.push(...p); return []; } }); return 0; }""")
+    page.evaluate("demo.files.update({ dropArea: 'element' }); demo.files.dragDrop({ type: 'drop', paths: ['/x/Fed.pdf'] }); other.dragDrop({ type: 'drop', paths: ['/x/Fed.pdf'] }); 0")
+    page.wait_for_timeout(500)
+    check("a drop fed with no position goes to one component, not to each", (("Fed.pdf" in names(page)) + (len(page.evaluate("otherGot")) == 1)) == 1,
+          (names(page), page.evaluate("otherGot")))
+    page.close()
+
     # ---------- a Mac's keys, on any machine (the page is told it runs on a Mac) ----------
     page = browser.new_page(viewport=SIZE, device_scale_factor=2, locale="en-GB")
     page.add_init_script("Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' })")
@@ -747,6 +809,32 @@ with sync_playwright() as p:
           page.evaluate("document.querySelector('.tf-file.tf-focused')?.getAttribute('aria-selected')") != "false")
     page.keyboard.press("Meta+a")
     check("⌘A selects every file", len(sel_names()) == 8, sel_names())
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.click(".tf-file:nth-child(2) .tf-c-name", modifiers=["Meta"])
+    page.click(".tf-file:nth-child(1) .tf-c-name", modifiers=["Control"])
+    check("on a Mac, Control-click is a right click: the selection stays, and its menu acts on both",
+          len(sel_names()) == 2 and page.locator(".tmn-menu").count() == 1
+          and page.get_attribute(".tmn-item:has-text('Rename')", "aria-disabled") == "true", sel_names())
+    page.keyboard.press("Escape")
+    page.close()
+
+    # ---------- and Windows' and Linux's (the page is told it runs on Linux) ----------
+    page = browser.new_page(viewport=SIZE, device_scale_factor=2, locale="en-GB")
+    page.add_init_script("Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'Linux x86_64' })")
+    page.goto(DEMO.as_uri())
+    page.wait_for_selector(".tf-file")
+    sel_names = lambda: page.evaluate("demo.files.selection().map(f => f.name)")
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("Control+Backspace")
+    check("elsewhere, Ctrl+Backspace (a word, in a field) deletes nothing", page.is_hidden(".tf-veil"))
+    page.keyboard.press("Delete")
+    check("and Delete asks", page.is_visible(".tf-ask"))
+    page.keyboard.press("Escape")
+    page.keyboard.press("Control+a")
+    check("Ctrl+A selects every file", len(sel_names()) == 8, sel_names())
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.click(".tf-file:nth-child(3) .tf-c-name", modifiers=["Control"])
+    check("Ctrl-click adds a file", len(sel_names()) == 2, sel_names())
     page.close()
 
     # ---------- the row's buttons, double-click, the row menu ----------

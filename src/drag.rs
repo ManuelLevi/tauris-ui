@@ -84,11 +84,14 @@ pub(crate) fn start<R: Runtime>(
             }
             return Err(e.to_string());
         }
-        // The app hears of the new window, as for a tab moved to a new window.
-        crate::windows::changed(app, &moving);
     }
     let handle = app.clone();
     thread::spawn(move || follow_mouse(handle));
+    // The app hears of the new window, as for a tab moved to a new window; the
+    // window already follows the mouse, however long the hook takes.
+    if !alone {
+        crate::windows::changed(app, &moving);
+    }
     Ok(())
 }
 

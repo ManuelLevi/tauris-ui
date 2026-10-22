@@ -18,6 +18,8 @@ declare global {
   }
 
   interface TaurisTerminalCommandLineOptions {
+    /** false: add no stylesheet (the page brings its own; also when made before mount). */
+    styles?: boolean;
     /** The text before the command, e.g. "ATLAS>". Default ">". */
     prompt?: string;
     /** Called with the trimmed command when Enter is pressed on a line that is not empty. */
@@ -38,6 +40,8 @@ declare global {
   }
 
   interface TaurisTerminalLogOptions {
+    /** false: add no stylesheet (the page brings its own). */
+    styles?: boolean;
     /** The most rows kept; older ones are removed. Default 500. */
     max?: number;
   }
@@ -68,7 +72,7 @@ declare global {
     /** Makes an empty element (an <ol>) a message log with role="log". */
     log(element: HTMLElement, options?: TaurisTerminalLogOptions): TaurisTerminalLog;
     /** The title band state of a .tm-pane (all its bands) or of one .tm-band. */
-    pane(element: HTMLElement): TaurisTerminalPane;
+    pane(element: HTMLElement, options?: { styles?: boolean }): TaurisTerminalPane;
   };
 
   interface Window {

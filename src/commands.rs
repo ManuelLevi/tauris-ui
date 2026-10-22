@@ -132,6 +132,7 @@ pub async fn move_to_new_window<R: Runtime>(
     app: AppHandle<R>,
     tab: u64,
 ) -> Result<(), String> {
+    let _later = windows::DeferHook::enter(); // the app's hook runs on its worker, not here
     if !windows::owns(&app, window.label(), tab) {
         return Err(not_here(tab, window.label()));
     }
@@ -167,5 +168,6 @@ pub async fn drag_out<R: Runtime>(
     grab_x: f64,
     grab_y: f64,
 ) -> Result<(), String> {
+    let _later = windows::DeferHook::enter(); // the app's hook runs on its worker, not here
     crate::drag::start(&app, &window, tab, grab_x, grab_y)
 }

@@ -129,12 +129,13 @@ impl<R: Runtime> Config<R> {
     /// opened, closed, moved, activated, or a title or field updated (from
     /// Rust or from the page). A change the app makes from its own code reaches
     /// the hook at once, on that thread. One made inside Tauri's plugin lock
-    /// (the plugin's own events, the page's commands) or by a window job (⌘N,
-    /// ⌘T, the Dock click) reaches it a moment later on a worker thread, so the
-    /// hook may open windows there too (and must not need the main thread).
-    /// Calls never overlap and keep their order (a change made while earlier
-    /// calls wait reaches the hook after them, on the worker); a window that
-    /// already has a call waiting gets no second one. It may use `app.tabs()`.
+    /// (the plugin's own events, the page's commands, async ones too) or by a
+    /// window job (⌘N, ⌘T, the Dock click) reaches it a moment later on a
+    /// worker thread, so the hook may open windows there too (and must not need
+    /// the main thread). Calls never overlap and keep their order (a change
+    /// made while earlier calls wait reaches the hook after them, on the
+    /// worker); several changes to one window while its call waits make one
+    /// call, at the place of the newest. It may use `app.tabs()`.
     /// Changes it makes directly do not call it again; a window it closes is
     /// reported once that window is gone.
     pub fn on_change(mut self, hook: impl Fn(&AppHandle<R>, &str) + Send + Sync + 'static) -> Self {

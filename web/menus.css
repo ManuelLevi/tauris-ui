@@ -23,14 +23,15 @@
     --tmn-font-size: 13px;
     --tmn-fg: var(--tauris-fg, #1e1f22);
     --tmn-disabled: var(--tauris-faint, #a3a6ad);
-    --tmn-focus: var(--tauris-focus, rgb(38 117 191 / 0.32));    /* the soft halo around a focus line */
+    --tmn-focus: var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) 32%, transparent));    /* the soft halo around a focus line */
     --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #2675bf));
     /* the bar */
     --tmn-bar-h: 24px;
     --tmn-bar-bg: var(--tauris-chrome, #f2f2f3);
     --tmn-bar-line: var(--tauris-line, #d3d5da);
     --tmn-title-pad: 9px;
-    --tmn-title-open-bg: var(--tauris-hover, #dbe6f4);     /* the title under the mouse or with its menu open */
+    --tmn-title-hover-bg: var(--tauris-hover, #dbe6f4);    /* the title under the mouse */
+    --tmn-title-open-bg: var(--tauris-sel-inactive, #dbe6f4);  /* the title with its menu open */
     /* a menu */
     --tmn-menu-min-w: 220px;
     --tmn-menu-bg: var(--tauris-bg, #ffffff);
@@ -52,7 +53,7 @@
     --tmn-tool-font-size: 12px;
     --tmn-tool-hover-bg: var(--tauris-hover, #e6e8ec);
     --tmn-tool-border: var(--tauris-line, #c4c6cc);
-    --tmn-tool-on-bg: var(--tauris-hover, #dbe6f4);        /* pressed, or with its menu open */
+    --tmn-tool-on-bg: var(--tauris-sel-inactive, #dbe6f4); /* pressed, or with its menu open: not the hover colour */
   }
 
   /* The system's dark mode, unless the app chose a mode with
@@ -62,11 +63,12 @@
       --tmn-scheme: dark;
       --tmn-fg: var(--tauris-fg, #dfe1e5);
       --tmn-disabled: var(--tauris-faint, #6f737a);
-      --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
+      --tmn-focus: var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) 45%, transparent));
       --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
       --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
       --tmn-bar-line: var(--tauris-line, #515356);
-      --tmn-title-open-bg: var(--tauris-hover, #3d5a8f);
+      --tmn-title-hover-bg: var(--tauris-hover, #3d5a8f);
+      --tmn-title-open-bg: var(--tauris-sel-inactive, #3d5a8f);
       --tmn-menu-bg: var(--tauris-bg, #2f3234);
       --tmn-menu-border: var(--tauris-line, #6b6e73);
       --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
@@ -75,7 +77,7 @@
       --tmn-sep: var(--tauris-line, #515356);
       --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
       --tmn-tool-border: var(--tauris-line, #5e6165);
-      --tmn-tool-on-bg: var(--tauris-hover, #3d5a8f);
+      --tmn-tool-on-bg: var(--tauris-sel-inactive, #3d5a8f);
     }
   }
 
@@ -83,11 +85,12 @@
     --tmn-scheme: dark;
     --tmn-fg: var(--tauris-fg, #dfe1e5);
     --tmn-disabled: var(--tauris-faint, #6f737a);
-    --tmn-focus: var(--tauris-focus, rgb(74 136 199 / 0.45));
+    --tmn-focus: var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) 45%, transparent));
     --tmn-focus-line: var(--tauris-accent-ink, var(--tauris-accent, #6aa6e0));
     --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
     --tmn-bar-line: var(--tauris-line, #515356);
-    --tmn-title-open-bg: var(--tauris-hover, #3d5a8f);
+    --tmn-title-hover-bg: var(--tauris-hover, #3d5a8f);
+    --tmn-title-open-bg: var(--tauris-sel-inactive, #3d5a8f);
     --tmn-menu-bg: var(--tauris-bg, #2f3234);
     --tmn-menu-border: var(--tauris-line, #6b6e73);
     --tmn-menu-shadow: 0 8px 24px rgb(0 0 0 / 0.55);
@@ -96,7 +99,7 @@
     --tmn-sep: var(--tauris-line, #515356);
     --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
     --tmn-tool-border: var(--tauris-line, #5e6165);
-    --tmn-tool-on-bg: var(--tauris-hover, #3d5a8f);
+    --tmn-tool-on-bg: var(--tauris-sel-inactive, #3d5a8f);
   }
 
   /* ---------- the bar ---------- */
@@ -124,7 +127,7 @@
     cursor: default;
   }
 
-  .tmn-title:hover,
+  .tmn-title:hover { background: var(--tmn-title-hover-bg); }
   .tmn-title[aria-expanded="true"] { background: var(--tmn-title-open-bg); }
   .tmn-title:focus { outline: none; }
   .tmn-title:focus-visible { outline: 2px solid var(--tmn-focus-line); outline-offset: -2px; }

@@ -120,6 +120,7 @@
     const opt = { styles: true, ...options };
     if (opt.styles) addStyles();
     else ownStyles = true; // nor do the command line, the log or a pane add them later
+    const ownedStyles = !opt.styles;
     root.__taurisTerminal = true;
     // An app that writes class="tm" itself keeps it after destroy() (React StrictMode mounts twice).
     const addedClass = !root.classList.contains("tm");
@@ -197,6 +198,7 @@
       destroy() {
         life.abort();
         unwatchClocks(root);
+        if (ownedStyles) ownStyles = false; // a later mount may add them again
         if (addedClass) root.classList.remove("tm");
         delete root.__taurisTerminal;
       },
@@ -209,10 +211,15 @@
   // Enter sends the command to onSubmit and empties the line; Escape empties
   // it; Up and Down step through the commands sent before.
 
+  // The parts take { styles: false } too, for a page that makes them before mount().
+  const partStyles = options => {
+    if (options.styles !== false) addStyles();
+  };
+
   function commandLine(element, options = {}) {
     need(element, "commandLine");
     if (element.__taurisCommand) throw new Error("TaurisTerminal.commandLine: this element already has one; call destroy() first");
-    addStyles();
+    partStyles(options);
     element.__taurisCommand = true;
     const prompt = options.prompt ?? ">";
     const onSubmit = typeof options.onSubmit === "function" ? options.onSubmit : () => {};
@@ -326,7 +333,7 @@
 
   function log(list, options = {}) {
     need(list, "log");
-    addStyles();
+    partStyles(options);
     const max = Number.isInteger(options.max) && options.max > 0 ? options.max : 500;
     list.classList.add("tm-log");
     if (!list.hasAttribute("role")) list.setAttribute("role", "log");
@@ -356,9 +363,9 @@
   // ---------- title band state ----------
   // On a pane, every title band of the pane changes; on a band, only that band.
 
-  function pane(element) {
+  function pane(element, options = {}) {
     need(element, "pane");
-    addStyles();
+    partStyles(options);
     const set = state => {
       if (state) element.setAttribute("data-tm-state", state);
       else element.removeAttribute("data-tm-state");

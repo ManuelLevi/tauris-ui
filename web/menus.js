@@ -88,7 +88,12 @@
   // Where focus goes back to: the element that had it before the menu opened.
   function restore(target) {
     if (target instanceof HTMLElement && target.isConnected && target !== document.body) {
+      // Kept for the opener of this same press (a click from one menu's button
+      // to another's), not for later.
       lastReturn = target;
+      setTimeout(() => {
+        if (lastReturn === target) lastReturn = null;
+      }, 0);
       target.focus({ preventScroll: true });
     }
   }
@@ -197,8 +202,13 @@
           lv.menu.remove();
         }
         if (current === handle) current = null;
-        o.onClose?.({ chosen: handle.chosen, hop: handle.hop });
         if (refocus || (inside && !handle.hop)) restore(o.refocusTo?.() ?? returnTo);
+        // The app's hook last, and a failing one (a sound that cannot play) stops nothing.
+        try {
+          o.onClose?.({ chosen: handle.chosen, hop: handle.hop });
+        } catch (e) {
+          console.error("TaurisMenu: onClose failed:", e);
+        }
       },
       // New items while it is open: drawn again in place, the focus kept on
       // the item with the same label. Returns the new menu's id.
@@ -209,6 +219,9 @@
         const inside = levels.some(lv => lv.menu.contains(active));
         const labelOf = node => node?.querySelector(".tmn-label")?.textContent ?? null;
         const was = labelOf(active?.closest?.(".tmn-item"));
+        // Which menu of the chain had the focus, and how far each was scrolled.
+        const focusLevel = Math.max(0, levels.findIndex(lv => lv.menu.contains(active)));
+        const scrolls = levels.map(lv => lv.menu.scrollTop);
         // The sub-menus open now, by the labels of the items that opened them.
         const path = levels.slice(1).map(lv => labelOf(lv.row));
         for (const lv of levels) {
@@ -219,13 +232,22 @@
         handle.el = null;
         let lv = level(next, o.label, at, "mouse");
         const top = lv;
+        const chain = [lv];
         for (const name of path) {
           const row = enabledIn(lv.menu).find(n => labelOf(n) === name && n.__tmnSub?.length);
           if (!row) break;
           openSub(lv, row, "mouse");
           lv = lv.child;
+          chain.push(lv);
         }
-        if (inside) go(lv, enabledIn(lv.menu).find(n => labelOf(n) === was) ?? null);
+        chain.forEach((l, n) => { l.menu.scrollTop = scrolls[n] ?? 0; });
+        if (inside) {
+          const home = chain[Math.min(focusLevel, chain.length - 1)];
+          // The same item; if it is gone, the first one (the keys keep a place).
+          const item = enabledIn(home.menu).find(n => labelOf(n) === was) ?? (was !== null ? enabledIn(home.menu)[0] : null);
+          if (item) item.focus({ preventScroll: true });
+          else home.menu.focus({ preventScroll: true });
+        }
         return top.menu.id;
       },
     };
@@ -308,6 +330,7 @@
         else if (e.key === "ArrowUp") to(i < 0 ? list.length - 1 : i - 1);
         else if (e.key === "Home") to(0);
         else if (e.key === "End") to(list.length - 1);
+        else if ((e.key === "Enter" || (e.key === " " && !spelling)) && e.repeat) e.preventDefault(); // held: chosen once
         else if (e.key === "Enter" || (e.key === " " && !spelling)) {
           e.preventDefault();
           if (focused) choose(lv, focused);
@@ -427,6 +450,8 @@
     }, { capture: true, signal });
     // Focus goes back where it was, so the app answers keys when the person returns.
     window.addEventListener("blur", () => handle.close(true), { signal });
+    // Inside a <dialog>: the dialog closing takes the menu with it.
+    if (host !== document.body) host.addEventListener("close", () => handle.close(false), { signal });
     window.addEventListener("resize", () => handle.close(true), { signal });
     // The page scrolling under it, or whatever holds its opener, would leave it
     // hanging away from its title. A list scrolling elsewhere changes nothing.
@@ -498,7 +523,7 @@
         label: name,
         owner: element,
         returnTo,
-        refocusTo: () => (how === "mouse" ? returnTo : element),
+        refocusTo: () => (how === "mouse" || returnTo !== element ? returnTo : element),
         onClose: info => {
           element.setAttribute("aria-expanded", "false");
           element.removeAttribute("aria-controls");
@@ -513,7 +538,12 @@
     const toggle = (how, returnTo) => (handle ? handle.close(true) : openIt(how, returnTo));
 
     element.addEventListener("pointerdown", e => {
-      if (e.button !== 0 || disabled()) return;
+      // A right or middle press closes its open menu (as one elsewhere does).
+      if (e.button !== 0) {
+        handle?.close(true);
+        return;
+      }
+      if (disabled()) return;
       // Keep focus where it was (a field, a list), as a desktop menu does.
       e.preventDefault();
       toggle("mouse", document.activeElement);
@@ -522,6 +552,7 @@
       if (e.altKey || e.ctrlKey || e.metaKey || disabled()) return;
       if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
+        if (e.repeat) return; // held: opened once
         const again = handle != null;
         if (handle) {
           handle.hop = true;
@@ -546,7 +577,11 @@
         element.setAttribute("aria-controls", handle.replace(list));
       },
       /** Opens the menu with its first item chosen. */
-      open() { if (!handle) openIt("keyboard", element); },
+      open() {
+        // From an app's shortcut the focus is elsewhere (a field): it goes back there.
+        const from = document.activeElement;
+        if (!handle) openIt("keyboard", from && from !== document.body ? from : element);
+      },
       /** Closes the menu if it is open. */
       close() { handle?.close(false); },
       /** Removes the menu and its listeners; button can then be called again. */
@@ -655,9 +690,10 @@
         owner: nav,
         returnTo: back,
         // Escape goes back to the title; a chosen item, to where focus was before the bar.
-        refocusTo: () => (how === "mouse" ? back : t),
+        // (Opened by the app with the focus outside the bar, say from a shortcut: back there.)
+        refocusTo: () => (how === "mouse" || !nav.contains(back) ? back : t),
         afterChoose: () => {
-          if (how !== "mouse") restore(outside?.isConnected ? outside : t);
+          if (how !== "mouse") restore(!nav.contains(back) ? back : outside?.isConnected ? outside : t);
         },
         onSide: dir => {
           const next = step(i, dir);
@@ -720,6 +756,10 @@
       const t = titleAt(e.target);
       if (!t || e.altKey || e.ctrlKey || e.metaKey) return;
       const i = t.__tmnIndex;
+      if (e.repeat && (e.key === "Enter" || e.key === " " || e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        e.preventDefault(); // held: opened once
+        return;
+      }
       if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
         e.preventDefault();
         openMenu(i, "keyboard", t);

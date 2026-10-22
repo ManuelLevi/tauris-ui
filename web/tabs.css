@@ -2,7 +2,8 @@
  *
  * Everything here sits in a cascade layer, so any rule in your own (unlayered)
  * stylesheet wins without needing a stronger selector. Change the look by
- * setting the --tt-* variables on :root (or on the strip), or override any
+ * setting the --tt-* variables on :root (the right-click menu and a dragged tab's preview
+ * hang from <body>, so only :root reaches them), or override any
  * .tt-* class. The defaults follow the system's light or dark mode.
  *
  * The strip is fixed to the top of the window: give your page
@@ -39,7 +40,7 @@
     --tt-accent-size: 2px;
     --tt-separator: var(--tauris-line, #2c2c31);        /* the thin line between idle tabs */
     --tt-flare: 8px;                /* the curve where the active tab meets the page (0 = none) */
-    /* --tt-focus: unset, the accent */
+    /* --tt-focus: unset, the accent as lines (--tauris-accent-ink), else the accent */
     /* close and new-tab buttons */
     --tt-close-size: 18px;
     --tt-close-radius: 4px;
@@ -174,7 +175,7 @@
   }
 
   .tt-tab:focus-visible {
-    box-shadow: inset 0 0 0 2px var(--tt-focus, var(--tt-accent));
+    box-shadow: inset 0 0 0 2px var(--tt-focus, var(--tauris-accent-ink, var(--tt-accent)));
   }
 
   .tt-tab.tt-shifting { transition: transform 160ms ease; }
@@ -338,7 +339,7 @@
 
   .tt-new:focus-visible,
   .tt-menu-item:focus-visible {
-    outline: 2px solid var(--tt-focus, var(--tt-accent));
+    outline: 2px solid var(--tt-focus, var(--tauris-accent-ink, var(--tt-accent)));
     outline-offset: -2px;
   }
 
@@ -376,6 +377,7 @@
   }
 
   .tt-menu {
+    color-scheme: var(--tt-scheme);
     position: fixed;
     z-index: 2147483001;
     min-width: 200px;
@@ -430,6 +432,7 @@
     .tt-menu-item:focus-visible,
     .tt-menu-item:focus { outline: 2px solid Highlight; outline-offset: -2px; }
     .tt-menu-item:focus:not([aria-disabled="true"]) { forced-color-adjust: none; color: HighlightText; background: Highlight; }
+    .tt-menu-item:focus .tt-menu-shortcut { color: inherit; }
     .tt-tab::before,
     .tt-tab.tt-active::after { forced-color-adjust: none; display: none; }
     .tt-menu { border-color: CanvasText; }
