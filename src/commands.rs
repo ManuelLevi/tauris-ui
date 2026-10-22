@@ -187,6 +187,19 @@ pub async fn pick_files<R: Runtime>(
     crate::files::pick_for_page(window, title, multiple.unwrap_or(true)).await
 }
 
+// A yes/no question as the system's alert (TaurisDialog.confirm with native: true).
+#[tauri::command]
+pub async fn ask<R: Runtime>(
+    window: WebviewWindow<R>,
+    title: String,
+    message: String,
+    ok: String,
+    cancel: String,
+    warning: Option<bool>,
+) -> Result<bool, String> {
+    crate::files::ask_for_page(window, title, message, ok, cancel, warning.unwrap_or(false)).await
+}
+
 // The system's save dialog with a name filled in: the chosen path, or null.
 #[tauri::command]
 pub async fn save_dialog<R: Runtime>(

@@ -13,6 +13,7 @@ const COMMANDS: &[&str] = &[
     "move_to_new_window",
     "other_windows",
     "move_to_window",
+    "ask",
     "close_asked",
     "pick_files",
     "save_dialog",

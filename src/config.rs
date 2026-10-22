@@ -28,6 +28,8 @@ pub enum Component {
     Sidebar,
     /// `TaurisFinder`, the find-anything panel (⌘K).
     Finder,
+    /// `TaurisDialog`: questions, forms, reviews, sheets, titled panels.
+    Dialog,
 }
 
 /// How the tabs behave. Every setting has a default; change only what you need.
@@ -71,6 +73,7 @@ impl<R: Runtime> Default for Config<R> {
                 Component::Menus,
                 Component::Sidebar,
                 Component::Finder,
+                Component::Dialog,
             ],
             native_feel: false,
         }
@@ -85,7 +88,7 @@ impl Config<Wry> {
 }
 
 impl<R: Runtime> Config<R> {
-    /// The page components the plugin puts in every page (default: all seven).
+    /// The page components the plugin puts in every page (default: all eight).
     /// An app that uses some leaves the others out, so its pages load less.
     /// The files table brings the menus with it (its row menu is one).
     /// `scripts/doctor.py` says when a page uses one left out.

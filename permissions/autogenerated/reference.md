@@ -18,6 +18,7 @@ Lets a window use the tab strip (read its tabs, open, close, move and drag them)
 - `allow-move-to-new-window`
 - `allow-other-windows`
 - `allow-move-to-window`
+- `allow-ask`
 - `allow-close-asked`
 - `allow-pick-files`
 - `allow-save-dialog`
@@ -53,6 +54,32 @@ Enables the activate_tab command without any pre-configured scope.
 <td>
 
 Denies the activate_tab command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:allow-ask`
+
+</td>
+<td>
+
+Enables the ask command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-ask`
+
+</td>
+<td>
+
+Denies the ask command without any pre-configured scope.
 
 </td>
 </tr>

@@ -514,6 +514,43 @@ pub(crate) async fn pick_for_page<R: Runtime>(
     }
 }
 
+/// A yes/no question as the system's alert (TaurisDialog.confirm with
+/// `native: true`): true for `ok`. Needs the `files` feature and the dialog plugin.
+pub(crate) async fn ask_for_page<R: Runtime>(
+    window: WebviewWindow<R>,
+    title: String,
+    message: String,
+    ok: String,
+    cancel: String,
+    warning: bool,
+) -> Result<bool, String> {
+    #[cfg(feature = "files")]
+    {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        let app = window.app_handle().clone();
+        if app.try_state::<tauri_plugin_dialog::Dialog<R>>().is_none() {
+            return Err(NO_DIALOG_PLUGIN.into());
+        }
+        let kind = if warning { MessageDialogKind::Warning } else { MessageDialogKind::Info };
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.dialog()
+            .message(message)
+            .title(title)
+            .kind(kind)
+            .buttons(MessageDialogButtons::OkCancelCustom(ok, cancel))
+            .parent(&window)
+            .show(move |yes| {
+                let _ = tx.send(yes);
+            });
+        Ok(answer(rx).await.unwrap_or(false))
+    }
+    #[cfg(not(feature = "files"))]
+    {
+        let _ = (window, title, message, ok, cancel, warning);
+        Err(NO_FEATURE.into())
+    }
+}
+
 pub(crate) async fn save_for_page<R: Runtime>(
     window: WebviewWindow<R>,
     title: Option<String>,

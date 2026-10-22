@@ -1,7 +1,8 @@
-// All seven components in one window: the tab strip (TaurisTabs), the menu bar
-// and toolbar (TaurisMenu), a sidebar (TaurisSidebar) holding a tree
+// All eight components in one window: the tab strip (TaurisTabs), the menu
+// bar and toolbar (TaurisMenu), a sidebar (TaurisSidebar) holding a tree
 // (TaurisTree), the table of a project's files (TaurisFiles), a search line
-// (TaurisTerminal) and find-anything with ⌘K (TaurisFinder). The data is
+// (TaurisTerminal), find-anything with ⌘K (TaurisFinder) and the dialogs
+// (TaurisDialog: Edit, Delete, Keyboard Shortcuts, About). The data is
 // data.js; nothing is saved but the tabs.
 
 "use strict";
@@ -75,12 +76,7 @@ tree = TaurisTree.mount(treeHost, {
   data: treeData(),
 });
 
-// A click on a project shows its files in this tab; Enter or a double click on a file opens it.
-let syncing = false;
-tree.on("select", ({ node }) => {
-  const picked = node && nodes.get(String(node.id));
-  if (!syncing && picked?.kind === "project") open(picked);
-});
+// As in a desktop outline: a click selects; Enter or a double click opens a project (its files) or a file.
 tree.on("activate", ({ node }) => {
   const picked = nodes.get(String(node.id));
   if (picked) open(picked);
@@ -106,10 +102,25 @@ function menuFor(node) {
   ];
   if (node.kind === "file") {
     items.push("-",
-      { label: "Edit", action: () => say("Edit does nothing in this example.") },
-      { label: "Delete", danger: true, action: () => say("Delete does nothing in this example.") });
+      { label: "Edit…", action: () => editFile(node) },
+      { label: "Delete…", danger: true, action: () => deleteFile(node) });
   }
   return items;
+}
+
+// Edit and Delete ask, as an app would, then do nothing (the data is read-only).
+async function editFile(node) {
+  const values = await TaurisDialog.form({
+    title: "Edit File", ok: "Save",
+    fields: [{ name: "name", label: "Name", value: node.name, required: true }, { name: "by", label: "Added by", value: node.file.by }],
+    review: v => [["Name", node.name, v.name], ["Added by", node.file.by, v.by]].filter(([, a, b]) => a !== b).map(([field, before, after]) => ({ field, before, after })),
+  });
+  if (values) say("Edit does nothing in this example.");
+}
+async function deleteFile(node) {
+  if (await TaurisDialog.confirm({ title: `Delete “${node.name}”?`, message: "This cannot be undone.", ok: "Delete", danger: true })) {
+    say("Delete does nothing in this example.");
+  }
 }
 
 // ---------- the files table ----------
@@ -165,9 +176,7 @@ function render() {
   } else {
     showProject(node.project, node.team);
   }
-  syncing = true;
   tree.select(node.id);
-  syncing = false;
   for (const [team, button] of teamButtons) button.setAttribute("aria-pressed", String(team === node.team));
 }
 tabs.on("change", render);
@@ -213,7 +222,11 @@ TaurisMenu.bar($("menubar"), {
       { label: "Search Line", action: () => cmd.focus() },
     ] },
     { label: "Help", items: [
-      { label: "About this example", action: () => say("Every tauris-ui component in one app. The projects and files are sample data.") },
+      { label: "Keyboard Shortcuts", shortcut: "⌘/", action: showShortcuts },
+      "-",
+      { label: "About this example", action: () => TaurisDialog.about({ name: "All Components", mark: "🧩",
+        description: "Every tauris-ui component in one app. The projects and files are sample data.",
+        rows: [["tauris-ui", window.TaurisTabs?.version ?? "?"], ["Teams", String(TEAMS.length)]] }) },
     ] },
   ],
 });
@@ -294,6 +307,20 @@ function submit(line) {
 // The library gives Enter (onSubmit); the app listens to the typing itself.
 $("cmd").addEventListener("input", () => search(cmd.value));
 $("cmd").addEventListener("keydown", e => { if (e.key === "Escape") setTimeout(() => search(cmd.value), 0); });
+
+function showShortcuts() {
+  TaurisDialog.shortcuts({ groups: [
+    { title: "Everywhere", items: [{ label: "Find anything", keys: ["⌘K"] }, { label: "Show or hide the sidebar", keys: ["⌃⌘S"] }, { label: "Keyboard Shortcuts", keys: ["⌘/"] }] },
+    { title: "Tabs", items: [{ label: "New tab", keys: ["⌘T"] }, { label: "Close tab", keys: ["⌘W"] }, { label: "Next or previous tab", keys: ["⌃Tab", "⌃⇧Tab"], either: true }] },
+    { title: "Lists", items: [{ label: "Open", keys: ["↩"] }, { label: "Rename", keys: ["F2"] }, { label: "Its menu", keys: ["⇧F10"] }] },
+  ] });
+}
+document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === "/" && !TaurisDialog.isOpen) {
+    e.preventDefault();
+    showShortcuts();
+  }
+});
 
 // ---------- find anything: ⌘K (the finder's own shortcut) ----------
 

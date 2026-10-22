@@ -1,0 +1,354 @@
+/* tauris-ui dialogs: the look of questions, forms, reviews, sheets and titled panels.
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --tdl-* variables outside every @layer block, or override any .tdl-*
+ * class. The defaults follow the system's light or dark mode.
+ *
+ * The parts (dialog.js draws them, in a .tdl-veil hung from <body> while open):
+ *   .tdl              the dialog: .tdl-head (.tdl-title, .tdl-x), .tdl-body, .tdl-buttons
+ *                     (.tdl-left for the app's own, then .tdl-btn; .tdl-primary is the default)
+ *   .tdl-fields       a form, in two columns: .tdl-label ("Name:", right-aligned) and .tdl-cell
+ *                     (the field, a .tdl-tip balloon for its refusal, a .tdl-hint);
+ *                     .tdl-line under it holds the form's hint, or its refusal
+ *   .tdl-review       the changes before they are saved: "Field: old → new"
+ *   .tdl-sheet        Keyboard Shortcuts (.tdl-columns of .tdl-shortcut-group, .tdl-key keycaps);
+ *   .tdl-about        About (.tdl-mark, .tdl-about-name, .tdl-about-rows)
+ *   .tdl-panel        a titled border box for a page: .tdl-panel-head on its top line
+ *                     (.tdl-panel-title, .tdl-panel-count, .tdl-panel-action buttons)
+ */
+@layer tauris-ui {
+  :root {
+    --tdl-scheme: light;
+    --tdl-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+    --tdl-mono: var(--tauris-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+    --tdl-font-size: 13px;
+    --tdl-w: 440px;                  /* a dialog's width (wide: 560px) */
+    --tdl-label-w: 96px;             /* a form's label column */
+    --tdl-field-h: 26px;
+    --tdl-radius: 6px;
+    --tdl-top: var(--tt-strip-h, 0px);   /* the veil starts below the tab strip */
+    --tdl-bg: var(--tauris-bg, #ffffff);
+    --tdl-chrome: var(--tauris-chrome, #f0f0f2);
+    --tdl-fg: var(--tauris-fg, #1e1f22);
+    --tdl-dim: var(--tauris-dim, #5d616b);
+    --tdl-line: var(--tauris-line, #c4c6cc);
+    --tdl-field-bg: var(--tauris-bg, #ffffff);
+    --tdl-field-line: #8a8e96;       /* a field's edge: 3:1 on the dialog */
+    --tdl-placeholder: #8b8f97;      /* an example, dimmer than typed text */
+    --tdl-accent: var(--tauris-accent, #2675bf);
+    --tdl-on-accent: var(--tauris-on-accent, #ffffff);
+    --tdl-focus-line: var(--tauris-accent-ink, #2675bf);
+    --tdl-focus: var(--tauris-focus, rgb(38 117 191 / 0.3));
+    --tdl-danger: #b83a31;
+    --tdl-on-danger: #ffffff;
+    --tdl-error: #b3261e;            /* a refusal's text: 4.5:1 on the dialog */
+    --tdl-tip-bg: #b3261e;           /* a field's refusal balloon */
+    --tdl-tip-fg: #ffffff;
+    --tdl-veil: rgb(0 0 0 / 0.18);
+    --tdl-shadow: 0 14px 40px rgb(0 0 0 / 0.22);
+    --tdl-key-bg: var(--tauris-chrome, #f0f0f2);
+    --tdl-panel-bg: var(--tauris-bg, #ffffff);   /* what is behind a panel's title (its page) */
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tauris-theme="light"]) {
+      --tdl-scheme: dark;
+      --tdl-bg: var(--tauris-bg, #2f3234);
+      --tdl-chrome: var(--tauris-chrome, #3a3d40);
+      --tdl-fg: var(--tauris-fg, #dfe1e5);
+      --tdl-dim: var(--tauris-dim, #adb0b8);
+      --tdl-line: var(--tauris-line, #5e6165);
+      --tdl-field-bg: #26282a;
+      --tdl-field-line: #8a8e95;
+      --tdl-placeholder: #868a91;
+      --tdl-accent: var(--tauris-accent, #3570b0);
+      --tdl-focus-line: var(--tauris-accent-ink, #6aa6e0);
+      --tdl-focus: var(--tauris-focus, rgb(106 166 224 / 0.4));
+      --tdl-danger: #c4453b;
+      --tdl-error: #f49a92;
+      --tdl-tip-bg: #c4453b;
+      --tdl-veil: rgb(0 0 0 / 0.36);
+      --tdl-shadow: 0 14px 40px rgb(0 0 0 / 0.55);
+      --tdl-key-bg: var(--tauris-chrome, #3a3d40);
+      --tdl-panel-bg: var(--tauris-bg, #2f3234);
+    }
+  }
+
+  :root[data-tauris-theme="dark"] {
+    --tdl-scheme: dark;
+    --tdl-bg: var(--tauris-bg, #2f3234);
+    --tdl-chrome: var(--tauris-chrome, #3a3d40);
+    --tdl-fg: var(--tauris-fg, #dfe1e5);
+    --tdl-dim: var(--tauris-dim, #adb0b8);
+    --tdl-line: var(--tauris-line, #5e6165);
+    --tdl-field-bg: #26282a;
+    --tdl-field-line: #8a8e95;
+    --tdl-placeholder: #868a91;
+    --tdl-accent: var(--tauris-accent, #3570b0);
+    --tdl-focus-line: var(--tauris-accent-ink, #6aa6e0);
+    --tdl-focus: var(--tauris-focus, rgb(106 166 224 / 0.4));
+    --tdl-danger: #c4453b;
+    --tdl-error: #f49a92;
+    --tdl-tip-bg: #c4453b;
+    --tdl-veil: rgb(0 0 0 / 0.36);
+    --tdl-shadow: 0 14px 40px rgb(0 0 0 / 0.55);
+    --tdl-key-bg: var(--tauris-chrome, #3a3d40);
+    --tdl-panel-bg: var(--tauris-bg, #2f3234);
+  }
+
+  /* ---------- the frame ---------- */
+
+  .tdl-veil {
+    color-scheme: var(--tdl-scheme);
+    position: fixed;
+    inset: var(--tdl-top) 0 0 0;
+    z-index: 2147481000;              /* under a menu opened from it (TaurisMenu) */
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    box-sizing: border-box;
+    background: var(--tdl-veil);
+    animation: tdl-veil 0.12s ease-out both;
+  }
+  @keyframes tdl-veil { from { background: transparent; } }
+
+  .tdl {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    width: min(var(--tdl-w), 100%);
+    max-height: calc(100vh - var(--tdl-top) - 64px);
+    box-sizing: border-box;
+    font: var(--tdl-font-size) / 1.35 var(--tdl-font);
+    color: var(--tdl-fg);
+    background: var(--tdl-bg);
+    border: 1px solid var(--tdl-line);
+    border-radius: var(--tdl-radius);
+    box-shadow: var(--tdl-shadow);
+    outline: none;
+    animation: tdl-in 0.14s ease-out both;
+  }
+  .tdl.tdl-wide { --tdl-w: 560px; }
+  .tdl *, .tdl *::before, .tdl *::after { box-sizing: border-box; }
+  @keyframes tdl-in { from { opacity: 0; transform: translateY(4px) scale(0.99); } }
+
+  .tdl-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 28px;
+    padding: 4px 6px 4px 12px;
+    background: var(--tdl-chrome);
+    border-bottom: 1px solid var(--tdl-line);
+    border-radius: var(--tdl-radius) var(--tdl-radius) 0 0;
+  }
+  .tdl-title { margin: 0; font-size: 12.5px; font-weight: 600; }
+  .tdl-x {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    margin-left: auto;
+    border-radius: 3px;
+    color: var(--tdl-dim);
+    cursor: default;
+  }
+  .tdl-x:hover { color: var(--tdl-fg); background: color-mix(in srgb, var(--tdl-fg) 10%, transparent); }
+  .tdl-x svg { width: 9px; height: 9px; }
+
+  .tdl-body { overflow: auto; padding: 14px 16px 10px; }
+  .tdl-message p { margin: 0 0 8px; }
+  .tdl-message p:last-child { margin-bottom: 0; }
+  .tdl-question .tdl-message p:first-child { font-weight: 600; }
+
+  .tdl-buttons { display: flex; align-items: center; gap: 8px; padding: 8px 16px 14px; }
+  .tdl-left { display: flex; align-items: center; gap: 8px; }
+  .tdl-spacer { flex: 1; }
+
+  .tdl-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 76px;
+    height: 26px;
+    padding: 0 12px;
+    font-size: var(--tdl-font-size);
+    color: var(--tdl-fg);
+    background: var(--tdl-field-bg);
+    border: 1px solid var(--tdl-field-line);
+    border-radius: 4px;
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .tdl-btn:hover { background: color-mix(in srgb, var(--tdl-fg) 6%, var(--tdl-field-bg)); }
+  .tdl-btn.tdl-primary { font-weight: 600; color: var(--tdl-on-accent); background: var(--tdl-accent); border-color: var(--tdl-accent); }
+  .tdl-btn.tdl-primary:hover { background: color-mix(in srgb, var(--tdl-accent) 86%, #000); }
+  .tdl-btn.tdl-danger { font-weight: 600; color: var(--tdl-on-danger); background: var(--tdl-danger); border-color: var(--tdl-danger); }
+  .tdl-btn.tdl-danger:hover { background: color-mix(in srgb, var(--tdl-danger) 86%, #000); }
+  .tdl-btn:focus { outline: none; }
+  .tdl-btn:focus-visible { box-shadow: 0 0 0 1px var(--tdl-bg), 0 0 0 3px var(--tdl-focus-line); }
+  .tdl-btn[aria-disabled="true"] { opacity: 0.55; }
+  .tdl.tdl-busy .tdl-body { opacity: 0.7; }
+
+  /* ---------- a form: right-aligned "Label:" beside each field ---------- */
+
+  .tdl-fields {
+    display: grid;
+    grid-template-columns: var(--tdl-label-w) minmax(0, 1fr);
+    gap: 8px 10px;
+    align-items: start;
+  }
+  .tdl-label { justify-self: end; padding-top: 4px; text-align: right; white-space: nowrap; }
+  .tdl-cell { position: relative; display: grid; gap: 3px; min-width: 0; }
+  :is(input, select, textarea):where(.tdl-input) {
+    all: unset;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: var(--tdl-field-h);
+    padding: 0 8px;
+    font: var(--tdl-font-size) var(--tdl-font);
+    color: var(--tdl-fg);
+    background: var(--tdl-field-bg);
+    border: 1px solid var(--tdl-field-line);
+    border-radius: 4px;
+    cursor: text;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  select:where(.tdl-input) { appearance: auto; cursor: default; padding-right: 4px; }
+  textarea:where(.tdl-input) { height: auto; min-height: 64px; padding: 5px 8px; line-height: 1.35; resize: vertical; white-space: pre-wrap; }
+  :is(input, textarea):where(.tdl-input)::placeholder { color: var(--tdl-placeholder); opacity: 1; font-style: normal; }
+  :is(input, select, textarea):where(.tdl-input):focus { border-color: var(--tdl-focus-line); box-shadow: 0 0 0 2px var(--tdl-focus); }
+  :is(input, select, textarea):where(.tdl-input):disabled { color: var(--tdl-dim); background: transparent; cursor: default; }
+  :is(input, select, textarea):where(.tdl-input)[aria-invalid="true"] { border-color: var(--tdl-error); box-shadow: 0 0 0 2px color-mix(in srgb, var(--tdl-error) 30%, transparent); }
+  .tdl-check-label { display: inline-flex; align-items: center; gap: 7px; padding-top: 4px; }
+  .tdl-hint { font-size: 11.5px; color: var(--tdl-dim); }
+
+  /* A field's refusal: a balloon under it, its point at the field. */
+  .tdl-tip {
+    position: relative;
+    justify-self: start;
+    max-width: 100%;
+    margin-top: 5px;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    color: var(--tdl-tip-fg);
+    background: var(--tdl-tip-bg);
+    border-radius: 4px;
+  }
+  .tdl-tip::before {
+    content: "";
+    position: absolute;
+    top: -4px;
+    left: 12px;
+    width: 8px;
+    height: 8px;
+    background: inherit;
+    transform: rotate(45deg);
+  }
+  .tdl-tip[hidden] { display: none; }
+
+  /* The form's one kept line: its hint, or a refusal in its place (the dialog keeps its height). */
+  .tdl-line {
+    display: grid;
+    min-height: 16px;
+    margin: 6px 0 0 calc(var(--tdl-label-w) + 10px);
+    font-size: 11.5px;
+    line-height: 16px;
+  }
+  .tdl-line > * { grid-area: 1 / 1; }
+  .tdl-line-hint { color: var(--tdl-dim); }
+  .tdl-line-error { color: var(--tdl-error); }
+  .tdl-line.tdl-refused .tdl-line-hint { visibility: hidden; }
+
+  /* ---------- the review ---------- */
+
+  .tdl-review[hidden], .tdl-page[hidden] { display: none; }
+  .tdl-review-title { margin: 0 0 8px; font-weight: 600; }
+  .tdl-review-note { margin: 8px 0 0; color: var(--tdl-dim); font-size: 12px; }
+  .tdl-review-rows { border-collapse: collapse; }
+  .tdl-review-rows th { padding: 2px 10px 2px 0; text-align: right; font-weight: 400; color: var(--tdl-dim); vertical-align: top; white-space: nowrap; }
+  .tdl-review-rows td { padding: 2px 0; overflow-wrap: anywhere; }
+  .tdl-was { color: var(--tdl-dim); text-decoration: line-through; }
+  .tdl-arrow { color: var(--tdl-dim); }
+
+  /* ---------- the sheets ---------- */
+
+  .tdl-columns { display: grid; grid-template-columns: repeat(var(--tdl-columns, 3), minmax(0, 1fr)); gap: 4px 22px; align-items: start; }
+  .tdl-shortcut-group h3 { margin: 6px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--tdl-dim); }
+  .tdl-shortcut-rows { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; margin: 0 0 10px; }
+  .tdl-shortcut-rows dt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tdl-shortcut-rows dd { margin: 0; text-align: right; white-space: nowrap; }
+  .tdl-key {
+    display: inline-block;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    font: 500 11px/18px var(--tdl-mono);
+    text-align: center;
+    color: var(--tdl-fg);
+    background: var(--tdl-key-bg);
+    border: 1px solid var(--tdl-line);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+  }
+  .tdl-or { font-size: 11px; color: var(--tdl-dim); }
+
+  .tdl-about-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+  .tdl-mark { flex: none; display: grid; place-items: center; width: 56px; height: 56px; font-size: 40px; }
+  .tdl-mark :is(svg, img) { width: 100%; height: 100%; }
+  .tdl-about-name { margin: 0; font-size: 16px; font-weight: 700; }
+  .tdl-about-text { margin: 2px 0 0; color: var(--tdl-dim); }
+  .tdl-about-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+  .tdl-about-rows dt { color: var(--tdl-dim); text-align: right; }
+  .tdl-about-rows dd { margin: 0; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+
+  /* ---------- titled border panels ---------- */
+
+  .tdl-panel {
+    position: relative;
+    box-sizing: border-box;
+    margin-top: 10px;
+    padding: 16px 12px 10px;
+    border: 1px solid var(--tdl-line);
+    border-radius: var(--tdl-radius);
+  }
+  .tdl-panel-head {
+    position: absolute;
+    top: 0;
+    left: 10px;
+    right: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+  .tdl-panel-head > * { pointer-events: auto; padding: 0 5px; background: var(--tdl-panel-bg); }
+  .tdl-panel-title { font: 600 12px var(--tdl-font); color: var(--tdl-fg); }
+  .tdl-panel-count { margin-left: -10px; font-size: 12px; color: var(--tdl-dim); }
+  .tdl-panel-action {
+    font: 12px var(--tdl-font);
+    color: var(--tdl-focus-line);
+    border-radius: 3px;
+    cursor: default;
+  }
+  .tdl-panel-action:first-of-type { margin-left: auto; }
+  .tdl-panel-action:hover { text-decoration: underline; }
+  .tdl-panel-action[aria-disabled="true"] { color: var(--tdl-dim); text-decoration: none; }
+  .tdl-panel-action:focus { outline: none; }
+  .tdl-panel-action:focus-visible { box-shadow: 0 0 0 2px var(--tdl-focus-line); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tdl, .tdl-veil { animation: none; }
+  }
+
+  @media (forced-colors: active) {
+    .tdl, .tdl-panel { border-color: CanvasText; }
+    .tdl-btn { border-color: ButtonText; }
+    .tdl-btn:focus-visible, .tdl-panel-action:focus-visible { outline: 2px solid Highlight; box-shadow: none; }
+    .tdl-tip { forced-color-adjust: none; color: Canvas; background: CanvasText; }
+  }
+}

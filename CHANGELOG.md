@@ -8,6 +8,12 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.31 — 2026-10-26
+
+- New: `TaurisDialog` (from MLPC's dialog kit): `confirm` (starts on Cancel; `danger`; `native: true` asks with the system's alert through the plugin's new `ask` command, with the `files` feature and the dialog plugin, else in the page), `form` in the Swing layout (right-aligned "Label:", compact fields, example placeholders, a balloon under a refused field, one kept line for the form's hint or refusal, `validate`, `submit` that may throw, a `review` of the changes before saving), `review` on its own, the Keyboard Shortcuts sheet (groups in balanced columns, keycaps, "either" rows), the About sheet, and titled border panels for a page (`panel`). Esc and ⌘. cancel, Tab stays inside, the rest of the page is out of reach, the focus goes back after. `Component::Dialog`; the checker knows it. The full example asks with it (Edit…, Delete…, Help › Keyboard Shortcuts ⌘/, About).
+- Tree: a desktop outline by default. In a table, rows that group others are no longer a bold band (`bandGroups: true` brings it back), and the selection without the focus is its tint alone (`--tv-sel-bar` adds the bar).
+- The full example: a click on a tree row only selects it; a double click or Enter opens a project or a file. Its tree takes the sidebar's colours.
+
 ## 0.4.30 — 2026-10-22
 
 - Sidebar: `image` puts a picture before its `title`: a product's or company's logo, a person's avatar. An image's address or markup starting with `<` (an svg); `imageShape: "round"` makes it a circle the picture fills (an avatar), `"square"` (default) shows the whole picture with slightly rounded corners. In the rail it alone shows, above the button, the title as its tooltip; one that fails to load leaves the title's first letter. Its size is `--tsb-image` (22px). The full example (`examples/all`) shows its logo and name there.

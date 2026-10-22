@@ -222,15 +222,14 @@
 
   .tv-row:hover { background: var(--tv-hover-bg); }
 
-  .tv-columns .tv-group { background: var(--tv-group-bg); }
-  .tv-columns .tv-group .tv-label { font-weight: 600; }
+  /* bandGroups: the rows that only group others in a band of their own, their names bold. */
+  .tv-band-groups.tv-columns .tv-group { background: var(--tv-group-bg); }
+  .tv-band-groups.tv-columns .tv-group .tv-label { font-weight: 600; }
 
   .tv-row[aria-selected="true"] {
     background: var(--tv-sel-inactive-bg);
-    /* A bar at its start, in the focus colour (3:1 on the row in both modes): the
-       selection shows plainly while the tree does not have the focus (its tint
-       alone is faint). --tv-sel-bar sets another. */
-    box-shadow: inset 2px 0 var(--tv-sel-bar, var(--tv-focus));
+    /* --tv-sel-bar: a bar at its start while the tree does not have the focus (none by default, as in a desktop outline). */
+    box-shadow: inset 2px 0 var(--tv-sel-bar, transparent);
     color: var(--tv-sel-inactive-fg, var(--tv-fg));
     --tv-muted: var(--tv-sel-inactive-fg, var(--tv-fg));  /* secondary text stays readable on the selection */
   }

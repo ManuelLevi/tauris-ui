@@ -62,6 +62,8 @@ declare global {
     label?: string;
     /** Dotted connector lines (false: +/- boxes only). */
     lines?: boolean;
+    /** In a table (columns), rows that only group others in a band of their own, their names bold (default false: every row alike). */
+    bandGroups?: boolean;
     /** More icons by name, as svg markup. */
     icons?: Record<string, string>;
     /** Rows drawn above and below the visible ones. */

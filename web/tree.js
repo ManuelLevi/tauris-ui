@@ -82,6 +82,9 @@
     label: "Tree",
     // dotted connector lines (false: +/- boxes only)
     lines: true,
+    // in a table (columns), rows that only group others in a band of their own, their names bold
+    // (a settings editor's sections); off, every row looks the same, as in a desktop outline
+    bandGroups: false,
     // more icons by name, as svg markup: { name: "<svg ...>" }. A node's
     // `icon` names one of these or a built-in: folder, file, code, doc, data,
     // image, package, lock. Any other name becomes the class tv-icon-<name>.
@@ -179,6 +182,7 @@
     root.classList.add("tv");
     if (cols) root.classList.add("tv-columns");
     if (!opt.lines) root.classList.add("tv-nolines");
+    if (opt.bandGroups) root.classList.add("tv-band-groups");
     const scroller = el("div", "tv-scroll");
     // Hidden from screen readers only when nothing in it can be used (no sorting, one column).
     const head = cols ? el("div", "tv-head", { "aria-hidden": cols.some(clickable) || cols.length > 1 ? null : "true" }, cols.map(headCell)) : null;
@@ -1590,7 +1594,7 @@
         cancelAnimationFrame(frame);
         scroller.remove();
         pool.clear();
-        root.classList.remove("tv", "tv-columns", "tv-nolines", "tv-resizing");
+        root.classList.remove("tv", "tv-columns", "tv-nolines", "tv-resizing", "tv-band-groups");
         for (const name of ["--tv-mid", "--tv-lx", "--tv-total", ...widths.map((_, i) => `--tv-c${i}`)]) root.style.removeProperty(name);
         delete root.__taurisTree;
         listeners.clear();

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dialogs</title>
+<link rel="stylesheet" href="../web/dialog.css">
+<style>
+  :root { color-scheme: light dark; }
+  html, body { height: 100%; margin: 0; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { padding: 24px; }
+  #kpis { width: 420px; }
+</style>
+</head>
+<body>
+<main>
+  <ul id="list" tabindex="0" aria-label="Projects"><li>Atlas</li><li>Northwind</li></ul>
+  <input id="field" aria-label="A field of the page">
+  <div id="kpis"><p>Revenue · 1.2M</p><p>Churn · 2%</p></div>
+</main>
+<script src="../web/dialog.js"></script>
+<script>
+  window.said = [];
+  window.taken = new Set(["Atlas"]);
+  window.panel = TaurisDialog.panel(document.getElementById("kpis"), { title: "KPIs", count: 2,
+    actions: [{ label: "+ New KPI…", action: () => said.push("new kpi") }, { label: "Open", disabled: true }] });
+  window.newProject = () => TaurisDialog.form({
+    title: "New Project", ok: "Create",
+    hint: "Names are unique.",
+    fields: [
+      { name: "name", label: "Name", placeholder: "Northwind Launch", required: true },
+      { name: "team", label: "Team", type: "select", options: ["Team A", "Team B"] },
+      { name: "budget", label: "Budget", type: "number", placeholder: "25000" },
+      { name: "notes", label: "Notes", type: "textarea", placeholder: "What it is for" },
+      { name: "public", label: "Shown to everyone", type: "checkbox" },
+    ],
+    validate: v => (taken.has(v.name.trim()) ? { field: "name", text: "That name is taken." } : null),
+    submit: async v => { if (v.budget > 1e6) throw new Error("The server refused a budget that large."); said.push(["saved", v.name]); },
+  });
+  window.editProject = () => TaurisDialog.form({
+    title: "Edit Project", ok: "Save",
+    fields: [{ name: "name", label: "Name", value: "Atlas" }, { name: "owner", label: "Owner", value: "Ana" }],
+    review: v => [["Name", "Atlas", v.name], ["Owner", "Ana", v.owner]].filter(([, a, b]) => a !== b).map(([field, before, after]) => ({ field, before, after })),
+  });
+</script>
+</body>
+</html>

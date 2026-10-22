@@ -899,7 +899,10 @@ with sync_playwright() as p:
     check("colours set on the tree's element reach the lines on a selected row", "0.0666" in line or "17 17 17" in line or "#111111" in line, line)
     page.evaluate("document.getElementById('mine').style.removeProperty('--tv-sel-bg'); document.getElementById('mine').style.removeProperty('--tv-sel-fg'); document.activeElement.blur(); 0")
     bar = page.evaluate("getComputedStyle(document.querySelector('#mine .tv-row[data-key=a]')).boxShadow")
-    check("dark: a selection without the focus has a bar that shows (3:1 on its row)", bar.startswith("rgb(91, 140, 255)"), bar)
+    page.evaluate("document.getElementById('mine').style.setProperty('--tv-sel-bar', '#5b8cff'); 0")
+    asked = page.evaluate("getComputedStyle(document.querySelector('#mine .tv-row[data-key=a]')).boxShadow")
+    check("a selection without the focus: its tint alone, as in a desktop outline; --tv-sel-bar adds a bar at its start",
+          "rgb(91, 140, 255)" not in bar and asked.startswith("rgb(91, 140, 255)"), (bar, asked))
     page.close()
 
     page = fresh(browser)

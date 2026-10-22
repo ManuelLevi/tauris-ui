@@ -29,7 +29,8 @@ def scripts():
     tabs = component("tabs", "TABS").replace("__TAURIS_TABS_VERSION__", "test").replace('"__TAURIS_TABS_CAN_DRAG_OUT__"', "true")
     return [(HERE / "mock_tauri.js").read_text(), tabs, component("menus", "MENUS"), component("tree", "TREE"),
             component("files", "FILES"), component("terminal", "TERMINAL"), component("sidebar", "SIDEBAR"),
-            component("finder", "FINDER")]
+            component("finder", "FINDER"),
+            component("dialog", "DIALOG")]
 
 
 # What Rust does for the example: a new tab is a project, the picker gives one file, `inspect` sizes it.
@@ -113,7 +114,7 @@ with sync_playwright() as p:
     # ---------- the right click on a file ----------
     page.click(".tv-row:has-text('Hello.md')", button="right")
     page.wait_for_selector(".tmn-menu")
-    check("a right click on a file: Open, Open in new tab, Edit, Delete", menu(page) == ["Open", "Open in new tab", "-", "Edit", "Delete"], menu(page))
+    check("a right click on a file: Open, Open in new tab, Edit…, Delete…", menu(page) == ["Open", "Open in new tab", "-", "Edit…", "Delete…"], menu(page))
     page.click(".tmn-item:has-text('Open in new tab')")
     page.wait_for_timeout(100)
     check("Open in new tab: a tab named after the file, showing it",
@@ -125,17 +126,38 @@ with sync_playwright() as p:
     check("Open: the file replaces what this tab shows", page.locator(".tt-tab").count() == 2 and active_title(page) == "Sup.txt", active_title(page))
     page.click(".tv-row:has-text('Sup.txt')", button="right")
     page.click(".tmn-item:has-text('Edit')")
-    check("Edit does nothing but say so", page.text_content("#status") == "Edit does nothing in this example." and active_title(page) == "Sup.txt")
+    page.wait_for_selector(".tdl")
+    form = page.evaluate("[document.querySelector('.tdl-title').textContent, document.activeElement.value]")
+    page.keyboard.type("Sup 2.txt")
+    page.keyboard.press("Enter")
+    review = page.evaluate("[...document.querySelectorAll('.tdl-review-rows tr')].map(r => r.textContent)")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(50)
+    check("Edit…: a form (the name selected), the change reviewed, then it does nothing but say so",
+          form == ["Edit File", "Sup.txt"] and review == ["Name:Sup.txt → Sup 2.txt"] and page.text_content("#status") == "Edit does nothing in this example."
+          and active_title(page) == "Sup.txt", (form, review, page.text_content("#status")))
     page.click(".tv-row:has-text('Sup.txt')", button="right")
     page.click(".tmn-item:has-text('Delete')")
-    check("Delete does nothing but say so", page.text_content("#status") == "Delete does nothing in this example." and "Sup.txt" in tree_names(page))
+    page.wait_for_selector(".tdl")
+    asked = page.evaluate("[document.querySelector('.tdl-title').textContent, document.activeElement.textContent]")
+    page.click(".tdl-danger")
+    page.wait_for_timeout(50)
+    check("Delete…: a question (on Cancel at first), then it does nothing but say so",
+          asked == ["Delete “Sup.txt”?", "Cancel"] and page.text_content("#status") == "Delete does nothing in this example." and "Sup.txt" in tree_names(page), asked)
     page.click(".tv-row:has-text('Team B')", button="right")
     check("a team has no menu", page.locator(".tmn-menu").count() == 0)
 
     # ---------- the projects ----------
-    page.click(".tv-row:has-text('Vacation Mexico')")
+    shown = active_title(page)
+    page.click(".tv-row:has-text('Vacation Mexico') .tv-label")
     page.wait_for_timeout(100)
-    check("a click on a project shows its files in this tab",
+    only_selected = (active_title(page) == shown, page.evaluate("document.querySelector('.tv-row[aria-selected=true]').textContent.startsWith('Vacation Mexico')"),
+                     page.get_attribute(".tv-row:has-text('Vacation Mexico')", "aria-expanded"))
+    check("a click on a project's name only selects it (as in a desktop outline): nothing opens, it stays as it was",
+          only_selected == (True, True, "true"), only_selected)
+    page.dblclick(".tv-row:has-text('Vacation Mexico') .tv-label")
+    page.wait_for_timeout(100)
+    check("a double click shows its files in this tab",
           active_title(page) == "Vacation Mexico" and texts(page, ".tf-file .tf-name") == ["places to visit.md"] and page.is_visible("#files"),
           (active_title(page), texts(page, ".tf-file .tf-name")))
     page.click("#toolbar .tmn-tool:has-text('Team B')")
@@ -240,6 +262,22 @@ with sync_playwright() as p:
     page.wait_for_timeout(50)
     check("Escape clears the line and the list", page.input_value(".tm-cmd-input") == "" and page.get_attribute("#matches", "data-tm-state") in (None, ""),
           page.get_attribute("#matches", "data-tm-state"))
+    page.close()
+
+    # ---------- the sheets ----------
+    page = fresh(browser)
+    page.click("body", position={"x": 600, "y": 300})
+    page.keyboard.press("ControlOrMeta+/")
+    page.wait_for_selector(".tdl-sheet")
+    groups = page.evaluate("[...document.querySelectorAll('.tdl-shortcut-group h3')].map(h => h.textContent)")
+    page.keyboard.press("Escape")
+    page.click(".tmn-title:text-is('Help')")
+    page.click(".tmn-item:has-text('About this example')")
+    page.wait_for_selector(".tdl-about")
+    name = page.inner_text(".tdl-about-name")
+    page.keyboard.press("Enter")
+    check("⌘/ shows the Keyboard Shortcuts; Help › About this example the About sheet",
+          groups == ["Everywhere", "Tabs", "Lists"] and name == "All Components" and page.locator(".tdl").count() == 0, (groups, name))
     page.close()
 
     # ---------- find anything: ⌘K ----------

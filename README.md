@@ -8,6 +8,7 @@ UI components for Tauri 2 desktop apps. One library for every app.
 | [Tree view](#tree-view) | `TaurisTree.mount(element, { data })` | A dense tree and configuration editor: compact rows, dotted guide lines, aligned columns, in-place editing |
 | [Files](#files) | `TaurisFiles.mount(element, { files, onAdd })` | A place's shared files: a dense, sortable table with drag and drop, search, in-place renaming and the system's pickers |
 | [Menus](#menus) | `TaurisMenu.bar(nav, { menus })` | An in-window menu bar, toolbar buttons with a ▾ menu, and right-click menus, with a desktop app's keyboard |
+| [Dialogs](#dialogs) | `await TaurisDialog.confirm({ title })`, `.form({ title, fields })` | Questions, forms in the Swing layout, a review of the changes before saving, Keyboard Shortcuts and About sheets, titled border panels |
 | [Finder](#finder) | `TaurisFinder.mount({ items, onPick })` | Find anything with ⌘K: a panel at the top of the window, as Spotlight or Xcode's Open Quickly, finding as you type |
 | [Sidebar](#sidebar) | `TaurisSidebar.mount(element, { items })` | A collapsible side bar of sections, as in Mail or Finder: a logo or avatar with its title, icons, counts, groups, a rail of icons when collapsed, an edge to resize |
 | [Terminal](#terminal) | `TaurisTerminal.mount(element)` | An optional Bloomberg-style look: amber on black, monospace, dense tables, function keys, a command line and a message log |
@@ -761,6 +762,35 @@ Put it in a row with a height (`display: flex`): it sets its own width, and the 
 
 Types are in `web/sidebar.d.ts`. **The look:** `--tsb-*` variables at the top of `web/sidebar.css` (its background is `--tauris-chrome`; the selected item is `--tauris-sel-bg` while the sidebar has the focus, `--tauris-sel-inactive` otherwise). `[data-tsb-state]` on the element says `"open"`, `"rail"` or `"hidden"`.
 
+## Dialogs
+
+A question, a form, the changes before they are saved, and two ready sheets. Each sits over the page (below the tab strip) and resolves when it closes; the rest of the page is out of reach meanwhile, and the focus goes back where it was.
+
+```js
+if (await TaurisDialog.confirm({ title: "Delete “Atlas”?", message: "Its files go too.", ok: "Delete", danger: true })) remove(atlas);
+
+const values = await TaurisDialog.form({
+  title: "New Project", ok: "Create",
+  hint: "Names are unique within a team.",       // the kept line under the fields, until a refusal takes its place
+  fields: [
+    { name: "name", label: "Name", placeholder: "Northwind Launch", required: true },
+    { name: "team", label: "Team", type: "select", options: teams.map(t => ({ value: t.id, label: t.name })) },
+    { name: "notes", label: "Notes", type: "textarea" },
+  ],
+  validate: v => (taken(v.name) ? { field: "name", text: "That name is taken." } : null),
+  review: v => changes(v),                        // [{ field, before, after }] shown before saving ("Save Changes")
+  submit: async v => { await save(v); },          // a throw shows its message and keeps the dialog open
+});                                               // the values, or null when cancelled
+```
+
+- **A question** (`confirm`) starts on Cancel, so Enter never deletes by accident; `danger: true` makes its button red. `native: true` asks with the system's alert instead (with the plugin's `files` feature and the dialog plugin; elsewhere, in the page).
+- **A form** is in the Swing layout: "Label:" right-aligned beside each field, compact fields, placeholders that are examples (dimmer than typed text). It starts in its first field, its text selected; Enter is the default button (⌘↩ in a text area), Esc and ⌘. cancel, Tab goes round inside it. A refusal about a field (`required`, `validate`, a throw of `{ field, text }`) is a balloon under that field, which takes the keys; any other (a thrown `Error`) shows on the kept line, so the dialog never changes height. Field types: text, password, number, email, url, tel, date, time, textarea, select, checkbox. `left(element)` fills the left of the button row.
+- **A review** (`review` in a form, or `TaurisDialog.review({ rows })` alone) lists "Field: old → new", the old struck through; a row without `before` (a secret) says only that it changed. Esc goes back to the fields.
+- **Sheets:** `TaurisDialog.shortcuts({ groups: [{ title, items: [{ label, keys: ["⌘K"] }, { label, keys: ["⌘[", "⌘]"], either: true }] }] })` lays the groups out in three columns of about the same height, keys as keycaps; `TaurisDialog.about({ name, mark, description, rows: [["Version", "2.4"]] })`.
+- **Titled panels:** `TaurisDialog.panel(element, { title, count, actions: [{ label, action }] })` frames a part of a page in a box with its title, a dim count and its buttons on its top line (Swing's TitledBorder); `update()` and `destroy()`. Set `--tdl-panel-bg` to what is behind the box.
+
+Types are in `web/dialog.d.ts`. **The look:** `--tdl-*` variables at the top of `web/dialog.css`.
+
 ## Finder
 
 Find anything with ⌘K (or ⌘L; Ctrl elsewhere): a panel at the top of the window, as Spotlight or Xcode's Open Quickly. What it searches is in memory, so its results follow every key.
@@ -861,6 +891,7 @@ python test/files_run.py [shots-dir]       # the files component, with drops and
 python test/menus_run.py [shots-dir]       # the menus, mouse and keyboard
 python test/sidebar_run.py [shots-dir]     # the sidebar: collapsing, the edge, the keys
 python test/finder_run.py                  # the finder: matching, groups, the keys
+python test/dialog_run.py                  # the dialogs: questions, forms, reviews, sheets, panels
 python test/all_run.py [shots-dir]         # examples/all: every component in one app
 python test/doctor_run.py                  # the checker, on small apps set up right and wrong
 (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build) && python scripts/doctor.py examples/basic
