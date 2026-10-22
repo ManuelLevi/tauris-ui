@@ -131,8 +131,10 @@ declare global {
     saveLabel?: string;
     /** Saves; a throw (an Error, or { field, text }) shows as a refusal and keeps the dialog open. */
     submit?: (values: V) => unknown | Promise<unknown>;
-    /** Fills the left of the button row (a "Delete" of the app's); in the page only. */
-    left?: (element: HTMLElement) => void;
+    /** The left of the button row: a button ("Delete…") whose run asks its own question and resolves true to close
+     *  the dialog (the form then gives null); it works in a window of its own too, run here. Or a function that
+     *  fills the element itself (in the page only). */
+    left?: ((element: HTMLElement) => void) | { label: string; danger?: boolean; run: () => boolean | Promise<boolean> };
     labels?: Partial<TaurisDialogLabels>;
     /** In a native window of its own, attached to this one (in the page where none can open). Its checks and save run here;
      *  a TaurisDialog.confirm during them is asked in that window. */

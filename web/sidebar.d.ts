@@ -8,6 +8,8 @@ declare global {
     label: string;
     /** Text (an emoji, a letter) or markup starting with "<" (an svg). None: its first letter stands for it in the rail. */
     icon?: string | null;
+    /** In the rail without an icon: this instead of its first letter ("MH"). */
+    letter?: string | null;
     /** A number or short text on its right (a dot in the rail); 0, null or "" shows none. */
     count?: number | string | null;
     /** Shown, but not chosen and not reached by the keys. */
@@ -34,6 +36,10 @@ declare global {
 
   interface TaurisSidebarOptions {
     items?: TaurisSidebarEntry[];
+    /** What the collapsed strip shows instead of `items` (a tree's projects): each its icon, or its letter. */
+    railItems?: TaurisSidebarItem[] | null;
+    /** One of railItems chosen: the sidebar has opened; show it (select it in the tree). */
+    onRailSelect?: (item: TaurisSidebarItem, info: { how: "mouse" | "keyboard" }) => void;
     /** The id of the selected item, or null. */
     selected?: string | number | null;
     /** Collapsed at first (storageKey, when it has one, says instead). */

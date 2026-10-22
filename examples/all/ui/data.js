@@ -15,12 +15,12 @@ const TEAMS = [
     ] },
   ] },
   { id: "team-b", name: "Team B", projects: [
-    { id: "megalomania", name: "Megalomania", color: "#b83a31", activity: [9, 7, 8, 4, 3, 2], files: [
+    { id: "megalomania", name: "Megalomania", color: "#b83a31", letter: "MG", activity: [9, 7, 8, 4, 3, 2], files: [
       { id: "megalomania/readme", name: "readme.md", size: 2 * KB, added: "2026-09-30", by: "Chen", text: "# Megalomania\n\nA plan that is a little too big." },
     ] },
   ] },
   { id: "team-c", name: "Team C", projects: [
-    { id: "vacation-mexico", name: "Vacation Mexico", color: "#1baf7a", activity: [0, 1, 1, 2, 4, 7], files: [
+    { id: "vacation-mexico", name: "Vacation Mexico", color: "#1baf7a", icon: "🌴", activity: [0, 1, 1, 2, 4, 7], files: [
       { id: "vacation-mexico/places", name: "places to visit.md", size: 1 * KB, added: "2026-10-02", by: "Dia", text: "# Places to visit\n\n- Oaxaca\n- Mexico City\n- Tulum" },
     ] },
   ] },

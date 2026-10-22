@@ -8,6 +8,23 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.41 — 2026-10-22
+
+- Sidebar: `railItems`, what the collapsed strip shows (a tree's projects). Each shows its icon or its letter (`letter`, default its label's first). A click opens the sidebar and calls `onRailSelect`, for the app to show it in its tree. The full example shows its projects so.
+- Table:
+  - the rows keep their elements when the app updates, and only changed cells are new, so a press's click still reaches its button or checkbox;
+  - a pending rename (click, pause) ends with any key, a scroll or the window losing focus;
+  - a checkbox blocked by `canToggle` looks blocked, with its reason as the tooltip;
+  - an edit's `maxLength`;
+  - `groupActions` (buttons on a group's row);
+  - `selectableGroups`;
+  - a collapsible group with no rows has no box;
+  - `last(row)` keeps rows after the others either way, and `compare` gets the direction;
+  - in a cell the app draws, a part marked `data-short` shortens when narrow.
+- Dialogs:
+  - `left: { label, danger, run }`, a button on the left ("Delete…"), in a window of its own too;
+  - a question's paragraph keeps its single line breaks.
+
 ## 0.4.40 — 2026-10-22
 
 - Tree and table: a ⌘-click (without `multiple`) only opens the other way (a new tab). The selection stays where it was, as in Finder's sidebar.

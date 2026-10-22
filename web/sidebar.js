@@ -73,8 +73,13 @@
   };
 
   const DEFAULTS = {
-    // [{ id, label, icon?, count?, disabled?, title? }, or { heading }]: one level (a tree: TaurisTree in `content`)
+    // [{ id, label, icon?, letter?, count?, disabled?, title? }, or { heading }]: one level (a tree: TaurisTree in `content`)
     items: [],
+    // what the collapsed strip shows instead of `items` (a tree's projects): [{ id, label, icon?, letter?, title? }].
+    // Each shows its icon, or its letter (default its label's first). A click opens the sidebar and
+    // tells onRailSelect, for the app to show it (in its tree).
+    railItems: null,
+    onRailSelect: null, // (item, { how: "mouse" | "keyboard" })
     // the id of the selected item, or null
     selected: null,
     // collapsed at first (storageKey, when it has one, says instead)
@@ -262,9 +267,12 @@
     // TaurisTree in `content` (an item's children are left out, and said so once).
     let flat = [];
     let toldNesting = false;
+    // Collapsed to the strip with railItems: those stand in for the items.
+    const railShown = () => rail() && Array.isArray(opt.railItems) && opt.railItems.length > 0;
     function flatten() {
       flat = [];
-      for (const item of Array.isArray(items) ? items : []) {
+      const fromRail = railShown();
+      for (const item of fromRail ? opt.railItems : Array.isArray(items) ? items : []) {
         if (!item || typeof item !== "object") continue;
         if ("heading" in item && item.id == null) {
           flat.push({ heading: String(item.heading ?? "") });
@@ -275,7 +283,7 @@
           toldNesting = true;
           console.warn(`[tauris-ui sidebar] items do not nest: the children of “${item.label}” are left out. A tree belongs in a TaurisTree, given as \`content\`.`);
         }
-        flat.push({ key: keyOf(item.id), item });
+        flat.push({ key: keyOf(item.id), item, rail: fromRail });
       }
     }
     const rail = () => collapsed && opt.collapse !== "hide";
@@ -340,7 +348,7 @@
         const pic = icon(item.icon);
         if (!pic.childNodes.length) {
           pic.classList.add("tsb-no-icon");
-          pic.textContent = label.trim().charAt(0).toUpperCase();
+          pic.textContent = item.letter != null && item.letter !== "" ? String(item.letter) : label.trim().charAt(0).toUpperCase();
         }
         row.append(pic, el("span", "tsb-label", {}, label));
         if (count) row.append(el("span", "tsb-count", { "aria-hidden": "true" }, count));
@@ -367,6 +375,12 @@
     function choose(key, how) {
       const r = rowOf(key);
       if (!r || r.item.disabled) return;
+      // One of railItems: the sidebar opens, and the app shows it.
+      if (r.rail) {
+        setCollapsed(false, how === "keyboard" ? "shortcut" : "button");
+        call(opt.onRailSelect, r.item, { how });
+        return;
+      }
       focusKey = key;
       const changed = selected !== key;
       selected = key;
@@ -595,7 +609,7 @@
       get width() { return width; },
       /** Sets its width when open (kept between the narrowest and widest). */
       setWidth(w) { setWidth(Number(w), false); },
-      /** Changes options: items, selected, title, image, imageShape, labels, the on… functions, collapse, side, widths. */
+      /** Changes options: items, railItems, selected, title, image, imageShape, labels, the on… functions, collapse, side, widths. */
       update(changes = {}) {
         changes = given(changes);
         Object.assign(opt, changes);

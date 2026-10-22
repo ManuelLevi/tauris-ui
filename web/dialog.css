@@ -262,6 +262,8 @@
   .tdl-line-hint { color: var(--tdl-dim); }
   .tdl-line-error { color: var(--tdl-error); }
   .tdl-line.tdl-refused .tdl-line-hint { visibility: hidden; }
+  /* A question's message: a paragraph keeps its single line breaks (a list of what goes). */
+  .tdl-message p { white-space: pre-line; }
   /* A question's kept line: why its action could not be done. */
   .tdl-question-line { margin: 8px 0 0; }
 

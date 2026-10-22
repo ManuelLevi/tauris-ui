@@ -126,7 +126,8 @@
     const spec = {
       kind,
       options: JSON.parse(JSON.stringify({ ...options, window: undefined })),
-      has: { validate: typeof options.validate === "function", review: typeof options.review === "function", submit: typeof options.submit === "function" },
+      has: { validate: typeof options.validate === "function", review: typeof options.review === "function", submit: typeof options.submit === "function",
+        left: Boolean(options.left && typeof options.left === "object" && typeof options.left.run === "function") },
     };
     try {
       const label = await plugin("dialog_window_open", { spec: JSON.stringify(spec), title: String(title ?? ""), width: Number(width) || 440 });
@@ -540,6 +541,7 @@
           if (what === "validate") return typeof options.validate === "function" ? (await options.validate(value)) ?? null : null;
           if (what === "review") return typeof options.review === "function" ? (await options.review(value)) ?? null : null;
           if (what === "submit" && typeof options.submit === "function") await options.submit(value);
+          if (what === "left" && options.left && typeof options.left.run === "function") return (await options.left.run()) === true;
           return null;
         });
       }
@@ -764,6 +766,27 @@
         } catch (e) {
           console.error("[tauris-ui dialog] left() failed:", e);
         }
+      } else if (options.left && typeof options.left === "object" && options.left.label) {
+        // A button on the left ("Delete…"): its run asks its own question; true closes the dialog
+        // (the form gives null: nothing was saved). In a window of its own too.
+        const leftButton = button(String(options.left.label), {
+          danger: options.left.danger === true,
+          onPress: async () => {
+            if (busy || typeof options.left.run !== "function") return;
+            setBusy(true);
+            let done = false;
+            try {
+              done = (await options.left.run()) === true;
+            } catch (e) {
+              setBusy(false);
+              return refuse(refusalOf(e));
+            }
+            setBusy(false);
+            if (done) end(null);
+            return undefined;
+          },
+        });
+        left.append(leftButton);
       }
       state.form = { refuse, values };
       focusFirst();
@@ -953,6 +976,7 @@
         validate: spec.has.validate ? v => ask("validate", v) : undefined,
         review: spec.has.review ? v => ask("review", v) : undefined,
         submit: spec.has.submit ? v => ask("submit", v) : undefined,
+        left: o.left && typeof o.left === "object" ? { ...o.left, run: spec.has.left ? () => ask("left") : undefined } : undefined,
       });
       return tellDone(values);
     }

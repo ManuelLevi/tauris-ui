@@ -386,6 +386,13 @@
   /* The checkbox column, always shown. */
   .ttb-check-cell { text-align: center; text-overflow: clip; }
   .ttb-check { margin: 0; vertical-align: middle; accent-color: var(--ttb-accent); }
+  /* Blocked (canToggle gave a reason): it looks so, its reason the tooltip; a press says why. */
+  .ttb-check[aria-disabled="true"] { opacity: 0.45; }
+
+  /* A group's own buttons (groupActions), on its right, shown on hover and selection. */
+  .ttb-group-acts { float: right; margin-right: -4px; font-weight: 400; }
+  .ttb-group:hover .ttb-ib, .ttb-group[aria-selected="true"] .ttb-ib { opacity: 1; }
+  .ttb-list:focus .ttb-group[aria-selected="true"] .ttb-ib { color: var(--ttb-sel-fg); }
 
   /* A cell edited in place. */
   .ttb-cell.ttb-editing { padding: 0 2px; overflow: visible; }

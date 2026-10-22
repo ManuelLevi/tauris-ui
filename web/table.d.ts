@@ -42,7 +42,8 @@ declare global {
     text?: (row: R) => string;
     /** What it sorts by, when not the field (a date for a "Fri" shown). */
     value?: (row: R) => unknown;
-    compare?: (a: R, b: R) => number;
+    /** `up`: the direction sorted (the table turns the result round itself for ▼). */
+    compare?: (a: R, b: R, up: boolean) => number;
     /** false: its header does not sort. */
     sortable?: boolean;
     /** The cell's tooltip: true for its whole text, or (row) => text. */
@@ -50,10 +51,13 @@ declare global {
     className?: string;
     /** The narrowest a drag makes it (default 40). */
     minWidth?: number;
-    /** A shorter text ("€1.2M") shown when the whole one ("€1,234,567") does not fit. */
+    /** A shorter text ("€1.2M") shown when the whole one ("€1,234,567") does not fit. In a cell the app draws,
+     *  a part marked data-short="€6.0k" shortens the same way, the rest staying. */
     short?: (row: R) => string;
     /** Edited in place (F2, or a click on the selected row's cell and a pause): onEdit hears the value. */
     edit?: boolean;
+    /** The longest an edit may be (said once when reached). */
+    maxLength?: number;
     /** A checkbox, always shown, ticked by `row[key]` (or `value(row)`); Space on the row ticks it too. */
     check?: boolean;
     /** Whether it may be ticked or unticked now: true, or why not (said instead of ticking). */
@@ -81,6 +85,7 @@ declare global {
     noneStarts: string | ((typed: string) => string);
     copied: string;
     copiedRows: string | ((count: number) => string);
+    maxLength: string | ((n: number) => string);
     loading: string;
     expand: string;
     collapse: string;
@@ -107,8 +112,14 @@ declare global {
     sortable?: boolean;
     /** false: no column's edge can be dragged (default true). */
     resizable?: boolean;
-    /** Groups open and close: a +/- box, ← →, Enter or Space on a selected group (default false). */
+    /** Groups open and close: a +/- box, ← →, Enter or Space on a selected group (default false). A group with no rows has no box. */
     collapsible?: boolean;
+    /** Groups can be selected (the keys go through them) without opening and closing (default false). */
+    selectableGroups?: boolean;
+    /** Buttons on a group's row, shown on hover and selection: "+" (a new item in it), "✎". */
+    groupActions?: { id?: string; icon?: string; title: string; danger?: boolean; onClick: (group: TaurisTableGroup, info: { how: "mouse" | "keyboard" }) => void }[] | null;
+    /** Rows that stay after the others, whichever way the table is sorted (locked, no website). */
+    last?: ((row: R) => boolean) | null;
     /** ⌘-click and Shift-click select several rows, ⌘A every row shown, ⇧↑ ⇧↓ extend (default false). */
     multiple?: boolean;
     /** ⌘C copies the selected rows as tab-separated text (a spreadsheet takes them). Default false. */

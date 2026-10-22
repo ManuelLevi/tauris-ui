@@ -74,6 +74,8 @@
     loading: "Loading…",
     // a group's count, after its name: (rows) => text
     count: n => String(n),
+    // an edit's maxLength reached: (n) => text
+    maxLength: n => `At most ${n} characters.`,
     // a group's +/- box, for a screen reader
     expand: "Expand",
     collapse: "Collapse",
@@ -91,6 +93,12 @@
     groups: null,
     // groups open and close (a +/- box, ← →, Enter or Space on a selected group)
     collapsible: false,
+    // groups can be selected (the keys go through them), even when they do not close
+    selectableGroups: false,
+    // buttons on a group's row, shown on hover and selection: [{ id, icon, title, onClick(group), danger? }]
+    groupActions: null,
+    // (row) => true: the row stays after the others, whichever way the table is sorted (locked, no website)
+    last: null,
     // { key, up }: the column sorted, or null for the rows in the order given
     sort: null,
     // false: no header sorts
@@ -269,10 +277,11 @@
     const current = () => (sel != null ? byId.get(sel) ?? null : null);
     const groupById = key => (Array.isArray(opt.groups) ? opt.groups.find(g => keyOf(g.id) === key) ?? null : null);
     const collapsible = () => opt.collapsible === true && Array.isArray(opt.groups);
+    const groupsSelectable = () => (opt.selectableGroups === true || opt.collapsible === true) && Array.isArray(opt.groups);
     const pickedRows = () => shown.filter(r => picked.has(keyOf(r.id)));
 
     function compare(col) {
-      if (typeof col.compare === "function") return (a, b) => call(col.compare, a, b) ?? 0;
+      if (typeof col.compare === "function") return (a, b) => call(col.compare, a, b, sort ? sort.up : true) ?? 0;
       const value = row => (typeof col.value === "function" ? call(col.value, row) : col.key != null ? row[col.key] : null);
       return (a, b) => {
         const x = value(a);
@@ -292,6 +301,11 @@
       if (col) {
         const by = compare(col);
         list = list.map((r, i) => [r, i]).sort(([a, i], [b, j]) => (by(a, b) * (sort.up ? 1 : -1)) || i - j).map(([r]) => r);
+      }
+      // Rows that stay last, either way (in their order among themselves).
+      if (typeof opt.last === "function") {
+        const lastOnes = list.filter(r => call(opt.last, r) === true);
+        if (lastOnes.length) list = list.filter(r => !lastOnes.includes(r)).concat(lastOnes);
       }
       if (!Array.isArray(opt.groups)) return { list, parts: null };
       const parts = opt.groups.map(g => ({ group: g, rows: [] }));
@@ -386,6 +400,13 @@
         td.classList.add("ttb-check-cell");
         const box = el("input", "ttb-check", { type: "checkbox", tabindex: "-1", "aria-label": `${c.label || ""}${c.label ? ": " : ""}${textOf(row, typeColumn())}` });
         box.checked = Boolean(typeof c.value === "function" ? call(c.value, row) : row[c.key]);
+        if (box.checked) box.setAttribute("checked", "");
+        // Blocked: it looks and reads so, its reason the tooltip; a press still says why.
+        const may = typeof c.canToggle === "function" ? call(c.canToggle, row) : true;
+        if (may !== true && may !== undefined) {
+          box.setAttribute("aria-disabled", "true");
+          if (typeof may === "string" && may) box.title = may;
+        }
         box.addEventListener("click", e => {
           e.preventDefault();
           e.stopPropagation();
@@ -398,8 +419,17 @@
       if (editing && editing.key === keyOf(row.id) && editing.ci === ci) {
         td.classList.add("ttb-editing");
         const input = el("input", "ttb-edit", { type: "text", "aria-label": c.label ?? "" });
+        if (Number.isFinite(c.maxLength) && c.maxLength > 0) input.maxLength = c.maxLength;
         input.value = editing.draft;
-        input.addEventListener("input", () => { if (editing) editing.draft = input.value; }, { signal });
+        input.addEventListener("input", () => {
+          if (!editing) return;
+          editing.draft = input.value;
+          // At its limit: said once (the field takes no more).
+          if (input.maxLength > 0 && input.value.length >= input.maxLength && !editing.toldMax) {
+            editing.toldMax = true;
+            message(say(L().maxLength, input.maxLength), "error");
+          }
+        }, { signal });
         input.addEventListener("keydown", e => {
           e.stopPropagation();
           if (e.isComposing) return;
@@ -491,10 +521,11 @@
       const tr = el("tr", "ttb-group", { role: "row", id: groupId(key) });
       tr.dataset.group = key;
       const td = el("td", "", { role: "gridcell", colspan: String(Math.max(1, columns().length)) });
-      if (collapsible()) {
+      if (groupsSelectable()) tr.setAttribute("aria-selected", String(selGroup === key));
+      // A group with no rows has nothing to open: no box.
+      if (collapsible() && part.rows.length) {
         const open = isOpen(g);
         tr.setAttribute("aria-expanded", String(open));
-        tr.setAttribute("aria-selected", String(selGroup === key));
         const box = el("span", "ttb-box", { "aria-hidden": "true", title: say(open ? L().collapse : L().expand) });
         box.textContent = open ? "−" : "+";
         td.append(box);
@@ -504,6 +535,21 @@
       const name = el("span", "ttb-group-label", {}, g.label ?? "");
       const detail = el("span", "ttb-group-detail", {}, g.detail != null ? g.detail : say(L().count, part.rows.length));
       td.append(chip, name, detail);
+      if (Array.isArray(opt.groupActions) && opt.groupActions.length) {
+        const acts = el("span", "ttb-group-acts");
+        for (const a of opt.groupActions) {
+          const btn = el("button", `ttb-ib${a.danger ? " ttb-danger" : ""}`, { type: "button", tabindex: "-1", title: String(a.title ?? ""), "aria-label": `${a.title ?? ""}: ${g.label ?? ""}` });
+          if (a.id != null) btn.dataset.act = String(a.id);
+          icon(btn, a.icon ?? String(a.title ?? "").slice(0, 1));
+          btn.addEventListener("click", e => {
+            e.stopPropagation();
+            call(a.onClick, groupById(key) ?? g, { how: e.detail === 0 ? "keyboard" : "mouse" });
+          }, { signal });
+          btn.addEventListener("dblclick", e => e.stopPropagation(), { signal });
+          acts.append(btn);
+        }
+        td.append(acts);
+      }
       tr.append(td);
       return tr;
     }
@@ -533,7 +579,7 @@
         for (const part of parts) {
           if (part.group) {
             out.push(groupRow(part));
-            if (collapsible()) items.push({ group: part.group });
+            if (groupsSelectable()) items.push({ group: part.group });
           }
           const open = !part.group || isOpen(part.group);
           if (!open) continue;
@@ -558,7 +604,7 @@
       // A state in place of the rows: loading, or what went wrong.
       const state = opt.state;
       const error = state && typeof state === "object" && state.error != null ? String(state.error) : null;
-      body.replaceChildren(...(state ? [] : out));
+      place(state ? [] : out);
       empty.hidden = !state && rows.length > 0;
       empty.classList.toggle("ttb-error", Boolean(error));
       empty.setAttribute("role", error ? "alert" : "status");
@@ -579,6 +625,7 @@
     }
 
     // A cell with a short form ("€1.2M") shows it when its whole text ("€1,234,567") does not fit.
+    // Inside a cell the app drew, a part marked data-short="€6.0k" does the same (its date stays).
     function fitShort() {
       for (const td of body.querySelectorAll("td[data-short]")) {
         if (!td.dataset.short) continue;
@@ -588,9 +635,51 @@
           if (!td.title) td.title = td.dataset.full;
         }
       }
+      for (const part of body.querySelectorAll("td [data-short]")) {
+        if (part.dataset.full === undefined) part.dataset.full = part.textContent;
+        part.textContent = part.dataset.full;
+        const td = part.closest("td");
+        if (td && td.scrollWidth > td.clientWidth + 1) {
+          part.textContent = part.dataset.short;
+          if (!part.title) part.title = part.dataset.full;
+        }
+      }
     }
     const fits = new ResizeObserver(() => fitShort());
     fits.observe(scroller);
+
+    // The rows drawn again keep their elements where their id stays, and only the cells that
+    // changed are new: a press's click still lands where it was pressed, :hover and a flash go on.
+    function place(next) {
+      const kept = new Map();
+      for (const tr of body.children) {
+        const k = tr.classList.contains("ttb-row") ? `r:${tr.dataset.id}` : tr.classList.contains("ttb-group") ? `g:${tr.dataset.group}` : null;
+        if (k) kept.set(k, tr);
+      }
+      const final = next.map(tr => {
+        const k = tr.classList.contains("ttb-row") ? `r:${tr.dataset.id}` : tr.classList.contains("ttb-group") ? `g:${tr.dataset.group}` : null;
+        const old = k ? kept.get(k) : null;
+        if (!old) return tr;
+        kept.delete(k);
+        morph(old, tr);
+        return old;
+      });
+      final.forEach((tr, i) => { if (body.children[i] !== tr) body.insertBefore(tr, body.children[i] ?? null); });
+      while (body.children.length > final.length) body.lastElementChild.remove();
+    }
+    function morph(old, tr) {
+      for (const a of [...old.attributes]) if (!tr.hasAttribute(a.name)) old.removeAttribute(a.name);
+      for (const a of [...tr.attributes]) if (old.getAttribute(a.name) !== a.value) old.setAttribute(a.name, a.value);
+      const n = Math.max(old.children.length, tr.children.length);
+      for (let i = n - 1; i >= 0; i--) {
+        const was = old.children[i];
+        const now = tr.children[i];
+        if (!now) was.remove();
+        else if (!was) old.append(now);
+        // A cell edited in place is always the new one (its field is the one being typed in).
+        else if (now.classList.contains("ttb-editing") || was.classList.contains("ttb-editing") || was.outerHTML !== now.outerHTML) old.replaceChild(now, was);
+      }
+    }
 
     // ---------- selection ----------
 
@@ -599,7 +688,7 @@
         if (tr.classList.contains("ttb-row")) {
           tr.setAttribute("aria-selected", String(picked.has(tr.dataset.id)));
           tr.classList.toggle("ttb-focus", tr.dataset.id === sel && selGroup == null);
-        } else if (tr.classList.contains("ttb-group") && collapsible()) {
+        } else if (tr.classList.contains("ttb-group") && groupsSelectable()) {
           tr.setAttribute("aria-selected", String(selGroup === tr.dataset.group));
         }
       }
@@ -786,10 +875,10 @@
         // ⌘-click without `multiple`: opens the other way (its click), the selection staying where it was.
         else if (e.button === 0 && !opt.multiple && cmd(e)) e.preventDefault();
         else if (!(e.button === 2 && picked.has(key))) select(key, "mouse", false);
-      } else if (g && collapsible()) {
-        e.preventDefault();
+      } else if (g && groupsSelectable()) {
+        if (!(e.target instanceof Element && e.target.closest(".ttb-ib"))) e.preventDefault();
         selectGroup(g.dataset.group, "mouse");
-        if (e.button === 0 && e.target instanceof Element && e.target.closest(".ttb-box")) {
+        if (e.button === 0 && collapsible() && e.target instanceof Element && e.target.closest(".ttb-box")) {
           const k = g.dataset.group;
           setGroupOpen(k, !isOpen(groupById(k)), "mouse");
         }
@@ -869,7 +958,13 @@
       return select(keyOf(it.row.id), how);
     }
 
+    // A rename waiting for its pause ends with any key, a scroll, or the window losing focus (as in Finder).
+    const noRename = () => clearTimeout(editTimer);
+    scroller.addEventListener("scroll", noRename, { signal, passive: true });
+    window.addEventListener("blur", noRename, { signal });
+
     scroller.addEventListener("keydown", e => {
+      noRename();
       if (e.target !== scroller || e.isComposing) return;
       const row = current();
       const group = selGroup != null ? groupById(selGroup) : null;
@@ -907,7 +1002,9 @@
       }
       if ((e.key === "Enter" || e.key === " ") && group && plain(e)) {
         e.preventDefault();
-        if (!e.repeat) setGroupOpen(keyOf(group.id), !isOpen(group), "keyboard");
+        if (e.repeat) return undefined;
+        if (collapsible()) setGroupOpen(keyOf(group.id), !isOpen(group), "keyboard");
+        else if (e.key === "Enter") call(opt.onGroupOpen, group, { how: "keyboard", cmd: false });
         return undefined;
       }
       if (e.key === "Enter" && !e.altKey && !e.shiftKey) {

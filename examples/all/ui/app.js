@@ -75,8 +75,14 @@ function main() {
   // tree's element: it fills what is left under the head.
   const treeHost = document.createElement("div");
   treeHost.id = "tree";
+  // Collapsed, the strip shows the projects: each its icon, its own letters, or its first letter.
   const side = TaurisSidebar.mount($("side"), {
     title: "All Components", image: "logo.svg", width: 280, storageKey: "all-components-sidebar", content: treeHost,
+    railItems: TEAMS.flatMap(team => team.projects.map(p => ({ id: p.id, label: p.name, icon: p.icon, letter: p.letter }))),
+    onRailSelect: item => {
+      tree.select(item.id);
+      tree.focus?.();
+    },
     onToggle: () => paintStatus(),
   });
   paintStatus();

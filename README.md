@@ -754,7 +754,7 @@ const side = TaurisSidebar.mount(document.getElementById("side"), {
 });
 ```
 
-Put it in a row with a height (`display: flex`): it sets its own width, and the main area takes the rest. An item is `{ id, label, icon?, count?, disabled?, title? }`, or `{ heading }` between sections. An icon is text (an emoji) or markup starting with `<` (an svg, drawn in the text colour); without one, its first letter stands for it in the rail. Items are one level. For a tree, put a `TaurisTree` in `content`.
+Put it in a row with a height (`display: flex`): it sets its own width, and the main area takes the rest. An item is `{ id, label, icon?, count?, disabled?, title? }`, or `{ heading }` between sections. An icon is text (an emoji) or markup starting with `<` (an svg, drawn in the text colour); without one, its first letter stands for it in the rail. Items are one level. For a tree, put a `TaurisTree` in `content`. Collapsed, the strip can show the tree's projects instead: `railItems: [{ id, label, icon?, letter? }]`, each its icon or its letter, and `onRailSelect(item)` when one is clicked (the sidebar opens; show it in the tree).
 
 - **Collapsing:** its button, ⌃⌘S on a Mac (its Show/Hide Sidebar; Ctrl+Shift+B elsewhere; `shortcut: false` for none), `toggle()`, or its edge dragged narrow. `collapse: "rail"` (default) leaves a 44px column of icons, each named by a tooltip, with a count as a dot (with no items, only `content`, a 32px strip with its button). `collapse: "hide"` leaves nothing: the app shows it again with `toggle()` or the shortcut.
 - **Resizing:** drag its edge (between `minWidth` and `maxWidth`, 160 and 420 by default); dragged from the rail it opens; a double-click on the edge puts `width` back. From the keys, Tab reaches the edge: ← / → by 10px (⇧ by 50), Home and End, Enter collapses or opens.
@@ -817,6 +817,7 @@ const values = await TaurisDialog.form({
   - `{ field, part, text }` points a refusal at a part of an app field;
   - a `TaurisDialog.confirm` asked while a form in its own window saves shows in that window.
 - **`TaurisDialog.close()`** closes whatever dialog is open (a session that ends).
+- **A button on the left:** `left: { label: "Delete…", danger: true, run: async () => (await TaurisDialog.confirm({ ... })) && remove() }`; true closes the dialog. It works in a window of its own too.
 - **Titled panels:** `TaurisDialog.panel(element, { title, count, actions: [{ label, action }] })` frames a part of a page in a box with its title, a dim count and its buttons on its top line (Swing's TitledBorder); `update()` and `destroy()`. Set `--tdl-panel-bg` to what is behind the box.
 
 Types are in `web/dialog.d.ts`. **The look:** `--tdl-*` variables at the top of `web/dialog.css`.
@@ -888,7 +889,11 @@ table.flash(added.id);                            // a row just added: selected,
   - `state: "loading"` or `{ error }` shows in place of the rows;
   - `multiple: true` selects several rows (`selection()`);
   - `copy: true` makes ⌘C copy the selected rows as text;
-  - a ⌘-click opens with `cmd`.
+  - a ⌘-click opens with `cmd`;
+  - `groupActions` puts buttons on a group's row;
+  - `selectableGroups` lets groups be selected without opening and closing;
+  - `last(row)` keeps rows last either way;
+  - a column's `maxLength` limits an edit.
 - **Drag to reorder:** `TaurisReorder.attach(table.scroller, { rows: ".ttb-row", ... })`; turn it off while sorted (`onSort: s => reorder.update({ enabled: !s })`).
 - **Methods:** `setRows`, `rows()`, `shown()`, `update(changes)`, `select(id)`, `selected()`, `sort`, `flash(id)`, `focus()`, `scroller`, `destroy()`. For a few thousand rows; the files table draws only the rows in view, for more.
 

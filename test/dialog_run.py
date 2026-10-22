@@ -323,7 +323,7 @@ with sync_playwright() as p:
     opened = owner.evaluate("__sent.find(s => s[0] === 'plugin:tauris-ui|dialog_window_open')[1]")
     spec = json.loads(opened["spec"])
     check("window: true asks the plugin for a window of its own: its title and width, the dialog as data (its functions stay)",
-          opened["title"] == "Edit Task" and opened["width"] == 560 and spec["kind"] == "form" and spec["has"] == {"validate": True, "review": True, "submit": True}
+          opened["title"] == "Edit Task" and opened["width"] == 560 and spec["kind"] == "form" and spec["has"] == {"validate": True, "review": True, "submit": True, "left": False}
           and "validate" not in spec["options"] and [f["name"] for f in spec["options"]["fields"]] == ["name", "who"], opened)
     check("meanwhile this page is out of reach, its clicks bring the dialog forward",
           owner.evaluate("document.querySelector('main').inert") and owner.locator(".tdl-shield").count() == 1 and owner.evaluate("TaurisDialog.isOpen"))
