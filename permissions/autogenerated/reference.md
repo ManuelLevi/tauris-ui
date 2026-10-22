@@ -1,6 +1,6 @@
 ## Default Permission
 
-Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.
+Lets a window use the tab strip (read its tabs, open, close, move and drag them), the system's file pickers and alerts, which return only what the person chose, and dialogs in windows of their own (each talks only to the window that opened it).
 
 #### This default permission set includes the following:
 
@@ -22,6 +22,12 @@ Lets a window use the tab strip (read its tabs, open, close, move and drag them)
 - `allow-close-asked`
 - `allow-pick-files`
 - `allow-save-dialog`
+- `allow-dialog-window-open`
+- `allow-dialog-window-spec`
+- `allow-dialog-window-ready`
+- `allow-dialog-window-send`
+- `allow-dialog-window-reply`
+- `allow-dialog-window-close`
 
 ## Permission Table
 
@@ -158,6 +164,162 @@ Enables the close_window command without any pre-configured scope.
 <td>
 
 Denies the close_window command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:allow-dialog-window-close`
+
+</td>
+<td>
+
+Enables the dialog_window_close command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-dialog-window-close`
+
+</td>
+<td>
+
+Denies the dialog_window_close command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:allow-dialog-window-open`
+
+</td>
+<td>
+
+Enables the dialog_window_open command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-dialog-window-open`
+
+</td>
+<td>
+
+Denies the dialog_window_open command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:allow-dialog-window-ready`
+
+</td>
+<td>
+
+Enables the dialog_window_ready command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-dialog-window-ready`
+
+</td>
+<td>
+
+Denies the dialog_window_ready command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:allow-dialog-window-reply`
+
+</td>
+<td>
+
+Enables the dialog_window_reply command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-dialog-window-reply`
+
+</td>
+<td>
+
+Denies the dialog_window_reply command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:allow-dialog-window-send`
+
+</td>
+<td>
+
+Enables the dialog_window_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-dialog-window-send`
+
+</td>
+<td>
+
+Denies the dialog_window_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:allow-dialog-window-spec`
+
+</td>
+<td>
+
+Enables the dialog_window_spec command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-dialog-window-spec`
+
+</td>
+<td>
+
+Denies the dialog_window_spec command without any pre-configured scope.
 
 </td>
 </tr>

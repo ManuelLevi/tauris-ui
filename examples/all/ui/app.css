@@ -20,24 +20,15 @@ body { display: flex; flex-direction: column; padding-top: var(--tt-strip-h); bo
 #home { height: 100%; display: flex; flex-direction: column; }
 #home-head { flex: none; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 #home-head h1 { margin: 0; font-size: 20px; }
-#home-wrap { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--line); }
-#home-table { width: 100%; border-collapse: collapse; }
-#home-table th { position: sticky; top: 0; height: 22px; padding: 0 8px; text-align: left; font-weight: 500; color: var(--dim); background: var(--page); border-bottom: 1px solid var(--line); }
-#home-table td { height: 26px; padding: 0 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-#home-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-#home-table tr:focus { outline: none; }
-#home-table tr[aria-selected="true"] td { color: #fff; background: var(--sel); }
+#home-table { flex: 1; min-height: 0; }
 #home-table .dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 2px; vertical-align: 0; }
-:root { --sel: #2675bf; }
-@media (prefers-color-scheme: dark) { :root { --sel: #2f65ca; } }
+#home-table .ttb-cell .tgl-spark { display: inline-block; vertical-align: middle; }
 
 #doc { height: 100%; box-sizing: border-box; padding: 8px 12px; overflow: auto; }
 #doc h1 { margin: 0 0 4px; font-size: 20px; }
 #doc-meta { margin: 0 0 16px; color: var(--dim); }
 #doc-text { margin: 0; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
 
-#status { flex: none; margin: 0; padding: 0 12px; height: 22px; line-height: 22px; font-size: 12px; color: var(--dim); border-top: 1px solid var(--line); }
-:root { --line: #d3d5da; }
-@media (prefers-color-scheme: dark) { :root { --line: #515356; } }
+#status { flex: none; }
 
 [hidden] { display: none !important; }

@@ -10,11 +10,10 @@
  *   .tsb-head         the top: .tsb-brand, holding .tsb-image (the image option;
  *                     .tsb-image-round, .tsb-image-letter when it failed to load)
  *                     and .tsb-title (the title option); then .tsb-toggle
- *   .tsb-nav          the items: .tsb-list > .tsb-entry > .tsb-item, a group's
- *                     items in a .tsb-sub list inside its entry; .tsb-heading
- *                     between sections
+ *   .tsb-nav          the items: .tsb-list > .tsb-entry > .tsb-item (one level: a
+ *                     tree is a TaurisTree in the body); .tsb-heading between sections
  *   .tsb-body         the app's own part below the items (the content option)
- *   .tsb-item         .tsb-chevron (a group's), .tsb-icon, .tsb-label, .tsb-count;
+ *   .tsb-item         .tsb-icon, .tsb-label, .tsb-count;
  *                     [aria-current="page"] is the selected one
  *   .tsb-grip         the edge that resizes it
  *   [data-tsb-state]  "open", "rail" (collapsed to icons) or "hidden"
@@ -34,7 +33,6 @@
     --tsb-pad: 8px;                  /* around the items */
     --tsb-item-h: 28px;
     --tsb-item-pad: 8px;
-    --tsb-indent: 14px;              /* per level of a group */
     --tsb-icon: 16px;
     --tsb-image: 22px;               /* the image before the title (a logo, an avatar) */
     --tsb-image-radius: 5px;         /* its corners, imageShape "square" */
@@ -253,7 +251,7 @@
     align-items: center;
     gap: 6px;
     height: var(--tsb-item-h);
-    padding: 0 var(--tsb-item-pad) 0 calc(var(--tsb-item-pad) + var(--tsb-depth, 0) * var(--tsb-indent));
+    padding: 0 var(--tsb-item-pad);
     border-radius: var(--tsb-radius);
     white-space: nowrap;
   }
@@ -267,25 +265,6 @@
   .tsb-nav:focus-within .tsb-item[aria-current="page"] { background: var(--tsb-sel-bg); color: var(--tsb-sel-fg); }
   /* On the accent fill, the ring is the selection's text colour (it reads there). */
   .tsb-nav:focus-within .tsb-item[aria-current="page"]:focus-visible { outline-color: var(--tsb-sel-fg); }
-
-  .tsb-chevron {
-    flex: none;
-    display: inline-grid;
-    place-items: center;
-    width: 14px;
-    height: 14px;
-    margin-right: -2px;
-    border-radius: 3px;
-    color: var(--tsb-dim);
-    transition: transform var(--tsb-speed) ease;
-  }
-  .tsb-chevron:empty { visibility: hidden; }
-  /* No groups: no room kept for their arrows. */
-  .tsb:not(.tsb-groups) .tsb-chevron { display: none; }
-  .tsb.tsb-groups .tsb-item { padding-left: calc(var(--tsb-item-pad) - 6px + var(--tsb-depth, 0) * var(--tsb-indent)); }
-  .tsb-item[aria-expanded="true"] > .tsb-chevron { transform: rotate(90deg); }
-  .tsb-chevron:not(:empty):hover { color: var(--tsb-fg); }
-  .tsb-nav:focus-within .tsb-item[aria-current="page"] > :is(.tsb-chevron, .tsb-icon, .tsb-count) { color: inherit; }
 
   .tsb-icon {
     flex: none;
@@ -323,7 +302,7 @@
     justify-content: center;
     padding: 0;
   }
-  .tsb[data-tsb-state="rail"] :is(.tsb-label, .tsb-chevron) { display: none; }
+  .tsb[data-tsb-state="rail"] .tsb-label { display: none; }
   .tsb[data-tsb-state="rail"] .tsb-icon { width: 20px; height: 20px; font-size: 15px; }
   .tsb[data-tsb-state="rail"] .tsb-icon.tsb-no-icon {
     display: inline-grid;
@@ -379,7 +358,7 @@
   .tsb-grip:focus-visible::after { width: 3px; background: var(--tsb-focus-line); }
 
   @media (prefers-reduced-motion: reduce) {
-    .tsb, .tsb-chevron { transition: none; }
+    .tsb { transition: none; }
   }
 
   /* Windows high contrast: the system's colours, the selection in Highlight. */

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-dialog-window-ready"
+description = "Enables the dialog_window_ready command without any pre-configured scope."
+commands.allow = ["dialog_window_ready"]
+
+[[permission]]
+identifier = "deny-dialog-window-ready"
+description = "Denies the dialog_window_ready command without any pre-configured scope."
+commands.deny = ["dialog_window_ready"]

@@ -18,6 +18,13 @@
 // starts in its first field, its text selected. `native: true` on a question
 // asks with the system's alert instead (in a Tauri app with the plugin's
 // "files" feature and the dialog plugin; elsewhere, in the page).
+//
+// `window: true` on a form, a review or a sheet opens it in a native window of
+// its own, attached to this one. That window loads the app's page too: the
+// page starts with `if (TaurisDialog.inWindow)` and there only defines its own
+// field types (`TaurisDialog.defineField`); the dialog draws itself. The app's
+// checks and its save (validate, review, submit) run here, in the window that
+// asked; values cross as JSON.
 
 (() => {
   "use strict";
@@ -56,6 +63,12 @@
     changed: "changed",
     either: "or",
     shortcuts: "Keyboard Shortcuts",
+    show: "Show",
+    hide: "Hide",
+    generate: "Generate",
+    before: "before",
+    after: "after",
+    failed: "Could not do it",
   };
 
   let uid = 0;
@@ -74,8 +87,110 @@
     else if (value != null) node.textContent = String(value);
     return node;
   }
+  // A refusal as the form shows it: text, or { field, text }.
+  const refusalOf = e => (e && typeof e === "object" && "field" in e ? { field: e.field, text: String(e.text ?? e.message ?? "") } : String(e?.message ?? e));
 
   const X_SVG = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+  const EYE_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
+
+  // ---------- windows of their own ----------
+
+  const tauri = () => window.__TAURI__?.core;
+  const plugin = (name, args) => tauri().invoke(`plugin:tauris-ui|${name}`, args);
+  /** This page is a dialog's window (opened with window: true). */
+  const IN_WINDOW = location.hash === "#tauris-dialog";
+  const WINDOW_EVENT = "tauris-ui:dialog-window";
+  // What the dialog windows say, by window (here, in the window that asked); in a dialog window, what its asker says.
+  const heard = new Map();
+  const before = window.__taurisUiDeliver;
+  Object.defineProperty(window, "__taurisUiDeliver", {
+    configurable: true,
+    value: (name, payload) => {
+      if (name !== WINDOW_EVENT) return typeof before === "function" ? before(name, payload) : undefined;
+      heard.get(String(payload?.label))?.(payload?.message ?? {});
+      return undefined;
+    },
+  });
+
+  // The app's own field types, by name: in a dialog's window too, where the app's page defines them again.
+  const types = new Map();
+  function defineField(type, render) {
+    if (typeof type !== "string" || !type || typeof render !== "function") throw new Error("TaurisDialog.defineField needs a type name and a render function");
+    types.set(type, render);
+  }
+
+  // A form, a review or a sheet in a window of its own: the window's label, or null (then it shows in the page).
+  async function openWindow(kind, options, title, width) {
+    if (!tauri() || IN_WINDOW) return null;
+    // Data only: the functions stay here, and are asked through messages.
+    const spec = {
+      kind,
+      options: JSON.parse(JSON.stringify({ ...options, window: undefined })),
+      has: { validate: typeof options.validate === "function", review: typeof options.review === "function", submit: typeof options.submit === "function" },
+    };
+    try {
+      const label = await plugin("dialog_window_open", { spec: JSON.stringify(spec), title: String(title ?? ""), width: Number(width) || 440 });
+      return typeof label === "string" ? label : null;
+    } catch (e) {
+      console.warn("[tauris-ui dialog] no window of its own, so in the page:", e);
+      return null;
+    }
+  }
+
+  // Here, while a dialog's window is open: the page is out of reach, and a click brings the dialog forward.
+  function waitForWindow(label, onMessage) {
+    const back = rememberFocus();
+    const shield = el("div", "tdl-shield");
+    const quieted = [...document.body.children].filter(n => !n.inert && !n.matches("script, style"));
+    for (const n of quieted) n.inert = true;
+    document.body.append(shield);
+    shield.addEventListener("mousedown", e => {
+      e.preventDefault();
+      plugin("dialog_window_reply", { label, message: { type: "focus" } }).catch(() => {});
+    });
+    open.push(shield);
+    return new Promise(resolve => {
+      let done = false;
+      const finish = value => {
+        if (done) return;
+        done = true;
+        heard.delete(label);
+        shield.remove();
+        for (const n of quieted) n.inert = false;
+        open.splice(open.indexOf(shield), 1);
+        // After the window is key again.
+        requestAnimationFrame(back);
+        resolve(value);
+      };
+      const reply = (id, answer) => plugin("dialog_window_reply", { label, message: { type: "answer", id, ...answer } }).catch(() => {});
+      heard.set(label, async msg => {
+        if (msg.type === "closed") return finish(null);
+        if (msg.type === "done") return finish(msg.value ?? null);
+        if (msg.type === "ask") {
+          try {
+            reply(msg.id, { result: (await onMessage(msg.what, msg.value)) ?? null });
+          } catch (e) {
+            reply(msg.id, { error: refusalOf(e) });
+          }
+        }
+        return undefined;
+      });
+    });
+  }
+
+  // In a dialog's window: asks the window that asked, and waits for its answer.
+  let asked = 0;
+  const answers = new Map();
+  function ask(what, value) {
+    const id = ++asked;
+    return new Promise((resolve, reject) => {
+      answers.set(id, { resolve, reject });
+      plugin("dialog_window_send", { message: { type: "ask", id, what, value } }).catch(reject);
+    });
+  }
+  function tellDone(value) {
+    return plugin("dialog_window_send", { message: { type: "done", value: value ?? null } }).catch(() => {}).then(() => plugin("dialog_window_close").catch(() => {}));
+  }
 
   // Where the keyboard was, to give it back when a dialog closes: the element,
   // or (a row's own small button that has gone) the nearest list it was in.
@@ -137,6 +252,24 @@
         else if (!e.shiftKey && at === stops.length - 1) { e.preventDefault(); stops[0].focus(); }
       }
     }, { signal });
+    // In its own window: the window is its size (and follows it as a refusal or a review shows).
+    if (IN_WINDOW) {
+      let queued = false;
+      const fit = () => {
+        queued = false;
+        if (state.closed) return;
+        const r = box.getBoundingClientRect();
+        plugin("dialog_window_ready", { width: Math.ceil(r.width), height: Math.ceil(r.height), pageW: window.innerWidth, pageH: window.innerHeight })
+          .catch(e => console.error("[tauris-ui dialog] cannot size its window:", e));
+      };
+      const seen = new ResizeObserver(() => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(fit);
+      });
+      seen.observe(box);
+      signal.addEventListener("abort", () => seen.disconnect());
+    }
     state.close = () => {
       if (state.closed) return;
       state.closed = true;
@@ -170,26 +303,64 @@
     const w = words(options.labels);
     const ok = String(options.ok ?? w.ok);
     const cancel = String(options.cancel ?? w.cancel);
-    if (options.native && window.__TAURI__?.core) {
+    const run = typeof options.run === "function" ? options.run : null;
+    if (options.native && tauri()) {
+      let yes = null;
       try {
-        const yes = await window.__TAURI__.core.invoke("plugin:tauris-ui|ask", {
-          title: String(options.title ?? ""), message: String(options.message ?? ""), ok, cancel, warning: options.danger === true,
-        });
-        if (typeof yes === "boolean") return yes;
+        yes = await plugin("ask", { title: String(options.title ?? ""), message: String(options.message ?? ""), ok, cancel, warning: options.danger === true });
       } catch {
         // no system alert here (the files feature or the dialog plugin is missing): asked in the page
+      }
+      if (typeof yes === "boolean") {
+        if (!yes || !run) return yes;
+        try {
+          await run();
+          return true;
+        } catch (e) {
+          // The alert is gone: why it could not be done is a notice of its own.
+          const text = refusalOf(e);
+          await plugin("ask", { title: String(options.failedTitle ?? w.failed), message: typeof text === "string" ? text : text.text, ok: String(w.ok), cancel: "", warning: true }).catch(() => {});
+          return false;
+        }
       }
     }
     return new Promise(resolve => {
       let state = null;
+      let busy = false;
       const end = yes => { state.close(); resolve(yes); };
-      state = frame({ title: options.title, role: "alertdialog", width: options.width, onCancel: () => end(false), className: "tdl-question" });
+      state = frame({ title: options.title, role: "alertdialog", width: options.width, onCancel: () => { if (!busy) end(false); }, className: "tdl-question" });
       const text = el("div", "tdl-message", { id: `${state.heading.id}-m` });
       for (const para of String(options.message ?? "").split(/\n{2,}/)) if (para.trim()) text.append(el("p", "", {}, para.trim()));
       state.box.setAttribute("aria-describedby", text.id);
+      // Why the action could not be done: the dialog stays, the reason on its kept line.
+      const refusal = el("div", "tdl-line tdl-question-line", {}, el("span", "tdl-line-error", { role: "alert" }));
       state.body.append(text);
-      const no = button(cancel, { onPress: () => end(false) });
-      const yes = button(ok, { primary: !options.danger, danger: options.danger === true, onPress: () => end(true) });
+      if (run) state.body.append(refusal);
+      const no = button(cancel, { onPress: () => { if (!busy) end(false); } });
+      const yes = button(ok, {
+        primary: !options.danger,
+        danger: options.danger === true,
+        onPress: async () => {
+          if (busy) return;
+          if (!run) return end(true);
+          busy = true;
+          state.box.classList.add("tdl-busy");
+          for (const b of [yes, no]) b.setAttribute("aria-disabled", "true");
+          try {
+            await run();
+          } catch (e) {
+            busy = false;
+            state.box.classList.remove("tdl-busy");
+            for (const b of [yes, no]) b.setAttribute("aria-disabled", "false");
+            const r = refusalOf(e);
+            refusal.firstChild.textContent = typeof r === "string" ? r : r.text;
+            refusal.classList.add("tdl-refused");
+            no.focus({ preventScroll: true });
+            return undefined;
+          }
+          return end(true);
+        },
+      });
       state.buttons.append(el("span", "tdl-spacer"), no, yes);
       // Starts on Cancel: Enter there is "no", never a delete by accident.
       no.focus({ preventScroll: true });
@@ -200,9 +371,33 @@
 
   const TEXTLIKE = new Set(["text", "password", "number", "email", "url", "tel", "search", "date", "time"]);
 
-  function fieldControl(f, id) {
+  // A password the person never has to think of: letters, digits and a few signs, from the system's randomness.
+  function newPassword(length) {
+    const set = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_.!@#%+=";
+    const n = Math.max(8, Math.min(128, Number(length) || 20));
+    const bytes = new Uint32Array(n);
+    crypto.getRandomValues(bytes);
+    return [...bytes].map(b => set[b % set.length]).join("");
+  }
+
+  function fieldControl(f, id, w) {
     const type = String(f.type ?? "text");
     let control;
+    let handle = null;
+    let wrap = null;
+    // A field's own render, or a type the app defined (never in place of one of the form's own).
+    const own = TEXTLIKE.has(type) || type === "textarea" || type === "select" || type === "checkbox";
+    const custom = typeof f.render === "function" ? f.render : own ? null : types.get(type);
+    if (custom) {
+      // The app's own widget, in the form's layout: it gives its value (and takes the focus) when asked.
+      control = el("div", "tdl-custom", { id, role: "group", "aria-label": String(f.label ?? f.name) });
+      try {
+        handle = custom(control, f) ?? null;
+      } catch (e) {
+        console.error(`[tauris-ui dialog] the "${type}" field failed to draw:`, e);
+      }
+      return { control, handle, wrap: control };
+    }
     if (type === "textarea") {
       control = el("textarea", "tdl-input", { id, rows: String(f.rows ?? 3), placeholder: f.placeholder ?? null });
       control.value = f.value == null ? "" : String(f.value);
@@ -218,7 +413,7 @@
       control.checked = f.value === true;
     } else {
       control = el("input", "tdl-input", {
-        id, type: TEXTLIKE.has(type) ? type : "text", placeholder: f.placeholder ?? null, autocomplete: f.autocomplete ?? "off",
+        id, type: TEXTLIKE.has(type) ? type : "text", placeholder: f.placeholder ?? null, autocomplete: f.autocomplete ?? (type === "password" ? "new-password" : "off"),
         spellcheck: type === "text" ? "false" : null, min: f.min ?? null, max: f.max ?? null, step: f.step ?? null,
         inputmode: f.inputmode ?? null,
       });
@@ -226,16 +421,52 @@
     }
     if (f.disabled) control.disabled = true;
     if (f.required) control.setAttribute("aria-required", "true");
-    return control;
+    // A password: Show to read it, Generate to make one.
+    if (type === "password" && (f.reveal || f.generate)) {
+      wrap = el("span", "tdl-pw", {}, control);
+      if (f.reveal) {
+        const eye = el("div", "tdl-pw-btn", { role: "button", tabindex: "0", "aria-pressed": "false", "aria-label": say(w.show), title: say(w.show) });
+        eye.innerHTML = EYE_SVG;
+        const toggle = () => {
+          const shown = control.type === "password";
+          control.type = shown ? "text" : "password";
+          eye.setAttribute("aria-pressed", String(shown));
+          eye.title = say(shown ? w.hide : w.show);
+          eye.setAttribute("aria-label", eye.title);
+        };
+        eye.addEventListener("click", toggle);
+        eye.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && !e.repeat) { e.preventDefault(); e.stopPropagation(); toggle(); } });
+        wrap.append(eye);
+        wrap.__show = () => { if (control.type === "password") toggle(); };
+      }
+      if (f.generate) {
+        const gen = el("div", "tdl-pw-gen", { role: "button", tabindex: "0" }, say(w.generate));
+        const make = () => {
+          control.value = typeof f.generate === "function" ? String(f.generate() ?? "") : newPassword(f.generate === true ? 20 : f.generate);
+          wrap.__show?.();
+          control.dispatchEvent(new Event("input", { bubbles: true }));
+          control.focus();
+          control.select();
+        };
+        gen.addEventListener("click", make);
+        gen.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && !e.repeat) { e.preventDefault(); e.stopPropagation(); make(); } });
+        wrap.append(gen);
+      }
+    }
+    return { control, handle, wrap: wrap ?? control };
   }
 
-  function valueOf(f, control) {
+  function valueOf(f, entry) {
+    if (entry.handle) return typeof entry.handle.value === "function" ? entry.handle.value() : null;
+    const control = entry.control;
     if (f.type === "checkbox") return control.checked;
     if (f.type === "number") return control.value === "" ? null : Number(control.value);
     return control.value;
   }
+  const isEmpty = v => v == null || v === false || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && !v.length);
 
-  // The review: "Field: old → new", old struck through; without `before`, only that it changed.
+  // The review: "Field: old → new", old struck through; without `before`, only that it changed;
+  // a picture's change as its two pictures.
   function reviewRows(rows, w) {
     const table = el("table", "tdl-review-rows");
     const tbody = el("tbody");
@@ -243,9 +474,15 @@
       const row = el("tr", "", { "data-field": String(c.field) });
       row.append(el("th", "", { scope: "row" }, `${c.field}:`));
       const cell = el("td");
-      if (c.before === undefined) cell.append(el("span", "tdl-now", {}, c.after == null ? say(w.changed) : String(c.after)));
-      else cell.append(el("span", "tdl-was", {}, String(c.before === "" ? "—" : c.before)), el("span", "tdl-arrow", { "aria-hidden": "true" }, " → "),
-        el("span", "tdl-now", {}, String(c.after === "" ? "—" : c.after)));
+      const picture = (src, which) => (src ? el("img", "tdl-thumb", { src: String(src), alt: `${c.field}, ${say(which)}` }) : el("span", "tdl-thumb tdl-thumb-none", {}, "—"));
+      if (c.beforeImage !== undefined || c.afterImage !== undefined) {
+        cell.append(picture(c.beforeImage, w.before), el("span", "tdl-arrow", { "aria-hidden": "true" }, " → "), picture(c.afterImage, w.after));
+      } else if (c.before === undefined) {
+        cell.append(el("span", "tdl-now", {}, c.after == null ? say(w.changed) : String(c.after)));
+      } else {
+        cell.append(el("span", "tdl-was", {}, String(c.before === "" ? "—" : c.before)), el("span", "tdl-arrow", { "aria-hidden": "true" }, " → "),
+          el("span", "tdl-now", {}, String(c.after === "" ? "—" : c.after)));
+      }
       row.append(cell);
       tbody.append(row);
     }
@@ -253,14 +490,43 @@
     return table;
   }
 
-  function form(options = {}) {
+  async function form(options = {}) {
+    // In a window of its own: only fields the window can draw (a one-off render stays in the page).
+    const inline = (Array.isArray(options.fields) ? options.fields : []).some(f => f && typeof f.render === "function");
+    if (options.window && !inline) {
+      const width = options.width ?? (options.wide ? 560 : 440);
+      const label = await openWindow("form", options, options.title, width);
+      if (label) {
+        return waitForWindow(label, async (what, value) => {
+          if (what === "validate") return typeof options.validate === "function" ? (await options.validate(value)) ?? null : null;
+          if (what === "review") return typeof options.review === "function" ? (await options.review(value)) ?? null : null;
+          if (what === "submit" && typeof options.submit === "function") await options.submit(value);
+          return null;
+        });
+      }
+    }
+    return formHere(options);
+  }
+
+  function formHere(options = {}) {
     const w = words(options.labels);
     const fields = (Array.isArray(options.fields) ? options.fields : []).filter(f => f && f.name != null);
     return new Promise(resolve => {
       let state = null;
       let busy = false;
       let reviewing = null; // the values waiting for "Save Changes"
-      const end = values => { state.close(); resolve(values); };
+      const handles = [];
+      const end = values => {
+        for (const h of handles) {
+          try {
+            h.destroy?.();
+          } catch (e) {
+            console.error("[tauris-ui dialog] a field's destroy() failed:", e);
+          }
+        }
+        state.close();
+        resolve(values);
+      };
       const cancel = () => {
         if (busy) return;
         // During a review, Esc goes back to the fields.
@@ -272,19 +538,20 @@
       const controls = new Map();
       for (const f of fields) {
         const id = `${state.heading.id}-${String(f.name).replace(/[^\w-]/g, "_")}`;
-        const control = fieldControl(f, id);
-        controls.set(String(f.name), { f, control });
-        const label = el("label", `tdl-label${f.type === "textarea" ? " tdl-top" : ""}`, { for: id }, f.type === "checkbox" ? "" : `${f.label ?? f.name}:`);
+        const entry = fieldControl(f, id, w);
+        if (entry.handle) handles.push(entry.handle);
+        controls.set(String(f.name), { f, ...entry });
+        const label = el("label", `tdl-label${f.type === "textarea" || entry.handle ? " tdl-top" : ""}`, { for: entry.handle ? null : id }, f.type === "checkbox" ? "" : `${f.label ?? f.name}:`);
         const cell = el("div", "tdl-cell");
-        if (f.type === "checkbox") cell.append(el("label", "tdl-check-label", {}, control, el("span", "", {}, String(f.label ?? f.name))));
-        else cell.append(control);
+        if (f.type === "checkbox") cell.append(el("label", "tdl-check-label", {}, entry.control, el("span", "", {}, String(f.label ?? f.name))));
+        else cell.append(entry.wrap);
         // A field's own refusal: a balloon under it.
         const tip = el("div", "tdl-tip", { id: `${id}-tip`, role: "alert", hidden: true });
         cell.append(tip);
         if (f.hint) {
           const hint = el("div", "tdl-hint", { id: `${id}-hint` }, String(f.hint));
           cell.append(hint);
-          control.setAttribute("aria-describedby", hint.id);
+          entry.control.setAttribute("aria-describedby", hint.id);
         }
         grid.append(label, cell);
       }
@@ -301,7 +568,16 @@
       const yes = button(String(options.ok ?? w.ok), { primary: true, danger: options.danger === true, onPress: () => go() });
       state.buttons.append(left, el("span", "tdl-spacer"), no, yes);
 
-      const values = () => Object.fromEntries([...controls].map(([name, { f, control }]) => [name, valueOf(f, control)]));
+      const values = () => Object.fromEntries([...controls].map(([name, entry]) => [name, valueOf(entry.f, entry)]));
+      const focusEntry = entry => {
+        if (entry.handle) {
+          if (typeof entry.handle.focus === "function") entry.handle.focus();
+          else entry.control.querySelector("input, select, textarea, [tabindex='0'], button")?.focus();
+          return;
+        }
+        entry.control.focus();
+        entry.control.select?.();
+      };
       function clear() {
         refusal.textContent = "";
         line.classList.remove("tdl-refused");
@@ -323,8 +599,7 @@
           tip.textContent = text;
           tip.hidden = false;
           at.control.setAttribute("aria-invalid", "true");
-          at.control.focus();
-          at.control.select?.();
+          focusEntry(at);
         } else {
           refusal.textContent = text;
           line.classList.add("tdl-refused");
@@ -360,20 +635,24 @@
         if (busy) return;
         const v = reviewing ?? values();
         if (!reviewing) {
-          // Needed fields first, then the app's own checks.
-          for (const [name, { f, control }] of controls) {
-            if (f.required && !f.disabled && (f.type === "checkbox" ? !control.checked : !String(control.value).trim())) {
+          // Needed fields first, then the app's own checks (which may take a moment: the app is asked).
+          for (const [name, entry] of controls) {
+            const { f } = entry;
+            if (f.required && !f.disabled && isEmpty(valueOf(f, entry))) {
               return refuse({ field: name, text: say(f.requiredText ?? w.required, String(f.label ?? name)) });
             }
           }
+          setBusy(true);
           let refused = null;
+          let rows = null;
           try {
-            refused = typeof options.validate === "function" ? options.validate(v) : null;
+            refused = typeof options.validate === "function" ? await options.validate(v) : null;
+            if (!refused) rows = typeof options.review === "function" ? await options.review(v) : null;
           } catch (e) {
-            refused = e;
+            refused = refusalOf(e);
           }
+          setBusy(false);
           if (refused) return refuse(refused);
-          const rows = typeof options.review === "function" ? options.review(v) : null;
           if (Array.isArray(rows) && rows.length) return showReview(rows, v);
         }
         if (typeof options.submit === "function") {
@@ -383,7 +662,7 @@
           } catch (e) {
             setBusy(false);
             if (reviewing) showFields();
-            return refuse(e && typeof e === "object" && "field" in e ? e : String(e?.message ?? e));
+            return refuse(refusalOf(e));
           }
           setBusy(false);
         }
@@ -391,10 +670,9 @@
       }
       function focusFirst() {
         // The first text field, its text selected, ready to retype; else the default button.
-        const first = [...controls.values()].map(c => c.control).find(c => !c.disabled && c.type !== "checkbox");
+        const first = [...controls.values()].find(c => !c.control.disabled && c.f.type !== "checkbox");
         if (first) {
-          first.focus({ preventScroll: true });
-          if (first.value && first.select) first.select();
+          focusEntry(first);
         } else {
           yes.focus({ preventScroll: true });
         }
@@ -404,7 +682,9 @@
         if (e.key !== "Enter" || e.isComposing || e.repeat) return;
         const t = e.target;
         const area = t instanceof HTMLTextAreaElement;
-        if (t instanceof HTMLElement && t.classList.contains("tdl-btn")) return;
+        if (t instanceof HTMLElement && (t.classList.contains("tdl-btn") || t.closest(".tdl-pw-btn, .tdl-pw-gen"))) return;
+        // The app's own widget keeps its Enter (a picker choosing), unless ⌘↩.
+        if (t instanceof HTMLElement && t.closest(".tdl-custom") && !cmd(e)) return;
         if (area && !cmd(e)) return;
         if (t instanceof HTMLSelectElement && !cmd(e)) return;
         e.preventDefault();
@@ -418,13 +698,22 @@
           console.error("[tauris-ui dialog] left() failed:", e);
         }
       }
+      state.form = { refuse, values };
       focusFirst();
     });
   }
 
   // ---------- a review on its own ----------
 
-  function review(options = {}) {
+  async function review(options = {}) {
+    if (options.window) {
+      const label = await openWindow("review", options, options.title ?? words(options.labels).review, options.width ?? 440);
+      if (label) return (await waitForWindow(label, () => null)) === true;
+    }
+    return reviewHere(options);
+  }
+
+  function reviewHere(options = {}) {
     const w = words(options.labels);
     return new Promise(resolve => {
       let state = null;
@@ -454,7 +743,15 @@
     return out;
   }
 
-  function shortcuts(options = {}) {
+  async function shortcuts(options = {}) {
+    if (options.window) {
+      const label = await openWindow("shortcuts", options, options.title ?? words(options.labels).shortcuts, options.width ?? 700);
+      if (label) return void (await waitForWindow(label, () => null));
+    }
+    return shortcutsHere(options);
+  }
+
+  function shortcutsHere(options = {}) {
     const w = words(options.labels);
     return new Promise(resolve => {
       let state = null;
@@ -483,7 +780,15 @@
     });
   }
 
-  function about(options = {}) {
+  async function about(options = {}) {
+    if (options.window) {
+      const label = await openWindow("about", options, options.title ?? `About ${options.name ?? ""}`.trim(), options.width ?? 420);
+      if (label) return void (await waitForWindow(label, () => null));
+    }
+    return aboutHere(options);
+  }
+
+  function aboutHere(options = {}) {
     const w = words(options.labels);
     return new Promise(resolve => {
       let state = null;
@@ -492,10 +797,11 @@
       const mark = el("div", "tdl-mark", { "aria-hidden": "true" });
       if (typeof options.mark === "string" && /^(data:|https?:|\/|\.)/.test(options.mark)) mark.append(el("img", "", { src: options.mark, alt: "" }));
       else markup(mark, options.mark);
+      // The values can be selected and copied (a version, a server's address).
       const rows = el("dl", "tdl-about-rows");
-      for (const [k, v] of Array.isArray(options.rows) ? options.rows : []) rows.append(el("dt", "", {}, String(k)), el("dd", "", {}, String(v ?? "")));
+      for (const [k, v] of Array.isArray(options.rows) ? options.rows : []) rows.append(el("dt", "", {}, String(k)), el("dd", "tauris-selectable", {}, String(v ?? "")));
       state.body.append(el("div", "tdl-about-head", {}, mark, el("div", "", {}, el("p", "tdl-about-name", {}, String(options.name ?? "")),
-        options.description ? el("p", "tdl-about-text", {}, String(options.description)) : null)), rows);
+        options.description ? el("p", "tdl-about-text tauris-selectable", {}, String(options.description)) : null)), rows);
       const done = button(String(options.done ?? w.done), { primary: true, onPress: end });
       state.buttons.append(el("span", "tdl-spacer"), done);
       done.focus({ preventScroll: true });
@@ -540,6 +846,57 @@
     };
   }
 
+  // ---------- in a dialog's window: draw what was asked for ----------
+
+  async function serveWindow() {
+    document.documentElement.classList.add("tdl-in-window");
+    addStyles();
+    heard.set("self", msg => {
+      if (msg.type !== "answer") return;
+      const waiting = answers.get(msg.id);
+      if (!waiting) return;
+      answers.delete(msg.id);
+      if (msg.error != null) waiting.reject(msg.error);
+      else waiting.resolve(msg.result);
+    });
+    let spec = null;
+    try {
+      spec = JSON.parse(await plugin("dialog_window_spec"));
+    } catch (e) {
+      console.error("[tauris-ui dialog] this window has no dialog to show:", e);
+      return;
+    }
+    if (!spec || !spec.options) return;
+    const o = spec.options;
+    if (spec.kind === "form") {
+      const values = await formHere({
+        ...o,
+        validate: spec.has.validate ? v => ask("validate", v) : undefined,
+        review: spec.has.review ? v => ask("review", v) : undefined,
+        submit: spec.has.submit ? v => ask("submit", v) : undefined,
+      });
+      return tellDone(values);
+    }
+    if (spec.kind === "review") return tellDone(await reviewHere(o));
+    if (spec.kind === "shortcuts") return tellDone(await shortcutsHere(o));
+    if (spec.kind === "about") return tellDone(await aboutHere(o));
+    return tellDone(null);
+  }
+  if (IN_WINDOW && tauri()) {
+    // The asker's answers come to this window under its own label: heard as "self".
+    const own = window.__taurisUiDeliver;
+    Object.defineProperty(window, "__taurisUiDeliver", {
+      configurable: true,
+      value: (name, payload) => {
+        if (name === WINDOW_EVENT) return heard.get("self")?.(payload?.message ?? {});
+        return own(name, payload);
+      },
+    });
+    // After the app's page has run (and defined its field types).
+    if (document.readyState === "complete") queueMicrotask(serveWindow);
+    else window.addEventListener("load", () => serveWindow(), { once: true });
+  }
+
   window.TaurisDialog = {
     confirm,
     form,
@@ -547,6 +904,9 @@
     shortcuts,
     about,
     panel,
+    defineField,
+    /** This page is a dialog's window: the app only defines its field types here. */
+    inWindow: IN_WINDOW,
     /** Whether a dialog is open (the app may hold its own keys while one is). */
     get isOpen() { return open.length > 0; },
   };

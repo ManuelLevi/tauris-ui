@@ -14,7 +14,8 @@
  *   .tmn-caret        on a menu button: the ▾ after its text
  *   .tmn-toolbar      optional: a toolbar row, with .tmn-tool buttons (an <svg>
  *                     before the label is its 13px icon) and .tmn-tool-sep lines
- *                     between groups. Any element can be a menu button; .tmn-tool
+ *                     between groups (TaurisMenu.toolbar adds .tmn-tool-nav Back and
+ *                     Forward, and .tmn-find at its end). Any element can be a menu button; .tmn-tool
  *                     is only the look.
  */
 @layer tauris-ui {
@@ -64,6 +65,10 @@
     --tmn-tool-border: var(--tauris-line, #c4c6cc);
     --tmn-tool-on-bg: #d9d9da;        /* pressed (the current view), or with its menu open: a neutral grey, not the hover colour */
     --tmn-tool-on-border: #aeb0b6;
+    --tmn-find-w: 220px;              /* the find button at the toolbar's end */
+    --tmn-find-bg: var(--tauris-bg, #ffffff);
+    --tmn-find-fg: var(--tauris-dim, #5f6370);
+    --tmn-find-hover-border: #8d9098;
   }
 
   /* The system's dark mode, unless the app chose a mode with
@@ -89,6 +94,9 @@
       --tmn-tool-border: var(--tauris-line, #5e6165);
       --tmn-tool-on-bg: #5a5e61;
       --tmn-tool-on-border: #75797d;
+      --tmn-find-bg: var(--tauris-bg, #2f3234);
+      --tmn-find-fg: var(--tauris-dim, #adb0b8);
+      --tmn-find-hover-border: #8a8e94;
     }
   }
 
@@ -112,6 +120,9 @@
     --tmn-tool-border: var(--tauris-line, #5e6165);
     --tmn-tool-on-bg: #5a5e61;
     --tmn-tool-on-border: #75797d;
+    --tmn-find-bg: var(--tauris-bg, #2f3234);
+    --tmn-find-fg: var(--tauris-dim, #adb0b8);
+    --tmn-find-hover-border: #8a8e94;
   }
 
   /* The accent made readable, where the engine works colours out (relative colours: Safari 18,
@@ -358,6 +369,19 @@
   /* The ▾ in a button: 4px from the text (after the gap), and 4px less padding after it than the other buttons. */
   .tmn-tool.tmn-caret::after { margin: 0 -4px 0 4px; }
 
+  /* TaurisMenu.toolbar: Back and Forward, square; the find button at the end, as a field
+     (their box is with the buttons' own rules, outside the layer, at the end of this file). */
+  .tmn-tool-nav { justify-content: center; }
+  .tmn-tool-nav svg { width: 14px; height: 14px; stroke-width: 1.6; }
+  .tmn-find > span { flex: 1; text-align: start; }
+  .tmn-find kbd {
+    font: 11px var(--tmn-font);
+    color: var(--tmn-find-fg);
+    padding: 1px 5px;
+    border: 1px solid var(--tmn-tool-border);
+    border-radius: 3px;
+  }
+
   .tmn-tool-sep {
     flex: none;
     width: 1px;
@@ -421,6 +445,10 @@ button:where(.tmn-tool):disabled,
 button:where(.tmn-tool)[aria-disabled="true"] { color: var(--tmn-disabled); background: transparent; border-color: transparent; }
 /* A starter template's `button:focus { outline: ... }` (Vite's has one) would add a second ring. */
 button:where(.tmn-tool):is(:focus, :focus-visible) { outline: none; }
+button:where(.tmn-tool-nav) { width: var(--tmn-tool-h); padding: 0; }
+button:where(.tmn-find) { margin-inline-start: auto; min-width: var(--tmn-find-w); color: var(--tmn-find-fg); background: var(--tmn-find-bg); border-color: var(--tmn-tool-border); border-radius: 6px; }
+button:where(.tmn-find):hover,
+button:where(.tmn-find):active { color: var(--tmn-fg); background: var(--tmn-find-bg); border-color: var(--tmn-find-hover-border); }
 
 @media (forced-colors: active) {
   button:where(.tmn-tool):focus-visible { outline: 2px solid Highlight; }

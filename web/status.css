@@ -1,0 +1,170 @@
+/* tauris-ui status: the look of the status bar along a window's foot.
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --tst-* variables outside every @layer block, or override any .tst-*
+ * class. The defaults follow the system's light or dark mode.
+ *
+ * The parts (status.js draws them, inside the element marked .tst):
+ *   .tst-msg-part     the left: .tst-msg (the message; .tst-ok .tst-error .tst-info), .tst-act (Undo)
+ *   .tst-segments     the right: .tst-seg each (.tst-button when it does something,
+ *                     [aria-pressed] a toggle, .tst-strong a count at its limit), .tst-dot (.tst-dot-ok
+ *                     .tst-dot-warn .tst-dot-bad .tst-dot-wait .tst-dot-off)
+ */
+@layer tauris-ui {
+  :root {
+    --tst-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+    --tst-font-size: 12px;
+    --tst-h: 22px;
+    --tst-pad: 10px;
+    --tst-fg: var(--tauris-fg, #1e1f22);
+    --tst-dim: var(--tauris-dim, #5d616b);
+    --tst-bg: var(--tauris-chrome, #ececee);
+    --tst-line: var(--tauris-line, #d3d5da);
+    --tst-hover: var(--tauris-hover, #dfe1e5);
+    --tst-on-bg: #d2d4d8;               /* a toggle that is on, or a button pressed */
+    --tst-link: var(--tauris-accent-ink, #1f63a6);
+    --tst-ok: #1f8a4c;
+    --tst-warn: #c98a00;
+    --tst-bad: #c4372d;
+    --tst-error: #b3261e;               /* an error message's text: 4.5:1 on --tst-bg */
+    --tst-faint: #9a9da4;
+    --tst-focus: var(--tauris-accent-ink, #2675bf);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tauris-theme="light"]) {
+      --tst-fg: var(--tauris-fg, #dfe1e5);
+      --tst-dim: var(--tauris-dim, #adb0b8);
+      --tst-bg: var(--tauris-chrome, #34373a);
+      --tst-line: var(--tauris-line, #515356);
+      --tst-hover: var(--tauris-hover, #45484c);
+      --tst-on-bg: #55595d;
+      --tst-link: var(--tauris-accent-ink, #6aa6e0);
+      --tst-ok: #45c27a;
+      --tst-warn: #e3ae2f;
+      --tst-bad: #f07a70;
+      --tst-error: #f49a92;
+      --tst-faint: #7c8087;
+      --tst-focus: var(--tauris-accent-ink, #6aa6e0);
+    }
+  }
+
+  :root[data-tauris-theme="dark"] {
+    --tst-fg: var(--tauris-fg, #dfe1e5);
+    --tst-dim: var(--tauris-dim, #adb0b8);
+    --tst-bg: var(--tauris-chrome, #34373a);
+    --tst-line: var(--tauris-line, #515356);
+    --tst-hover: var(--tauris-hover, #45484c);
+    --tst-on-bg: #55595d;
+    --tst-link: var(--tauris-accent-ink, #6aa6e0);
+    --tst-ok: #45c27a;
+    --tst-warn: #e3ae2f;
+    --tst-bad: #f07a70;
+    --tst-error: #f49a92;
+    --tst-faint: #7c8087;
+    --tst-focus: var(--tauris-accent-ink, #6aa6e0);
+  }
+
+  .tst {
+    display: flex;
+    align-items: stretch;
+    box-sizing: border-box;
+    height: var(--tst-h);
+    overflow: hidden;
+    font: var(--tst-font-size) / var(--tst-h) var(--tst-font);
+    color: var(--tst-dim);
+    background: var(--tst-bg);
+    border-top: 1px solid var(--tst-line);
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
+
+  .tst-msg-part {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 var(--tst-pad);
+  }
+
+  .tst-msg {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .tst-msg.tst-error { color: var(--tst-error); }
+  .tst-msg.tst-ok { color: var(--tst-fg); }
+
+  .tst-act {
+    flex: none;
+    padding: 0;
+    font: inherit;
+    color: var(--tst-link);
+    background: none;
+    border: 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: default;
+  }
+
+  .tst-act[hidden] { display: none; }
+  .tst-act:focus-visible { outline: 2px solid var(--tst-focus); outline-offset: 1px; border-radius: 2px; }
+
+  .tst-segments {
+    flex: none;
+    display: flex;
+    align-items: stretch;
+  }
+
+  .tst-seg {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 var(--tst-pad);
+    white-space: nowrap;
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    border-left: 1px solid var(--tst-line);
+    border-radius: 0;
+  }
+
+  .tst-strong { color: var(--tst-fg); font-weight: 600; }
+  .tst-button:hover { color: var(--tst-fg); background: var(--tst-hover); }
+  .tst-button:active,
+  .tst-button[aria-pressed="true"]:active { background: var(--tst-on-bg); }
+  .tst-button:focus-visible { outline: 2px solid var(--tst-focus); outline-offset: -2px; }
+
+  .tst-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tst-faint);
+  }
+
+  .tst-dot-ok { background: var(--tst-ok); }
+  .tst-dot-warn { background: var(--tst-warn); }
+  .tst-dot-bad { background: var(--tst-bad); }
+  .tst-dot-off { background: transparent; box-shadow: inset 0 0 0 1.25px var(--tst-faint); }
+  .tst-dot-wait { animation: tst-wait 0.9s ease-in-out infinite alternate; }
+
+  @keyframes tst-wait {
+    from { opacity: 1; }
+    to { opacity: 0.25; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tst-dot-wait { animation: none; }
+  }
+
+  @media (forced-colors: active) {
+    .tst-dot { forced-color-adjust: none; border: 1px solid CanvasText; }
+  }
+}

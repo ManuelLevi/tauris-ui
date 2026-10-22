@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-dialog-window-open"
+description = "Enables the dialog_window_open command without any pre-configured scope."
+commands.allow = ["dialog_window_open"]
+
+[[permission]]
+identifier = "deny-dialog-window-open"
+description = "Denies the dialog_window_open command without any pre-configured scope."
+commands.deny = ["dialog_window_open"]

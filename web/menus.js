@@ -1080,9 +1080,186 @@
     };
   }
 
+  // ---------- the toolbar: one stop for Tab, the arrows between its buttons ----------
+
+  const MAC = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || "");
+  const TOOL_ICONS = {
+    back: "<svg viewBox='0 0 16 16' aria-hidden='true'><path d='M10 3.5 5.5 8l4.5 4.5'/></svg>",
+    forward: "<svg viewBox='0 0 16 16' aria-hidden='true'><path d='M6 3.5 10.5 8 6 12.5'/></svg>",
+    find: "<svg viewBox='0 0 16 16' aria-hidden='true'><circle cx='7' cy='7' r='4.3'/><path d='m10.2 10.2 3.4 3.4'/></svg>",
+  };
+  const TOOL_LABELS = {
+    back: "Back",
+    forward: "Forward",
+    find: "Find anything",
+  };
+
+  function toolbar(element, options = {}) {
+    need(element, "toolbar");
+    if (element.__taurisToolbar) throw new Error("TaurisMenu.toolbar: this element is a toolbar already; call destroy() first");
+    addStyles();
+    element.__taurisToolbar = true;
+    let opt = { ...options };
+    const L = () => ({ ...TOOL_LABELS, ...(opt.labels || {}) });
+    const life = new AbortController();
+    const signal = life.signal;
+    const call = (fn, ...args) => {
+      if (typeof fn !== "function" || signal.aborted) return;
+      try {
+        fn(...args);
+      } catch (e) {
+        console.error("[tauris-ui menus] a toolbar callback failed:", e);
+      }
+    };
+    const hadRole = element.getAttribute("role");
+    element.setAttribute("role", "toolbar");
+    if (!element.classList.contains("tmn-toolbar")) element.classList.add("tmn-toolbar", "tmn-toolbar-added");
+    const keysFor = MAC ? { back: "⌘[", forward: "⌘]" } : { back: "Alt+←", forward: "Alt+→" };
+
+    // Back and Forward at its start, the find button at its end: made here, the app's buttons between.
+    const made = [];
+    function tool(kind, cls) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `tmn-tool ${cls}`;
+      b.dataset.tool = kind;
+      made.push(b);
+      return b;
+    }
+    let back = null;
+    let forward = null;
+    let find = null;
+    function build() {
+      for (const b of made.splice(0)) b.remove();
+      back = forward = find = null;
+      const start = [];
+      if (opt.back || opt.forward) {
+        back = tool("back", "tmn-tool-nav");
+        forward = tool("forward", "tmn-tool-nav");
+        for (const [b, kind] of [[back, "back"], [forward, "forward"]]) {
+          b.innerHTML = TOOL_ICONS[kind];
+          b.setAttribute("aria-label", L()[kind]);
+          b.title = `${L()[kind]} (${keysFor[kind]})`;
+          b.addEventListener("click", () => step(kind, "mouse"), { signal });
+          start.push(b);
+        }
+        const sep = document.createElement("span");
+        sep.className = "tmn-tool-sep";
+        made.push(sep);
+        start.push(sep);
+      }
+      element.prepend(...start);
+      if (opt.find) {
+        find = tool("find", "tmn-find");
+        const f = typeof opt.find === "object" ? opt.find : {};
+        find.innerHTML = TOOL_ICONS.find;
+        const text = document.createElement("span");
+        text.textContent = String(f.label ?? L().find);
+        find.append(text);
+        if (f.shortcut) {
+          const kbd = document.createElement("kbd");
+          kbd.textContent = String(f.shortcut);
+          find.append(kbd);
+          find.title = `${text.textContent} (${f.shortcut})`;
+        }
+        find.addEventListener("click", () => call(f.onClick ?? opt.onFind, { how: "mouse" }), { signal });
+        element.append(find);
+      }
+      paint();
+    }
+    // What can go back or forward now (the app says, with setHistory).
+    let can = { back: false, forward: false };
+    function paint() {
+      for (const [b, kind] of [[back, "back"], [forward, "forward"]]) {
+        if (!b) continue;
+        b.disabled = !can[kind];
+      }
+      rove(null);
+    }
+    function step(kind, how) {
+      if (!can[kind]) return;
+      call(opt[kind], { how });
+    }
+
+    // One stop for Tab: the button last moved to (else the pressed one, else the first).
+    const tools = () => [...element.querySelectorAll("button, [role='button']")]
+      .filter(b => b.closest("[role='toolbar']") === element && !b.disabled && b.getAttribute("aria-disabled") !== "true" && b.offsetParent !== null);
+    let stop = null;
+    function rove(to) {
+      const list = tools();
+      if (to && list.includes(to)) stop = to;
+      if (!stop || !list.includes(stop)) stop = list.find(b => b.getAttribute("aria-pressed") === "true") ?? list[0] ?? null;
+      for (const b of element.querySelectorAll("button, [role='button']")) {
+        if (b.closest("[role='toolbar']") !== element) continue;
+        b.tabIndex = b === stop ? 0 : -1;
+      }
+    }
+    element.addEventListener("focusin", e => {
+      const b = e.target instanceof Element ? e.target.closest("button, [role='button']") : null;
+      if (b && element.contains(b)) rove(b);
+    }, { signal });
+    element.addEventListener("keydown", e => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+      // A menu button's own ↓ opens its menu; ← → are the toolbar's.
+      const list = tools();
+      const i = list.indexOf(document.activeElement);
+      if (i < 0 || !list.length) return;
+      e.preventDefault();
+      const rtl = getComputedStyle(element).direction === "rtl";
+      const ahead = (e.key === "ArrowRight") !== rtl ? 1 : -1;
+      const j = e.key === "Home" ? 0 : e.key === "End" ? list.length - 1 : (i + ahead + list.length) % list.length;
+      rove(list[j]);
+      list[j].focus();
+    }, { signal });
+    // Back and Forward: ⌘[ ⌘] (Alt+← Alt+→ elsewhere), anywhere but in a text field.
+    document.addEventListener("keydown", e => {
+      if (!back || e.defaultPrevented || e.isComposing) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t && t.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
+      const kind = MAC
+        ? (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey ? (e.code === "BracketLeft" ? "back" : e.code === "BracketRight" ? "forward" : null) : null)
+        : (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey ? (e.key === "ArrowLeft" ? "back" : e.key === "ArrowRight" ? "forward" : null) : null);
+      if (!kind) return;
+      e.preventDefault();
+      step(kind, "keyboard");
+    }, { signal });
+    // The app's buttons may come and go: the stop follows.
+    const seen = new MutationObserver(() => rove(null));
+    seen.observe(element, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "aria-disabled", "aria-pressed", "hidden"] });
+
+    build();
+
+    return {
+      /** Whether Back and Forward can go (the app's history). */
+      setHistory(next = {}) {
+        can = { back: Boolean(next.back), forward: Boolean(next.forward) };
+        paint();
+      },
+      /** Changes options: back, forward, find, onFind, labels. */
+      update(changes = {}) {
+        opt = { ...opt, ...changes };
+        build();
+      },
+      /** The keys for Back and Forward, as a menu shows them. */
+      keys: { ...keysFor },
+      destroy() {
+        life.abort();
+        seen.disconnect();
+        for (const b of made.splice(0)) b.remove();
+        if (hadRole == null) element.removeAttribute("role");
+        else element.setAttribute("role", hadRole);
+        if (element.classList.contains("tmn-toolbar-added")) element.classList.remove("tmn-toolbar", "tmn-toolbar-added");
+        for (const b of element.querySelectorAll("button, [role='button']")) b.removeAttribute("tabindex");
+        delete element.__taurisToolbar;
+      },
+    };
+  }
+
   window.TaurisMenu = {
     bar,
     button,
+    toolbar,
     open,
     openFor,
     isMenuKey,

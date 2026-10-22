@@ -200,6 +200,71 @@ pub async fn ask<R: Runtime>(
     crate::files::ask_for_page(window, title, message, ok, cancel, warning.unwrap_or(false)).await
 }
 
+// ---------- dialogs in windows of their own (TaurisDialog with window: true) ----------
+
+// Opens the page's dialog in a hidden window of its own; the window's label.
+// Async: a window opens outside Tauri's lock.
+#[tauri::command]
+pub async fn dialog_window_open<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    spec: String,
+    title: String,
+    width: f64,
+) -> Result<String, String> {
+    crate::dialogs::open(&app, &window, spec, title, width)
+}
+
+// What this dialog window shows (null: it is not one).
+#[tauri::command]
+pub fn dialog_window_spec<R: Runtime>(window: WebviewWindow<R>) -> Option<String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
+    crate::dialogs::spec(window.label())
+}
+
+// This dialog window's page has laid out: its size, then (the first time) shown.
+#[tauri::command]
+pub async fn dialog_window_ready<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    width: f64,
+    height: f64,
+    page_w: f64,
+    page_h: f64,
+) -> Result<f64, String> {
+    crate::dialogs::ready(&app, &window, width, height, page_w, page_h).await
+}
+
+// From a dialog window to the window that asked.
+#[tauri::command]
+pub fn dialog_window_send<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    message: serde_json::Value,
+) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
+    crate::dialogs::send(&app, window.label(), message)
+}
+
+// From the window that asked to one of its dialog windows.
+#[tauri::command]
+pub fn dialog_window_reply<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    label: String,
+    message: serde_json::Value,
+) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
+    crate::dialogs::reply(&app, window.label(), &label, message)
+}
+
+// A dialog window closes itself.
+#[tauri::command]
+pub fn dialog_window_close<R: Runtime>(window: WebviewWindow<R>) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
+    crate::dialogs::close(&window)
+}
+
 // The system's save dialog with a name filled in: the chosen path, or null.
 #[tauri::command]
 pub async fn save_dialog<R: Runtime>(

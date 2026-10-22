@@ -1653,16 +1653,18 @@ fn only_the_components_asked_for_go_in_the_pages() {
             "TaurisDialog",
             "TaurisReorder",
             "TaurisGlance",
+            "TaurisTable",
+            "TaurisStatus",
         ]
         .map(|name| script.contains(&format!("window.{name} = ")))
     };
-    assert_eq!(has(&crate::page_script(&quiet())), [true; 10]);
+    assert_eq!(has(&crate::page_script(&quiet())), [true; 12]);
     assert_eq!(
         has(&crate::page_script(&quiet().components(&[Component::Tabs]))),
-        [true, false, false, false, false, false, false, false, false, false]
+        [true, false, false, false, false, false, false, false, false, false, false, false]
     );
     let files = crate::page_script(&quiet().components(&[Component::Tree, Component::Files]));
-    assert_eq!(has(&files), [false, true, false, true, true, false, false, false, false, false]);
+    assert_eq!(has(&files), [false, true, false, true, true, false, false, false, false, false, false, false]);
     assert!(files.len() < crate::page_script(&quiet()).len());
 }
 
@@ -1700,4 +1702,34 @@ fn the_native_feel_is_in_the_pages_only_when_asked_for() {
     assert!(!crate::page_script(&quiet()).contains("__taurisNativeFeel"));
     assert!(crate::page_script(&quiet().native_feel()).contains("__taurisNativeFeel"));
     assert!(crate::page_script(&quiet().components(&[]).native_feel()).contains("__taurisNativeFeel"));
+}
+
+// A dialog in a window of its own: its page reads what to show, it talks only to the window that asked (and that window
+// only to its own dialogs), and it goes when that window goes.
+#[test]
+fn a_dialog_window_belongs_to_the_window_that_asked() {
+    let app = app(quiet());
+    app.tabs().start().unwrap();
+    let owner = app.get_webview_window("tabs-1").unwrap();
+    let label =
+        crate::dialogs::open(app.handle(), &owner, r#"{"kind":"form"}"#.into(), "Edit Task".into(), 440.0).unwrap();
+    assert!(label.starts_with("tauris-dialog-"));
+    assert!(app.get_webview_window(&label).is_some(), "the dialog's window"); // (the test runtime keeps no visibility: hidden-until-sized is not seen here)
+    assert_eq!(crate::dialogs::spec(&label).as_deref(), Some(r#"{"kind":"form"}"#));
+    assert_eq!(crate::dialogs::spec("tabs-1"), None, "a tab window is no dialog");
+    assert!(crate::dialogs::send(app.handle(), &label, serde_json::json!({ "type": "done" })).is_ok());
+    assert!(
+        crate::dialogs::send(app.handle(), "tabs-1", serde_json::json!({})).is_err(),
+        "only a dialog sends to its asker"
+    );
+    assert!(crate::dialogs::reply(app.handle(), "tabs-1", &label, serde_json::json!({ "type": "answer" })).is_ok());
+    assert!(
+        crate::dialogs::reply(app.handle(), "tabs-2", &label, serde_json::json!({})).is_err(),
+        "another window cannot reach it"
+    );
+    assert!(crate::dialogs::close(&owner).is_err(), "a tab window does not close as a dialog");
+    // (The test runtime runs no event loop: what follows a close, the asker told and a
+    // dialog going with its window, is not seen here.)
+    let dialog = app.get_webview_window(&label).unwrap();
+    assert!(crate::dialogs::close(&dialog).is_ok(), "a dialog closes itself");
 }

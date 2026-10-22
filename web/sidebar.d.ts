@@ -10,10 +10,6 @@ declare global {
     icon?: string | null;
     /** A number or short text on its right (a dot in the rail); 0, null or "" shows none. */
     count?: number | string | null;
-    /** A group: its items, shown below it when it is open. */
-    children?: TaurisSidebarEntry[];
-    /** A group that starts open. */
-    expanded?: boolean;
     /** Shown, but not chosen and not reached by the keys. */
     disabled?: boolean;
     /** A tooltip when it is open (in the rail the label is the tooltip). */
@@ -72,8 +68,6 @@ declare global {
     /** false: the page brings its own stylesheet. */
     styles?: boolean;
     labels?: Partial<TaurisSidebarLabels>;
-    /** Choosing a group opens it too (otherwise its arrow, a double-click or Right does). */
-    openOnSelect?: boolean;
     /** The person chose an item (not called by select()). */
     onSelect?: (item: TaurisSidebarItem, info: { how: "mouse" | "keyboard" }) => void;
     /** A right click on an item, or the menu key on it: where to open the app's own menu. Given, the browser's menu does not open. */
@@ -84,9 +78,9 @@ declare global {
   }
 
   interface TaurisSidebar {
-    /** Replaces the items (the focus stays on the item of the same id; open groups stay open). */
+    /** Replaces the items (the focus stays on the item of the same id). Items are one level: a tree is a TaurisTree in `content`. */
     setItems(items: TaurisSidebarEntry[]): void;
-    /** Selects an item (null: none); the groups around it open. onSelect is not called. */
+    /** Selects an item (null: none). onSelect is not called. */
     select(id: string | number | null): void;
     /** The selected item, or null. */
     selected(): TaurisSidebarItem | null;

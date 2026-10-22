@@ -34,6 +34,10 @@ pub enum Component {
     Reorder,
     /// `TaurisGlance`: a sparkline, a status, a capacity bar.
     Glance,
+    /// `TaurisTable`: a dense data table (sorting, groups, a row's buttons).
+    Table,
+    /// `TaurisStatus`: the status bar along a window's foot.
+    Status,
 }
 
 /// How the tabs behave. Every setting has a default; change only what you need.
@@ -80,6 +84,8 @@ impl<R: Runtime> Default for Config<R> {
                 Component::Dialog,
                 Component::Reorder,
                 Component::Glance,
+                Component::Table,
+                Component::Status,
             ],
             native_feel: false,
         }
@@ -94,7 +100,7 @@ impl Config<Wry> {
 }
 
 impl<R: Runtime> Config<R> {
-    /// The page components the plugin puts in every page (default: all ten).
+    /// The page components the plugin puts in every page (default: all twelve).
     /// An app that uses some leaves the others out, so its pages load less.
     /// The files table brings the menus with it (its row menu is one).
     /// `scripts/doctor.py` says when a page uses one left out.

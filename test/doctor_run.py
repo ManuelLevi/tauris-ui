@@ -362,6 +362,15 @@ check("Config::components without the glance, a page using it: said (and the reo
 out, code = app(rust="fn main() { tauri::Builder::default().plugin(tauris_ui::init(tauris_ui::Config::new().components(&ALL))); }\n")
 check("Config::components given a list it cannot read: noted", "cannot read" in out and code == 0, out[-400:])
 
+# Dialogs in windows of their own: the windows need the plugin, and the page has to know it is one.
+WINDOWED = "<script>if (TaurisDialog.inWindow) {} else { TaurisFiles.mount(el, { pick: f }); TaurisDialog.form({ window: true, title: 'x', fields: [] }); }</script>"
+out, code = app(page=WINDOWED, capability={**GOOD_CAP, "windows": ["tabs-*"]})
+check("dialogs in windows of their own, no capability for those windows: said", "no capability covers those windows" in out and code == 1, out[-400:])
+out, code = app(page=WINDOWED, capability={**GOOD_CAP, "windows": ["tabs-*", "tauris-dialog-*"]})
+check("and with one: ok", "a capability covers the dialog windows" in out and code == 0, out[-400:])
+out, code = app(page=WINDOWED.replace("if (TaurisDialog.inWindow) {} else ", ""))
+check("a page that never checks TaurisDialog.inWindow: said (it would draw the whole app in the dialog's window)", "nothing checks TaurisDialog.inWindow" in out and code == 1, out[-400:])
+
 # A capability for some systems only.
 HERE_OS = {"darwin": "macOS", "win32": "windows"}.get(sys.platform, "linux")
 ELSEWHERE = "windows" if HERE_OS != "windows" else "linux"

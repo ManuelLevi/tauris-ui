@@ -8,8 +8,13 @@
 //     items: [
 //       { id: "inbox", label: "Inbox", icon: "📥", count: 3 },
 //       { heading: "Projects" },
-//       { id: "atlas", label: "Atlas", icon: "<svg …>", children: [{ id: "atlas-docs", label: "Documents" }] },
+//       { id: "atlas", label: "Atlas", icon: "<svg …>" },
 //     ],
+//     content: treeElement,                  // a tree belongs in a TaurisTree, here
+//
+// Its items are one level: places, as in Mail or Finder. A tree (projects,
+// their folders and files) is a TaurisTree in `content`, below the items: the
+// desktop outline, with its +/- boxes and dotted lines.
 //     selected: "inbox",
 //     onSelect: item => show(item.id),
 //   });
@@ -24,9 +29,8 @@
 // collapsed between runs.
 //
 // Keyboard: Tab reaches the selected item (one Tab stop for the list); Up,
-// Down, Home and End move; Right opens a group, Left closes it (or goes to its
-// parent); Enter or Space selects; a letter jumps to the next item starting
-// with it. On the edge (Tab reaches it): Left and Right resize, Home and End go
+// Down, Home and End move; Enter or Space selects; a letter jumps to the next
+// item starting with it. On the edge (Tab reaches it): Left and Right resize, Home and End go
 // to the narrowest and widest, Enter collapses or opens.
 //
 // Nothing here is a <button>, so an app's plain `button { ... }` rule cannot
@@ -69,7 +73,7 @@
   };
 
   const DEFAULTS = {
-    // [{ id, label, icon?, count?, children?, expanded?, disabled? }, or { heading }]
+    // [{ id, label, icon?, count?, disabled?, title? }, or { heading }]: one level (a tree: TaurisTree in `content`)
     items: [],
     // the id of the selected item, or null
     selected: null,
@@ -105,8 +109,6 @@
     // false: the page brings its own stylesheet
     styles: true,
     labels: {},
-    // choosing a group opens it too (otherwise its arrow, a double-click or Right does)
-    openOnSelect: false,
     onSelect: null, // (item, { how: "mouse" | "keyboard" })
     // a right click on an item, or the menu key on it: (item, { x, y, how }); the app opens
     // its own menu there (TaurisMenu.open(items, { x, y })). Given, the browser's menu does not open.
@@ -116,7 +118,6 @@
   };
 
   const SIDEBAR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M6 2.8v10.4" stroke="currentColor" stroke-width="1.2"/></svg>';
-  const CHEVRON_SVG = '<svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M3.5 2l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   let uid = 0;
 
@@ -164,8 +165,6 @@
     let items = [];
     let selected = opt.selected == null ? null : keyOf(opt.selected);
     let focusKey = null; // the item Tab reaches
-    const open = new Set(); // groups shown open
-    const known = new Set(); // groups seen (a new one starts as its `expanded` says)
     let width = clampWidth(Number(opt.width) || DEFAULTS.width);
     let collapsed = opt.collapsed === true;
     const stored = read();
@@ -259,34 +258,30 @@
       nav.setAttribute("aria-label", String(name || words.label));
     }
 
-    // Every item with its place: depth, parent, and whether it shows (its groups are open).
+    // The items, and the headings between them. They do not nest: a tree is a
+    // TaurisTree in `content` (an item's children are left out, and said so once).
     let flat = [];
+    let toldNesting = false;
     function flatten() {
       flat = [];
-      const walk = (all, depth, parent, shownHere) => {
-        for (const item of Array.isArray(all) ? all : []) {
-          if (!item || typeof item !== "object") continue;
-          if ("heading" in item && item.id == null) {
-            flat.push({ heading: String(item.heading ?? ""), depth, shows: shownHere && depth === 0 });
-            continue;
-          }
-          if (item.id == null) continue;
-          const key = keyOf(item.id);
-          const kids = Array.isArray(item.children) ? item.children : [];
-          if (kids.length && !known.has(key)) {
-            known.add(key);
-            if (item.expanded === true) open.add(key);
-          }
-          flat.push({ key, item, depth, parent, group: kids.length > 0, shows: shownHere });
-          if (kids.length) walk(kids, depth + 1, key, shownHere && open.has(key));
+      for (const item of Array.isArray(items) ? items : []) {
+        if (!item || typeof item !== "object") continue;
+        if ("heading" in item && item.id == null) {
+          flat.push({ heading: String(item.heading ?? "") });
+          continue;
         }
-      };
-      walk(items, 0, null, true);
+        if (item.id == null) continue;
+        if (Array.isArray(item.children) && item.children.length && !toldNesting) {
+          toldNesting = true;
+          console.warn(`[tauris-ui sidebar] items do not nest: the children of “${item.label}” are left out. A tree belongs in a TaurisTree, given as \`content\`.`);
+        }
+        flat.push({ key: keyOf(item.id), item });
+      }
     }
     const rail = () => collapsed && opt.collapse !== "hide";
     const hidden = () => collapsed && opt.collapse === "hide";
-    // The items the keys go through: those shown (in the rail, the first level).
-    const reachable = () => flat.filter(r => r.key && r.shows && !r.item.disabled && (!rail() || r.depth === 0));
+    // The items the keys go through.
+    const reachable = () => flat.filter(r => r.key && !r.item.disabled);
     const rowOf = key => flat.find(r => r.key === key) ?? null;
 
     function draw() {
@@ -295,7 +290,6 @@
       const hadFocus = nav.contains(document.activeElement) ? focusKey : null;
       flatten();
       root.classList.toggle("tsb-right", opt.side === "right");
-      root.classList.toggle("tsb-groups", flat.some(r => r.group));
       root.dataset.tsbState = hidden() ? "hidden" : rail() ? "rail" : "open";
       root.style.setProperty("--tsb-w", `${width}px`);
       drawHead();
@@ -321,16 +315,10 @@
       const can = reachable();
       if (!can.some(r => r.key === focusKey)) {
         const sel = selected != null ? rowOf(selected) : null;
-        // In the rail, a selected item inside a group is reached through its group.
-        let at = sel;
-        while (at && rail() && at.depth > 0) at = rowOf(at.parent);
-        focusKey = (at && can.includes(at) ? at.key : can[0]?.key) ?? null;
+        focusKey = (sel && can.includes(sel) ? sel.key : can[0]?.key) ?? null;
       }
-      // Built again as a tree of lists: a group's items in a list inside its own.
-      const lists = new Map([[null, list]]);
       list.replaceChildren();
       for (const r of flat) {
-        if (!r.shows || (rail() && r.depth > 0)) continue;
         if (r.heading !== undefined) {
           list.append(el("div", "tsb-heading", { role: "listitem" }, el("span", "tsb-heading-text", { role: "heading", "aria-level": "2" }, r.heading)));
           continue;
@@ -338,36 +326,25 @@
         const item = r.item;
         const label = String(item.label ?? "");
         const count = item.count == null || item.count === "" || item.count === 0 ? null : String(item.count);
-        const isOpen = open.has(r.key);
         const row = el("div", "tsb-item", {
           role: "button",
           tabindex: r.key === focusKey ? "0" : "-1",
           "data-key": r.key,
           "aria-current": r.key === selected ? "page" : null,
-          "aria-expanded": r.group && !rail() ? String(isOpen) : null,
           "aria-disabled": item.disabled ? "true" : null,
           // Named by its label and count; in the rail the label shows as a tooltip.
           "aria-label": count ? `${label}, ${count}` : null,
           title: rail() ? (count ? `${label} (${count})` : label) : (item.title ? String(item.title) : null),
         });
-        row.style.setProperty("--tsb-depth", String(r.depth));
-        const chevron = el("span", "tsb-chevron", { "aria-hidden": "true" });
-        if (r.group) chevron.innerHTML = CHEVRON_SVG;
         // No icon: its first letter stands for it in the rail.
         const pic = icon(item.icon);
         if (!pic.childNodes.length) {
           pic.classList.add("tsb-no-icon");
           pic.textContent = label.trim().charAt(0).toUpperCase();
         }
-        row.append(chevron, pic, el("span", "tsb-label", {}, label));
+        row.append(pic, el("span", "tsb-label", {}, label));
         if (count) row.append(el("span", "tsb-count", { "aria-hidden": "true" }, count));
-        const wrap = el("div", "tsb-entry", { role: "listitem" }, row);
-        (lists.get(r.parent) ?? list).append(wrap);
-        if (r.group && isOpen && !rail()) {
-          const kids = el("div", "tsb-list tsb-sub", { role: "list", "aria-label": label });
-          wrap.append(kids);
-          lists.set(r.key, kids);
-        }
+        list.append(el("div", "tsb-entry", { role: "listitem" }, row));
       }
       if (hadFocus !== null) itemEl(focusKey)?.focus({ preventScroll: true });
     }
@@ -391,28 +368,11 @@
       const r = rowOf(key);
       if (!r || r.item.disabled) return;
       focusKey = key;
-      // In the rail a group's items cannot show: the sidebar opens, with the group open.
-      if (rail() && r.group) {
-        open.add(key);
-        setCollapsed(false, how === "keyboard" ? "shortcut" : "button");
-      } else if (r.group && opt.openOnSelect && !open.has(key)) {
-        open.add(key);
-        draw();
-      }
       const changed = selected !== key;
       selected = key;
       paint();
       itemEl(key)?.focus({ preventScroll: true });
       if (changed) call(opt.onSelect, r.item, { how });
-    }
-
-    function setOpen(key, on) {
-      const r = rowOf(key);
-      if (!r || !r.group || open.has(key) === on) return;
-      if (on) open.add(key);
-      else open.delete(key);
-      draw();
-      itemEl(key)?.focus({ preventScroll: true });
     }
 
     function setCollapsed(on, how) {
@@ -443,19 +403,7 @@
     list.addEventListener("click", e => {
       const row = e.target instanceof Element ? e.target.closest(".tsb-item") : null;
       if (!row || !list.contains(row)) return;
-      const key = row.dataset.key;
-      // The chevron opens and closes its group; the rest of the row selects.
-      if (e.target.closest(".tsb-chevron") && rowOf(key)?.group && !rail()) {
-        setOpen(key, !open.has(key));
-        return;
-      }
-      choose(key, e.detail === 0 ? "keyboard" : "mouse");
-    }, { signal });
-    list.addEventListener("dblclick", e => {
-      const row = e.target instanceof Element ? e.target.closest(".tsb-item") : null;
-      if (!row || e.target.closest(".tsb-chevron") || rail()) return;
-      const key = row.dataset.key;
-      if (rowOf(key)?.group) setOpen(key, !open.has(key));
+      choose(row.dataset.key, e.detail === 0 ? "keyboard" : "mouse");
     }, { signal });
     // The item with the focus is the one Tab comes back to (focused by a click, a screen reader, the app).
     list.addEventListener("focusin", e => {
@@ -473,10 +421,6 @@
       if (!r) return;
       e.preventDefault();
       call(opt.onContextMenu, r.item, { x: e.clientX, y: e.clientY, how: "mouse" });
-    }, { signal });
-    // A press keeps the keys in the list (the item takes the focus on its click).
-    list.addEventListener("mousedown", e => {
-      if (e.button === 0 && e.target instanceof Element && e.target.closest(".tsb-chevron")) e.preventDefault();
     }, { signal });
 
     const press = (node, fn) => {
@@ -518,14 +462,6 @@
       else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         if (!e.repeat) choose(key, "keyboard");
-      } else if (e.key === "ArrowRight" && r && !rail()) {
-        e.preventDefault();
-        if (r.group && !open.has(key)) setOpen(key, true);
-        else if (r.group) go(at + 1); // its first item
-      } else if (e.key === "ArrowLeft" && r && !rail()) {
-        e.preventDefault();
-        if (r.group && open.has(key)) setOpen(key, false);
-        else if (r.parent != null) go(can.findIndex(x => x.key === r.parent));
       } else if ((e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) && r && typeof opt.onContextMenu === "function") {
         // The menu key: the app's menu under the item.
         e.preventDefault();
@@ -633,18 +569,16 @@
         items = Array.isArray(next) ? next : [];
         draw();
       },
-      /** Selects an item by id (null: none); its groups open. onSelect is not called. */
+      /** Selects an item by id (null: none). onSelect is not called. */
       select(itemId) {
         if (itemId == null) {
           selected = null;
           return draw();
         }
         const key = keyOf(itemId);
-        const r = rowOf(key);
-        if (!r) return;
-        for (let p = r.parent; p != null; p = rowOf(p)?.parent ?? null) open.add(p);
+        if (!rowOf(key)) return;
         selected = key;
-        if (!rail() || r.depth === 0) focusKey = key;
+        focusKey = key;
         draw();
       },
       /** The selected item, or null. */
@@ -680,7 +614,7 @@
         if (signal.aborted) return;
         life.abort();
         root.replaceChildren();
-        if (addedClass) root.classList.remove("tsb", "tsb-right", "tsb-resizing", "tsb-groups", "tsb-has-body", "tsb-has-items", "tsb-has-image");
+        if (addedClass) root.classList.remove("tsb", "tsb-right", "tsb-resizing", "tsb-has-body", "tsb-has-items", "tsb-has-image");
         root.style.removeProperty("--tsb-w");
         delete root.dataset.tsbState;
         delete root.__taurisSidebar;

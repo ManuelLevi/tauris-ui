@@ -28,6 +28,30 @@ pub(crate) fn set_alpha<R: Runtime>(window: &WebviewWindow<R>, alpha: f64) {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn set_alpha<R: Runtime>(_window: &WebviewWindow<R>, _alpha: f64) {}
 
+// A dialog's window, attached to the window that asked: it moves with it and
+// stays above it. macOS orders the child in as it attaches, so this shows it.
+#[cfg(target_os = "macos")]
+pub(crate) fn attach_child<R: Runtime>(parent: &WebviewWindow<R>, child: &WebviewWindow<R>) {
+    let Ok(p) = parent.ns_window() else {
+        let _ = child.show();
+        return;
+    };
+    let p = p as usize;
+    with_ns_window(child, move |c| unsafe {
+        let p = p as *mut objc2::runtime::AnyObject;
+        if !p.is_null() {
+            // [parent addChildWindow:child ordered:NSWindowAbove]
+            let _: () = objc2::msg_send![&*p, addChildWindow: c, ordered: 1isize];
+        }
+    });
+}
+
+// Elsewhere it was made the owner's at its start: showing it is enough.
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn attach_child<R: Runtime>(_parent: &WebviewWindow<R>, child: &WebviewWindow<R>) {
+    let _ = child.show();
+}
+
 pub(crate) const CAN_DRAG_OUT: bool = cfg!(target_os = "macos");
 
 // The real mouse, read from the window server. Page events stop at the edge

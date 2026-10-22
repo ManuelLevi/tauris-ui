@@ -72,6 +72,27 @@ declare global {
     destroy(): void;
   }
 
+  interface TaurisMenuToolbarOptions {
+    /** Back and Forward buttons at its start: what each does (⌘[ ⌘], Alt+← Alt+→ elsewhere, outside text fields). */
+    back?: (info: { how: "mouse" | "keyboard" }) => void;
+    forward?: (info: { how: "mouse" | "keyboard" }) => void;
+    /** A find button at its end, as a field: true, or its label and shortcut ("⌘K"). */
+    find?: boolean | { label?: string; shortcut?: string; onClick?: (info: { how: "mouse" }) => void };
+    /** What the find button does (when `find` has no onClick). */
+    onFind?: (info: { how: "mouse" }) => void;
+    labels?: Partial<{ back: string; forward: string; find: string }>;
+  }
+
+  interface TaurisMenuToolbar {
+    /** Whether Back and Forward can go now (the app's history). */
+    setHistory(can: { back?: boolean; forward?: boolean }): void;
+    /** Changes options: back, forward, find, onFind, labels. */
+    update(changes: Partial<TaurisMenuToolbarOptions>): void;
+    /** The keys for Back and Forward, as a menu shows them ("⌘[", or "Alt+←"). */
+    readonly keys: { back: string; forward: string };
+    destroy(): void;
+  }
+
   const TaurisMenu: {
     /** Fills an element (a <nav>) with menu titles: a desktop menu bar. */
     bar(element: HTMLElement, options: { menus: TaurisMenuBarMenu[]; label?: string } & TaurisMenuHooks): TaurisMenuBar;
@@ -85,6 +106,8 @@ declare global {
     openFor(element: Element, items: TaurisMenuItems, options?: { label?: string; returnTo?: HTMLElement; onClose?: (info: TaurisMenuCloseInfo) => void }): { close(): void };
     /** The menu key, or ⇧F10. */
     isMenuKey(event: KeyboardEvent): boolean;
+    /** Makes a row of buttons a toolbar: one stop for Tab, ← → Home End between its buttons; Back, Forward and a find button if asked. Name it with aria-label. */
+    toolbar(element: HTMLElement, options?: TaurisMenuToolbarOptions): TaurisMenuToolbar;
   };
 
   interface Window {

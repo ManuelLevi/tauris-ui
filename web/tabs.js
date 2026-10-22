@@ -24,10 +24,14 @@
   // What Rust tells this window's strip is handed to this page alone (Rust
   // calls window.__taurisUiDeliver), never sent as an event every page hears.
   const fromRust = new Map(); // name -> the strips' handlers
+  // What is not the strips' goes on to whoever took it before (the dialogs' windows).
+  const before = window.__taurisUiDeliver;
   Object.defineProperty(window, "__taurisUiDeliver", {
     configurable: true,
     value: (name, payload) => {
+      if (!fromRust.has(name) && typeof before === "function") return before(name, payload);
       for (const fn of [...(fromRust.get(name) ?? [])]) fn({ payload });
+      return undefined;
     },
   });
 

@@ -18,6 +18,15 @@ declare global {
     /** Between two keys that both do it ("⌘[ or ⌘]"). */
     either: string;
     shortcuts: string;
+    /** A password's Show and Hide, and Generate. */
+    show: string;
+    hide: string;
+    generate: string;
+    /** A review's pictures, for a screen reader ("Photo, before"). */
+    before: string;
+    after: string;
+    /** The notice's title when a question's action failed after the system's alert. */
+    failed: string;
   }
 
   interface TaurisDialogConfirmOptions {
@@ -30,22 +39,43 @@ declare global {
     danger?: boolean;
     /** Asks with the system's alert (needs the plugin's "files" feature and the dialog plugin; otherwise in the page). */
     native?: boolean;
+    /** The action, run inside the question after its ok button: a throw keeps the question open with the
+     *  reason on its line (after the system's alert, a notice says it); true once it has run. */
+    run?: () => unknown | Promise<unknown>;
+    failedTitle?: string;
     width?: number;
     labels?: Partial<TaurisDialogLabels>;
   }
 
-  /** "Field: old → new"; without `before` (a secret), only that it changed. */
+  /** "Field: old → new"; without `before` (a secret), only that it changed; a picture's change as its two pictures. */
   interface TaurisDialogChange {
     field: string;
     before?: string;
     after?: string;
+    /** A picture's change: the old and new pictures' URLs (null: none). */
+    beforeImage?: string | null;
+    afterImage?: string | null;
   }
+
+  /** What the app's own field gives the form. */
+  interface TaurisDialogFieldHandle {
+    /** Its value now (JSON, to cross into a window of its own). */
+    value(): unknown;
+    /** Takes the keys (a refusal about it, the form's start). */
+    focus?(): void;
+    /** The dialog closed. */
+    destroy?(): void;
+  }
+
+  /** Draws the app's own field in `cell` (a picker, a photo, live text). */
+  type TaurisDialogFieldRender = (cell: HTMLElement, field: TaurisDialogField) => TaurisDialogFieldHandle | void;
 
   interface TaurisDialogField {
     name: string;
     /** Shown as "Label:" to its left (a checkbox: its text on its right). */
     label?: string;
-    type?: "text" | "password" | "number" | "email" | "url" | "tel" | "date" | "time" | "textarea" | "select" | "checkbox";
+    /** The form's own types, or one the app defined with TaurisDialog.defineField. */
+    type?: "text" | "password" | "number" | "email" | "url" | "tel" | "date" | "time" | "textarea" | "select" | "checkbox" | (string & {});
     value?: string | number | boolean | null;
     /** An example, dimmer than typed text ("Northwind Launch"). */
     placeholder?: string;
@@ -63,6 +93,14 @@ declare global {
     rows?: number;
     autocomplete?: string;
     inputmode?: string;
+    /** A password: a Show button. */
+    reveal?: boolean;
+    /** A password: a Generate button (true: 20 characters, a number: that many; a function: the app's own, in the page only). */
+    generate?: boolean | number | (() => string);
+    /** This field only: the app draws it (in the page only; in a window, define the type). */
+    render?: TaurisDialogFieldRender;
+    /** Anything else the app's own field reads (ids, choices). */
+    [extra: string]: unknown;
   }
 
   /** A refusal: about a field (a balloon under it), or about the whole form (the kept line). */
@@ -79,18 +117,20 @@ declare global {
     width?: number;
     /** The kept line's dim text under the fields, until a refusal takes its place. */
     hint?: string;
-    /** The app's own checks, before saving: a refusal, or null. */
-    validate?: (values: V) => TaurisDialogRefusal | null | undefined;
+    /** The app's own checks, before saving: a refusal, or null (or a promise of one). */
+    validate?: (values: V) => TaurisDialogRefusal | null | undefined | Promise<TaurisDialogRefusal | null | undefined>;
     /** The changes to show before saving ("Save Changes"); none or [] saves at once. */
-    review?: (values: V) => TaurisDialogChange[] | null | undefined;
+    review?: (values: V) => TaurisDialogChange[] | null | undefined | Promise<TaurisDialogChange[] | null | undefined>;
     reviewTitle?: string;
     reviewNote?: string;
     saveLabel?: string;
     /** Saves; a throw (an Error, or { field, text }) shows as a refusal and keeps the dialog open. */
     submit?: (values: V) => unknown | Promise<unknown>;
-    /** Fills the left of the button row (a "Delete" of the app's). */
+    /** Fills the left of the button row (a "Delete" of the app's); in the page only. */
     left?: (element: HTMLElement) => void;
     labels?: Partial<TaurisDialogLabels>;
+    /** In a native window of its own, attached to this one (in the page where none can open). Its checks and save run here. */
+    window?: boolean;
   }
 
   interface TaurisDialogShortcut {
@@ -123,11 +163,15 @@ declare global {
       /** A form: the values once saved, or null when cancelled. */
       form<V = Record<string, unknown>>(options: TaurisDialogFormOptions<V>): Promise<V | null>;
       /** The changes before they are saved: true for Save. */
-      review(options: { title?: string; message?: string; rows: TaurisDialogChange[]; note?: string; ok?: string; cancel?: string; width?: number; labels?: Partial<TaurisDialogLabels> }): Promise<boolean>;
+      review(options: { title?: string; message?: string; rows: TaurisDialogChange[]; note?: string; ok?: string; cancel?: string; width?: number; window?: boolean; labels?: Partial<TaurisDialogLabels> }): Promise<boolean>;
       /** The Keyboard Shortcuts sheet: groups in columns of about the same height, keys as keycaps. */
-      shortcuts(options: { title?: string; groups: { title: string; items: TaurisDialogShortcut[] }[]; columns?: number; width?: number; done?: string; labels?: Partial<TaurisDialogLabels> }): Promise<void>;
-      /** The About sheet: the app's mark (markup, text, or an image's URL), name, description, key/value rows. */
-      about(options: { name: string; mark?: string; description?: string; rows?: [string, string][]; title?: string; width?: number; done?: string; labels?: Partial<TaurisDialogLabels> }): Promise<void>;
+      shortcuts(options: { title?: string; groups: { title: string; items: TaurisDialogShortcut[] }[]; columns?: number; width?: number; done?: string; window?: boolean; labels?: Partial<TaurisDialogLabels> }): Promise<void>;
+      /** The About sheet: the app's mark (markup, text, or an image's URL), name, description, key/value rows (selectable). */
+      about(options: { name: string; mark?: string; description?: string; rows?: [string, string][]; title?: string; width?: number; done?: string; window?: boolean; labels?: Partial<TaurisDialogLabels> }): Promise<void>;
+      /** A field type of the app's own, for every form (and in a dialog's own window, where the page defines it again). */
+      defineField(type: string, render: TaurisDialogFieldRender): void;
+      /** This page is a dialog's own window: the app defines its field types here, and draws nothing else. */
+      readonly inWindow: boolean;
       /** A titled border box around an element of the page (Swing's TitledBorder). */
       panel(element: HTMLElement, options: TaurisDialogPanelOptions): TaurisDialogPanel;
       /** Whether a dialog is open. */

@@ -1,8 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Every tab window",
-  "windows": ["tabs-*"],
+  "description": "Every tab window, and the dialogs' own windows (Edit… opens in one)",
+  "windows": [
+    "tabs-*",
+    "tauris-dialog-*"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

@@ -20,6 +20,7 @@ SHOTS = Path(sys.argv[1]) if len(sys.argv) > 1 else None
 if SHOTS:
     SHOTS.mkdir(parents=True, exist_ok=True)
 SIZE = {"width": 1000, "height": 560}
+MAC = sys.platform == "darwin"
 failures = []
 
 ACCENT, WHITE, FG, DISABLED, OPEN_BG = "rgb(38, 117, 191)", "rgb(255, 255, 255)", "rgb(30, 31, 34)", "rgb(163, 166, 173)", "rgb(219, 230, 244)"
@@ -1080,6 +1081,54 @@ with sync_playwright() as p:
     page.mouse.up()
     check("press on a title, drag through its menu, release elsewhere: it closes, nothing chosen",
           page.locator(".tmn-menu").count() == 0 and page.evaluate("ran") == ["copy"], (page.locator(".tmn-menu").count(), page.evaluate("ran")))
+    page.close()
+
+    # ---------- TaurisMenu.toolbar ----------
+    page = browser.new_page(viewport={"width": 760, "height": 420}, device_scale_factor=2, color_scheme="light")
+    page.on("pageerror", lambda e: failures.append(f"page error: {e}") or print("PAGEERROR", e))
+    page.goto((HERE / "frame_demo.html").as_uri())
+    page.wait_for_selector(".tmn-find")
+    tools = page.evaluate("[...document.querySelectorAll('#toolbar button')].map(b => b.dataset.tool ?? b.textContent)")
+    check("a toolbar: Back and Forward at its start, the app's buttons, the find button at its end",
+          tools == ["back", "forward", "Home", "Projects", "Tasks", "find"] and page.get_attribute("#toolbar", "role") == "toolbar", tools)
+    check("Back and Forward are named, with their keys in the tooltip; Forward off with nothing ahead",
+          page.get_attribute("[data-tool=back]", "aria-label") == "Back" and page.get_attribute("[data-tool=back]", "title") == ("Back (⌘[)" if MAC else "Back (Alt+←)")
+          and page.evaluate("document.querySelector('[data-tool=forward]').disabled") is True)
+    check("the find button: its label and shortcut, at the far end",
+          page.inner_text(".tmn-find").replace("\n", " ").strip() == "Find anything ⌘K"
+          and abs(page.evaluate("document.querySelector('.tmn-find').getBoundingClientRect().right") - (760 - 7)) <= 1.5)
+    stops = page.evaluate("[...document.querySelectorAll('#toolbar button')].filter(b => b.tabIndex === 0).map(b => b.dataset.tool ?? b.textContent)")
+    check("one stop for Tab: the pressed button", stops == ["Home"], stops)
+    page.focus("#toolbar .tmn-tool[aria-pressed=true]")
+    page.keyboard.press("ArrowRight")
+    check("→ moves to the next button", page.evaluate("document.activeElement.textContent") == "Projects")
+    page.keyboard.press("End")
+    check("End: the last (the find button)", page.evaluate("document.activeElement.dataset.tool") == "find")
+    page.keyboard.press("ArrowRight")
+    check("→ at the end goes round to the first enabled (Back; Forward is off)", page.evaluate("document.activeElement.dataset.tool") == "back")
+    page.keyboard.press("ArrowRight")
+    check("past a disabled button", page.evaluate("document.activeElement.textContent") == "Home")
+    page.keyboard.press("ArrowLeft")
+    page.keyboard.press("Home")
+    check("Home: the first", page.evaluate("document.activeElement.dataset.tool") == "back")
+    check("the stop follows the focus", page.evaluate("[...document.querySelectorAll('#toolbar button')].filter(b => b.tabIndex === 0).map(b => b.dataset.tool)") == ["back"])
+    page.keyboard.press("Enter")
+    page.click("#toolbar [data-tool=find]")
+    check("Back and the find button do what the app gave", page.evaluate("said") == [["back", "mouse"], ["find", "mouse"]], page.evaluate("said"))
+    page.evaluate("said.length = 0; document.getElementById('list').focus()")
+    page.keyboard.press("Meta+BracketLeft" if MAC else "Alt+ArrowLeft")
+    check("⌘[ (Alt+← elsewhere) goes back, from anywhere", page.evaluate("said") == [["back", "keyboard"]], page.evaluate("said"))
+    page.keyboard.press("Meta+BracketRight" if MAC else "Alt+ArrowRight")
+    check("⌘] with nothing ahead does nothing", page.evaluate("said") == [["back", "keyboard"]])
+    page.evaluate("toolbar.setHistory({ back: false, forward: true })")
+    page.keyboard.press("Meta+BracketRight" if MAC else "Alt+ArrowRight")
+    check("setHistory(): Forward on, Back off", page.evaluate("said").count(["forward", "keyboard"]) == 1 and page.evaluate("document.querySelector('[data-tool=back]').disabled") is True)
+    page.focus("#field")
+    page.keyboard.press("Meta+BracketLeft" if MAC else "Alt+ArrowLeft")
+    check("not in a text field (its own keys)", page.evaluate("said").count(["back", "keyboard"]) == 1)
+    page.evaluate("document.getElementById('toolbar').append(Object.assign(document.createElement('button'), { className: 'tmn-tool', textContent: 'People' }))")
+    check("a button the app adds joins the toolbar", lambda: page.evaluate("[...document.querySelectorAll('#toolbar button')].at(-1).tabIndex") == -1)
+    check("destroy(): its own buttons go, the app's stay", page.evaluate("toolbar.destroy(); [...document.querySelectorAll('#toolbar button')].map(b => b.textContent)") == ["Home", "Projects", "Tasks", "People"])
     page.close()
 
     browser.close()

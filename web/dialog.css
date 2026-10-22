@@ -262,6 +262,33 @@
   .tdl-line-hint { color: var(--tdl-dim); }
   .tdl-line-error { color: var(--tdl-error); }
   .tdl-line.tdl-refused .tdl-line-hint { visibility: hidden; }
+  /* A question's kept line: why its action could not be done. */
+  .tdl-question-line { margin: 8px 0 0; }
+
+  /* The app's own field (TaurisDialog.defineField, or a field's render). */
+  .tdl-custom { min-width: 0; }
+
+  /* A password: Show to read it, Generate to make one. */
+  .tdl-pw { display: flex; align-items: center; gap: 4px; }
+  .tdl-pw .tdl-input { flex: 1; min-width: 0; }
+  .tdl-pw-btn, .tdl-pw-gen {
+    display: inline-grid;
+    place-items: center;
+    height: 24px;
+    font: 12px var(--tdl-font);
+    color: var(--tdl-fg);
+    background: var(--tdl-bg);
+    border: 1px solid var(--tdl-line);
+    border-radius: 4px;
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .tdl-pw-btn { width: 26px; }
+  .tdl-pw-btn svg { width: 15px; height: 15px; }
+  .tdl-pw-btn[aria-pressed="true"] { color: var(--tdl-focus-line); }
+  .tdl-pw-gen { padding: 0 9px; }
+  .tdl-pw-btn:focus-visible, .tdl-pw-gen:focus-visible { outline: 2px solid var(--tdl-focus-line); outline-offset: 1px; }
 
   /* ---------- the review ---------- */
 
@@ -271,6 +298,10 @@
   .tdl-review-rows { border-collapse: collapse; }
   .tdl-review-rows th { padding: 2px 10px 2px 0; text-align: right; font-weight: 400; color: var(--tdl-dim); vertical-align: top; white-space: nowrap; }
   .tdl-review-rows td { padding: 2px 0; overflow-wrap: anywhere; }
+  /* A picture's change: its two pictures. */
+  .tdl-thumb { display: inline-grid; place-items: center; width: 34px; height: 34px; vertical-align: middle; object-fit: cover;
+    color: var(--tdl-dim); border: 1px solid var(--tdl-line); border-radius: 4px; }
+  .tdl-review-rows td:has(.tdl-thumb) .tdl-arrow { vertical-align: middle; }
   .tdl-was { color: var(--tdl-dim); text-decoration: line-through; }
   .tdl-arrow { color: var(--tdl-dim); }
 
@@ -300,7 +331,7 @@
   .tdl-mark { flex: none; display: grid; place-items: center; width: 56px; height: 56px; font-size: 40px; }
   .tdl-mark :is(svg, img) { width: 100%; height: 100%; }
   .tdl-about-name { margin: 0; font-size: 16px; font-weight: 700; }
-  .tdl-about-text { margin: 2px 0 0; color: var(--tdl-dim); }
+  .tdl-about-text { margin: 2px 0 0; color: var(--tdl-dim); -webkit-user-select: text; user-select: text; }
   .tdl-about-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; }
   .tdl-about-rows dt { color: var(--tdl-dim); text-align: right; }
   .tdl-about-rows dd { margin: 0; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
@@ -351,4 +382,19 @@
     .tdl-btn:focus-visible, .tdl-panel-action:focus-visible { outline: 2px solid Highlight; box-shadow: none; }
     .tdl-tip { forced-color-adjust: none; color: Canvas; background: CanvasText; }
   }
+
+  /* While a dialog's own window is open, over the window that asked: a click brings the dialog forward. */
+  .tdl-shield { position: fixed; inset: 0; z-index: 2147481000; background: transparent; }
+
+  /* In a window of its own (window: true): the dialog is the whole window, its title in the
+     window's title bar, and nothing of the app's page shows. !important: the app's own page
+     rules (unlayered) must not move it. */
+  html.tdl-in-window, html.tdl-in-window body {
+    height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important;
+    display: block !important; overflow: hidden !important; background: var(--tdl-bg) !important;
+  }
+  html.tdl-in-window body > :not(.tdl-veil) { display: none !important; }
+  html.tdl-in-window .tdl-veil { position: static !important; display: block; padding: 0; background: none; animation: none; }
+  html.tdl-in-window .tdl { width: var(--tdl-w); max-height: none; border: 0; border-radius: 0; box-shadow: none; animation: none; }
+  html.tdl-in-window .tdl-head { display: none; }
 }

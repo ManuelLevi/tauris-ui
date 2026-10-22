@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frame</title>
+<link rel="stylesheet" href="../web/menus.css">
+<link rel="stylesheet" href="../web/status.css">
+<style>
+  /* A window's frame: a toolbar, the page, the status bar. Their look comes from menus.css and status.css. */
+  :root { color-scheme: light dark; --page: #ffffff; --text: #1e1f22; }
+  @media (prefers-color-scheme: dark) { :root { --page: #1f2123; --text: #dfe1e5; } }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; background: var(--page); color: var(--text); font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { flex: 1; padding: 16px; }
+</style>
+</head>
+<body>
+<nav id="toolbar" class="tmn-toolbar" aria-label="Places"></nav>
+<main>
+  <ul id="list" tabindex="0" aria-label="A list of the page"><li>One</li><li>Two</li></ul>
+  <input id="field" aria-label="A field of the page">
+</main>
+<footer id="status"></footer>
+<script src="../web/menus.js"></script>
+<script src="../web/status.js"></script>
+<script>
+  window.said = [];
+  const tell = (...x) => said.push(x);
+  const HOME = "<svg viewBox='0 0 16 16' aria-hidden='true'><path d='M1.8 7.6 8 2l6.2 5.6M3.4 6.6v7h9.2v-7'/></svg>";
+  for (const [name, pressed] of [["Home", true], ["Projects", false], ["Tasks", false]]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "tmn-tool";
+    b.innerHTML = HOME;
+    b.append(name);
+    b.setAttribute("aria-pressed", String(pressed));
+    b.addEventListener("click", () => tell("place", name));
+    document.getElementById("toolbar").append(b);
+  }
+  window.toolbar = TaurisMenu.toolbar(document.getElementById("toolbar"), {
+    back: i => tell("back", i.how),
+    forward: i => tell("forward", i.how),
+    find: { label: "Find anything", shortcut: "⌘K", onClick: i => tell("find", i.how) },
+  });
+  toolbar.setHistory({ back: true, forward: false });
+
+  window.bar = TaurisStatus.mount(document.getElementById("status"), {
+    segments: [
+      { id: "online", dot: "ok", text: "Online", title: "Connected to the server" },
+      { id: "tasks", text: "7 / 20 tasks" },
+      { id: "sound", text: "Sound: On", pressed: true, onClick: () => tell("sound") },
+    ],
+    onContextMenu: at => tell("menu", Math.round(at.x) > 0),
+  });
+</script>
+</body>
+</html>

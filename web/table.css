@@ -1,0 +1,372 @@
+/* tauris-ui table: the look of the dense data table.
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --ttb-* variables outside every @layer block (on :root or on the
+ * component's element), or override any .ttb-* class. The defaults follow
+ * the system's light or dark mode.
+ *
+ * The parts (table.js draws them, inside the element marked .ttb):
+ *   .ttb-list         the scrolling grid (it takes the keys); .ttb-empty with no rows
+ *   .ttb-headrow      the column headers, staying at the top; .ttb-sort sorts, .ttb-arrow is ▲ / ▼
+ *   .ttb-row          a row; [aria-selected="true"] is the selected one (grey while the
+ *                     keys are elsewhere), .ttb-flash once after it was added, .ttb-dim
+ *   .ttb-group        a group's row: .ttb-chip (its colour, --ttb-c), .ttb-group-label, .ttb-group-detail
+ *   .ttb-none         a group with no rows
+ *   .ttb-acts         a row's buttons (.ttb-ib), shown on hover and selection;
+ *                     [aria-pressed="true"] is a toggle that is on, .ttb-copied the tick after a copy
+ *   .ttb-left .ttb-right .ttb-center   a column's alignment
+ *
+ * Give the element a height (or put it in a grid or flex row that has one):
+ * the rows scroll inside it.
+ */
+@layer tauris-ui {
+  :root {
+    --ttb-scheme: light;
+    --ttb-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+    --ttb-font-size: 12.5px;
+    --ttb-head-size: 12px;
+    --ttb-row-h: 25px;
+    --ttb-head-h: 23px;
+    --ttb-cell-pad: 7px;
+    --ttb-fg: var(--tauris-fg, #1e1f22);
+    --ttb-dim: var(--tauris-dim, #5f6370);
+    --ttb-bg: var(--tauris-bg, #ffffff);
+    --ttb-chrome: var(--tauris-chrome, #e9e9eb);           /* the header */
+    --ttb-border: var(--tauris-line, #c4c6cc);
+    --ttb-grid: var(--tauris-line, #ececef);               /* between rows */
+    --ttb-row-hover: var(--tauris-hover, #f1f5fb);
+    --ttb-hover: var(--tauris-hover, #e2e5ea);              /* a button pointed at */
+    --ttb-press: #d3d7de;                                   /* a button pressed */
+    --ttb-accent: var(--tauris-accent, #2675bf);
+    --ttb-accent-ink: var(--tauris-accent-ink, #2675bf);    /* the arrow, a toggle that is on */
+    --ttb-sel-bg: var(--tauris-sel-bg, #2675bf);
+    --ttb-sel-fg: var(--tauris-sel-fg, #ffffff);
+    --ttb-sel-inactive-bg: var(--tauris-sel-inactive, #dcdee3);   /* the selected row while the keys are elsewhere */
+    --ttb-sel-inactive-fg: var(--tauris-fg, #1e1f22);
+    --ttb-group-bg: #f6f6f8;
+    --ttb-flash: rgb(38 117 191 / 0.22);                     /* a row just added, fading */
+    --ttb-danger: #b83a31;
+    --ttb-focus: rgb(38 117 191 / 0.45);
+    --ttb-ib: 22px;                                          /* a row's button */
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tauris-theme="light"]) {
+      --ttb-scheme: dark;
+      --ttb-fg: var(--tauris-fg, #dfe1e5);
+      --ttb-dim: var(--tauris-dim, #adb0b8);
+      --ttb-bg: var(--tauris-bg, #2f3234);
+      --ttb-chrome: var(--tauris-chrome, #34373a);
+      --ttb-border: var(--tauris-line, #5e6165);
+      --ttb-grid: var(--tauris-line, #3a3d40);
+      --ttb-row-hover: var(--tauris-hover, #3b4148);
+      --ttb-hover: var(--tauris-hover, #4c5052);
+      --ttb-press: #5a5e62;
+      --ttb-accent: var(--tauris-accent, #3570b0);
+      --ttb-accent-ink: var(--tauris-accent-ink, #6aa6e0);
+      --ttb-sel-bg: var(--tauris-sel-bg, #2f65ca);
+      --ttb-sel-inactive-bg: var(--tauris-sel-inactive, #4a4d52);
+      --ttb-sel-inactive-fg: var(--tauris-fg, #dfe1e5);
+      --ttb-group-bg: #35383b;
+      --ttb-flash: rgb(106 166 224 / 0.3);
+      --ttb-danger: #f49a92;
+      --ttb-focus: rgb(106 166 224 / 0.5);
+    }
+  }
+
+  :root[data-tauris-theme="dark"] {
+    --ttb-scheme: dark;
+    --ttb-fg: var(--tauris-fg, #dfe1e5);
+    --ttb-dim: var(--tauris-dim, #adb0b8);
+    --ttb-bg: var(--tauris-bg, #2f3234);
+    --ttb-chrome: var(--tauris-chrome, #34373a);
+    --ttb-border: var(--tauris-line, #5e6165);
+    --ttb-grid: var(--tauris-line, #3a3d40);
+    --ttb-row-hover: var(--tauris-hover, #3b4148);
+    --ttb-hover: var(--tauris-hover, #4c5052);
+    --ttb-press: #5a5e62;
+    --ttb-accent: var(--tauris-accent, #3570b0);
+    --ttb-accent-ink: var(--tauris-accent-ink, #6aa6e0);
+    --ttb-sel-bg: var(--tauris-sel-bg, #2f65ca);
+    --ttb-sel-inactive-bg: var(--tauris-sel-inactive, #4a4d52);
+    --ttb-sel-inactive-fg: var(--tauris-fg, #dfe1e5);
+    --ttb-group-bg: #35383b;
+    --ttb-flash: rgb(106 166 224 / 0.3);
+    --ttb-danger: #f49a92;
+    --ttb-focus: rgb(106 166 224 / 0.5);
+  }
+
+  .ttb {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    color-scheme: var(--ttb-scheme);
+    font: var(--ttb-font-size) / 1.2 var(--ttb-font);
+    color: var(--ttb-fg);
+  }
+
+  .ttb-list {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    background: var(--ttb-bg);
+    border: 1px solid var(--ttb-border);
+    outline: none;
+  }
+
+  .ttb-list:focus-visible {
+    box-shadow: 0 0 0 3px var(--ttb-focus);
+  }
+
+  .ttb-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  /* ---------- the header ---------- */
+
+  .ttb-th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    height: var(--ttb-head-h);
+    padding: 0 var(--ttb-cell-pad);
+    font-size: var(--ttb-head-size);
+    font-weight: 500;
+    text-align: left;
+    white-space: nowrap;
+    color: var(--ttb-dim);
+    background: var(--ttb-chrome);
+    border-bottom: 1px solid var(--ttb-border);
+    box-sizing: border-box;
+  }
+
+  .ttb-th + .ttb-th {
+    border-left: 1px solid var(--ttb-grid);
+  }
+
+  .ttb-sort {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: calc(100% + 2 * var(--ttb-cell-pad));
+    height: calc(var(--ttb-head-h) - 1px);
+    margin: 0 calc(-1 * var(--ttb-cell-pad));
+    padding: 0 var(--ttb-cell-pad);
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    background: none;
+    border: 0;
+    cursor: default;
+  }
+
+  .ttb-right .ttb-sort {
+    flex-direction: row-reverse;
+  }
+
+  .ttb-sort:hover {
+    color: var(--ttb-fg);
+    background: var(--ttb-hover);
+  }
+
+  .ttb-th-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ttb-arrow {
+    font-size: 8px;
+    color: var(--ttb-accent-ink);
+  }
+
+  /* ---------- the rows ---------- */
+
+  .ttb-cell,
+  .ttb-group > td,
+  .ttb-none > td {
+    height: var(--ttb-row-h);
+    padding: 0 var(--ttb-cell-pad);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    border-bottom: 1px solid var(--ttb-grid);
+    box-sizing: border-box;
+  }
+
+  .ttb-right { text-align: right; font-variant-numeric: tabular-nums; }
+  .ttb-center { text-align: center; }
+
+  .ttb-row {
+    cursor: default;
+  }
+
+  .ttb-row:hover > .ttb-cell {
+    background: var(--ttb-row-hover);
+  }
+
+  .ttb-row[aria-selected="true"] > .ttb-cell {
+    color: var(--ttb-sel-inactive-fg);
+    background: var(--ttb-sel-inactive-bg);
+  }
+
+  .ttb-list:focus .ttb-row[aria-selected="true"] > .ttb-cell {
+    color: var(--ttb-sel-fg);
+    background: var(--ttb-sel-bg);
+  }
+
+  .ttb-dim > .ttb-cell {
+    color: var(--ttb-dim);
+  }
+
+  .ttb-row.ttb-flash > .ttb-cell {
+    animation: ttb-flash 1.4s ease-out;
+  }
+
+  @keyframes ttb-flash {
+    0%, 30% { box-shadow: inset 0 0 0 999px var(--ttb-flash); }
+    100% { box-shadow: inset 0 0 0 999px transparent; }
+  }
+
+  .ttb-group > td {
+    font-weight: 600;
+    background: var(--ttb-group-bg);
+  }
+
+  .ttb-chip {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    margin-right: 8px;
+    vertical-align: 0;
+    background: var(--ttb-c, var(--ttb-dim));
+    border-radius: 2px;
+  }
+
+  .ttb-group-detail {
+    margin-left: 8px;
+    font-weight: 400;
+    color: var(--ttb-dim);
+  }
+
+  .ttb-none > td {
+    font-style: italic;
+    color: var(--ttb-dim);
+  }
+
+  .ttb-empty {
+    margin: 0;
+    padding: 18px var(--ttb-cell-pad);
+    text-align: center;
+    color: var(--ttb-dim);
+  }
+
+  .ttb-empty[hidden] {
+    display: none;
+  }
+
+  /* ---------- a row's buttons ---------- */
+
+  .ttb-acts {
+    padding: 0 4px;
+    text-align: right;
+    text-overflow: clip;
+  }
+
+  .ttb-ib {
+    display: inline-grid;
+    place-items: center;
+    width: var(--ttb-ib);
+    height: var(--ttb-ib);
+    margin-left: 2px;
+    padding: 0;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1;
+    vertical-align: middle;
+    color: inherit;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    opacity: 0;
+    cursor: default;
+  }
+
+  .ttb-ib svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+  }
+
+  .ttb-row:hover .ttb-ib,
+  .ttb-row[aria-selected="true"] .ttb-ib,
+  .ttb-ib[aria-pressed="true"],
+  .ttb-ib.ttb-copied {
+    opacity: 1;
+  }
+
+  .ttb-ib:hover {
+    background: var(--ttb-hover);
+    border-color: var(--ttb-border);
+  }
+
+  .ttb-ib:active {
+    background: var(--ttb-press);
+  }
+
+  .ttb-ib[aria-pressed="true"] {
+    color: var(--ttb-accent-ink);
+  }
+
+  .ttb-ib.ttb-danger {
+    color: var(--ttb-danger);
+  }
+
+  .ttb-ib.ttb-copied {
+    color: var(--ttb-accent-ink);
+  }
+
+  .ttb-list:focus .ttb-row[aria-selected="true"] .ttb-ib {
+    color: var(--ttb-sel-fg);
+  }
+
+  .ttb-list:focus .ttb-row[aria-selected="true"] .ttb-ib:hover {
+    background: rgb(255 255 255 / 0.18);
+    border-color: rgb(255 255 255 / 0.55);
+  }
+
+  .ttb-live {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ttb-row.ttb-flash > .ttb-cell {
+      animation: none;
+      box-shadow: inset 0 0 0 999px var(--ttb-flash);
+    }
+  }
+
+  @media (forced-colors: active) {
+    .ttb-row[aria-selected="true"] > .ttb-cell,
+    .ttb-list:focus .ttb-row[aria-selected="true"] > .ttb-cell {
+      forced-color-adjust: none;
+      color: HighlightText;
+      background: Highlight;
+    }
+
+    .ttb-ib {
+      opacity: 1;
+    }
+  }
+}

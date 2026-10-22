@@ -10,7 +10,9 @@ UI components for Tauri 2 desktop apps. One library for every app.
 | [Menus](#menus) | `TaurisMenu.bar(nav, { menus })` | An in-window menu bar, toolbar buttons with a ▾ menu, and right-click menus, with a desktop app's keyboard |
 | [Dialogs](#dialogs) | `await TaurisDialog.confirm({ title })`, `.form({ title, fields })` | Questions, forms in the Swing layout, a review of the changes before saving, Keyboard Shortcuts and About sheets, titled border panels |
 | [Finder](#finder) | `TaurisFinder.mount({ items, onPick })` | Find anything with ⌘K: a panel at the top of the window, as Spotlight or Xcode's Open Quickly, finding as you type |
-| [Sidebar](#sidebar) | `TaurisSidebar.mount(element, { items })` | A collapsible side bar of sections, as in Mail or Finder: a logo or avatar with its title, icons, counts, groups, a rail of icons when collapsed, an edge to resize |
+| [Sidebar](#sidebar) | `TaurisSidebar.mount(element, { items, content })` | A collapsible side bar, as in Mail or Finder: a logo or avatar with its title, its places (icons, counts), a tree view below them, a rail of icons when collapsed, an edge to resize |
+| [Table](#table) | `TaurisTable.mount(element, { columns, rows })` | A dense data table: 25px rows under a header that stays, ▲▼ sorting, rows in groups, the keys of a desktop list, a row's own buttons, a flash for a row just added |
+| [Status bar](#status-bar) | `TaurisStatus.mount(footer, { segments })` | The status bar along a window's foot: the last message with an Undo, and the app's segments (a connection's dot, counters, a toggle) |
 | [Reorder](#reorder) | `TaurisReorder.attach(container, { onMove })` | Drag rows into another order, as in a macOS table (and ⌥⌘↑ ⌥⌘↓); on only where an app attaches it |
 | [Glance](#glance) | `TaurisGlance.sparkline(values)`, `.status(kind, text)`, `.capacity({ max, items })` | Small figures read at a glance: a sparkline, a status (a coloured dot and a word), a capacity bar |
 | [Terminal](#terminal) | `TaurisTerminal.mount(element)` | An optional Bloomberg-style look: amber on black, monospace, dense tables, function keys, a command line and a message log |
@@ -702,6 +704,16 @@ TaurisMenu.bar(nav, { menus, onOpen: () => sound.open(), onClose: ({ chosen }) =
 
 **Methods:** `bar(...)` returns `setMenus`, `open(index)`, `close`, `focus`, `destroy`; `button(...)` returns `setItems`, `open`, `close`, `destroy`; `TaurisMenu.open(items, { x, y })` returns `close`; `TaurisMenu.close()` closes whichever is open. Closing a menu, by any of these or by a press elsewhere, puts the focus back where it was when the menu had it.
 
+**A toolbar:** `TaurisMenu.toolbar(nav, { back, forward, find })` makes a row of `.tmn-tool` buttons one stop for Tab, with ← → Home End between its buttons (past those that are off; the stop follows the focus, the pressed button first). `back` and `forward` add those two buttons at its start, for the app's history of views: ⌘[ and ⌘] (Alt+← Alt+→ elsewhere) do them too, outside text fields, and `toolbar.setHistory({ back, forward })` says which can go now (`toolbar.keys` for a menu's hints). `find: { label: "Find anything", shortcut: "⌘K", onClick }` adds a button at its end that looks like a search field. Buttons the app adds later join it. Name it with `aria-label` on the element.
+
+```js
+const toolbar = TaurisMenu.toolbar(document.getElementById("toolbar"), {
+  back: () => history.back(), forward: () => history.forward(),
+  find: { label: "Find anything", shortcut: "⌘K", onClick: () => finder.open() },
+});
+toolbar.setHistory({ back: history.canBack, forward: history.canForward });
+```
+
 Types are in `web/menus.d.ts`. **The look:** `--tmn-*` variables at the top of `web/menus.css`. `.tmn-toolbar`, `.tmn-tool` (`aria-pressed="true"` for the current view: a neutral grey fill with its own edge, `--tmn-tool-on-bg` and `--tmn-tool-on-border`) and `.tmn-tool-sep` give a toolbar the same look; they are optional. The row is 34px with 26px buttons; put an `<svg>` (any `viewBox`, drawn as a 13px line icon in the text colour) before the label for an icon; `--tmn-toolbar-pad`, `--tmn-tool-pad`, `--tmn-tool-gap` and `--tmn-tool-icon` set the spacing and the icon's size.
 
 ## Sidebar
@@ -727,9 +739,8 @@ const side = TaurisSidebar.mount(document.getElementById("side"), {
   items: [
     { id: "inbox", label: "Inbox", icon: "📥", count: 12 },
     { id: "sent", label: "Sent", icon: "<svg viewBox='0 0 16 16'>…</svg>" },
-    { heading: "Projects" },
-    { id: "atlas", label: "Atlas", expanded: true, children: [{ id: "atlas-docs", label: "Documents" }] },
   ],
+  content: treeElement,               // a tree: a TaurisTree, below the items
   selected: "inbox",
   storageKey: "my-app-sidebar",       // keeps its width and whether it is collapsed
   onSelect: item => show(item.id),
@@ -737,12 +748,12 @@ const side = TaurisSidebar.mount(document.getElementById("side"), {
 });
 ```
 
-Put it in a row with a height (`display: flex`): it sets its own width, and the main area takes the rest. An item is `{ id, label, icon?, count?, children?, expanded?, disabled?, title? }`, or `{ heading }` between sections. An icon is text (an emoji) or markup starting with `<` (an svg, drawn in the text colour); without one, its first letter stands for it in the rail. Groups nest to any depth.
+Put it in a row with a height (`display: flex`): it sets its own width, and the main area takes the rest. An item is `{ id, label, icon?, count?, disabled?, title? }`, or `{ heading }` between sections. An icon is text (an emoji) or markup starting with `<` (an svg, drawn in the text colour); without one, its first letter stands for it in the rail. Items are one level. For a tree, put a `TaurisTree` in `content`.
 
-- **Collapsing:** its button, ⌃⌘S on a Mac (its Show/Hide Sidebar; Ctrl+Shift+B elsewhere; `shortcut: false` for none), `toggle()`, or its edge dragged narrow. `collapse: "rail"` (default) leaves a 44px column of icons, each named by a tooltip, with a count as a dot (with no items, only `content`, a 32px strip with its button); choosing a group there opens the sidebar. `collapse: "hide"` leaves nothing: the app shows it again with `toggle()` or the shortcut.
+- **Collapsing:** its button, ⌃⌘S on a Mac (its Show/Hide Sidebar; Ctrl+Shift+B elsewhere; `shortcut: false` for none), `toggle()`, or its edge dragged narrow. `collapse: "rail"` (default) leaves a 44px column of icons, each named by a tooltip, with a count as a dot (with no items, only `content`, a 32px strip with its button). `collapse: "hide"` leaves nothing: the app shows it again with `toggle()` or the shortcut.
 - **Resizing:** drag its edge (between `minWidth` and `maxWidth`, 160 and 420 by default); dragged from the rail it opens; a double-click on the edge puts `width` back. From the keys, Tab reaches the edge: ← / → by 10px (⇧ by 50), Home and End, Enter collapses or opens.
-- **Keyboard:** the list is one Tab stop (the selected item). ↑ ↓ Home End move; → opens a group, then goes into it; ← closes it, or goes to its parent; Enter or Space chooses; a letter jumps to the next item starting with it; the menu key or ⇧F10 calls `onContextMenu`.
-- **Choosing:** a click chooses an item; a group's arrow, a double-click, or → opens it (`openOnSelect: true`: choosing it opens it too).
+- **Keyboard:** the list is one Tab stop (the selected item). ↑ ↓ Home End move; Enter or Space chooses; a letter jumps to the next item starting with it; the menu key or ⇧F10 calls `onContextMenu`.
+- **Choosing:** a click chooses an item.
 
 | Option | Default | |
 |---|---|---|
@@ -754,13 +765,13 @@ Put it in a row with a height (`display: flex`): it sets its own width, and the 
 | `side` | `"left"` | `"right"`: the edge to drag is on its left |
 | `width`, `minWidth`, `maxWidth` | 220, 160, 420 | |
 | `storageKey` | none | Keeps the width and whether it is collapsed in the browser's storage |
-| `openOnSelect`, `shortcut`, `typeAheadMs` | `false`, `true`, 700 | |
+| `shortcut`, `typeAheadMs` | `true`, 700 | |
 | `labels` | English | `{ label, hide, show, resize }` |
 | `onSelect(item, { how })` | | The person chose an item (`select()` does not call it) |
 | `onContextMenu(item, { x, y, how })` | | A right click or the menu key on an item; given, the browser's own menu does not open |
 | `onToggle({ collapsed, how })`, `onResize({ width })` | | |
 
-**Methods:** `setItems(items)` (the focus stays on the same item, open groups stay open), `select(id)` (opens the groups around it), `selected()`, `toggle(collapsed?)`, `collapsed`, `width`, `setWidth(px)`, `update(changes)`, `focus()`, `destroy()`.
+**Methods:** `setItems(items)` (the focus stays on the same item), `select(id)`, `selected()`, `toggle(collapsed?)`, `collapsed`, `width`, `setWidth(px)`, `update(changes)`, `focus()`, `destroy()`.
 
 Types are in `web/sidebar.d.ts`. **The look:** `--tsb-*` variables at the top of `web/sidebar.css` (its background is `--tauris-chrome`; the selected item is `--tauris-sel-bg` while the sidebar has the focus, `--tauris-sel-inactive` otherwise). `[data-tsb-state]` on the element says `"open"`, `"rail"` or `"hidden"`.
 
@@ -789,6 +800,11 @@ const values = await TaurisDialog.form({
 - **A form** is in the Swing layout: "Label:" right-aligned beside each field, compact fields, placeholders that are examples (dimmer than typed text). It starts in its first field, its text selected; Enter is the default button (⌘↩ in a text area), Esc and ⌘. cancel, Tab goes round inside it. A refusal about a field (`required`, `validate`, a throw of `{ field, text }`) is a balloon under that field, which takes the keys; any other (a thrown `Error`) shows on the kept line, so the dialog never changes height. Field types: text, password, number, email, url, tel, date, time, textarea, select, checkbox. `left(element)` fills the left of the button row.
 - **A review** (`review` in a form, or `TaurisDialog.review({ rows })` alone) lists "Field: old → new", the old struck through; a row without `before` (a secret) says only that it changed. Esc goes back to the fields.
 - **Sheets:** `TaurisDialog.shortcuts({ groups: [{ title, items: [{ label, keys: ["⌘K"] }, { label, keys: ["⌘[", "⌘]"], either: true }] }] })` lays the groups out in three columns of about the same height, keys as keycaps; `TaurisDialog.about({ name, mark, description, rows: [["Version", "2.4"]] })`.
+- **A question whose action can fail:** `run: async () => remove(atlas)` runs it inside the question after its button: busy meanwhile, a throw keeps the question open with the reason on its line, true once it has run. With `native`, a failure after the system's alert is a notice of its own.
+- **The app's own fields:** `TaurisDialog.defineField("people", (cell, field) => { ...; return { value: () => chosen, focus, destroy } })`, then `{ name: "who", label: "People", type: "people", ...anything it reads }` in any form: drawn in the form's layout (its label beside it), its value with the others, a refusal about it a balloon under it, `destroy()` when the dialog closes. Enter inside it is its own (⌘↩ saves). `render` on one field does the same for that field alone, in the page only.
+- **Passwords:** `{ type: "password", reveal: true, generate: true }` adds Show (to read it) and Generate (20 characters from the system's randomness, shown and selected; a number for another length).
+- **Pictures in a review:** a row `{ field: "Photo", beforeImage, afterImage }` shows the old and new pictures. About's values and description can be selected and copied.
+- **In a window of its own:** `window: true` on a form, a review or a sheet opens it in a native window attached to this one, sized to the dialog and following it as a refusal or a review shows; this window is out of reach meanwhile, and a click on it brings the dialog forward. That window loads the app's page, so the page starts with `if (TaurisDialog.inWindow) { /* defineField(...) only */ } else { /* the app */ }`; the dialog draws itself. The app's `validate`, `review` and `submit` run here, in the window that asked, and the values cross as JSON (an app's field gives JSON). `left` stays in the page. The capability must cover `"tauris-dialog-*"` too (the checker says so); where no window can open (no plugin), the dialog shows in the page.
 - **Titled panels:** `TaurisDialog.panel(element, { title, count, actions: [{ label, action }] })` frames a part of a page in a box with its title, a dim count and its buttons on its top line (Swing's TitledBorder); `update()` and `destroy()`. Set `--tdl-panel-bg` to what is behind the box.
 
 Types are in `web/dialog.d.ts`. **The look:** `--tdl-*` variables at the top of `web/dialog.css`.
@@ -816,6 +832,66 @@ const finder = TaurisFinder.mount({
 - **Methods:** `open(text?)`, `close()`, `isOpen`, `update(changes)`, `destroy()`; `TaurisFinder.close()` closes whichever is open. `onOpen()`, `onClose({ picked })`; `labels` has every word it shows (`web/finder.d.ts`).
 
 Types are in `web/finder.d.ts`. **The look:** `--tfd-*` variables at the top of `web/finder.css`.
+
+## Table
+
+A dense data table, as in a desktop app: 25px rows under a header that stays, columns sorted ▲▼ by a click on their header, rows in groups, one row selected and moved with the keys.
+
+```js
+const table = TaurisTable.mount(document.getElementById("tasks"), {
+  label: "Tasks",
+  columns: [
+    { key: "name", label: "Task", title: true },                                         // title: the whole text as the tooltip
+    { key: "due", label: "Due", width: 90, align: "right", render: t => short(t.due), value: t => t.due },
+    { key: "state", label: "Status", width: 110, render: t => TaurisGlance.status(t.kind, t.word) },
+    { label: "Actions", actions: [
+      { id: "flag", icon: "⚑", title: "Flag", pressed: t => t.flagged, onClick: t => flag(t) },   // a toggle
+      { id: "copy", icon: "⧉", title: "Copy Name", copy: t => t.name },                         // a tick for a moment
+      { id: "edit", icon: "<svg …/>", title: "Edit", onClick: t => edit(t) },
+    ] },
+  ],
+  rows: tasks,                                    // { id, group?, dim?, ...fields }
+  groups: projects.map(p => ({ id: p.id, label: p.name, color: p.color, detail: `${p.open} open` })),
+  onOpen: (t, { cmd }) => edit(t),                // Enter, a double click (cmd: ⌘ held)
+  onContextMenu: (t, at) => TaurisMenu.open(menuFor(t), at),
+  onKey: (e, t) => (e.key === " " && t ? (toggle(t), true) : false),   // Space, F2, Delete: the app's
+  onMessage: (text, kind) => status.say(text, { kind }),
+});
+table.setRows(tasks);                             // the selection and the scroll stay
+table.flash(added.id);                            // a row just added: selected, in view, flashed
+```
+
+- **Columns:** `key` (the field shown and sorted by), `label`, `width` (px; one column without one takes the rest), `align`, `render(row, cell)` (text or an element, a TaurisGlance figure), `text(row)` (its text, for typing and the tooltip), `value(row)` (what it sorts by), `compare`, `sortable: false`, `title`. A column of `actions` holds the row's buttons: shown when the row is pointed at or selected, each named with its row for a screen reader; `pressed` makes a toggle (always shown when on), `copy` copies and shows a tick.
+- **Sorting:** a click on a header sorts by it (▲), again the other way (▼), within each group; numbers as numbers, text in natural order ("Report 2" before "Report 10"), no value last, ties in the app's order. `sort: null` (and `update({ sort: null })`) is the app's order; `onSort` hears each click.
+- **Groups:** rows with a `group` go under its row (a colour square, its name, `detail` or its count), in `groups`' order; a group with no rows says `empty`. A double click and a right click on a group's row call `onGroupOpen` and `onGroupContextMenu`.
+- **Keys** (on the table, one stop for Tab): ↑ ↓, Home End and ⌘↑ ⌘↓, Page Up and Down; Enter opens; the menu key or ⇧F10 the row's menu; a letter, or a whole name typed quickly, jumps to the row whose name starts with it. `onKey` sees every key first. The selection is the accent while the table has the keys, grey when they are elsewhere.
+- **Drag to reorder:** `TaurisReorder.attach(table.scroller, { rows: ".ttb-row", ... })`; turn it off while sorted (`onSort: s => reorder.update({ enabled: !s })`).
+- **Methods:** `setRows`, `rows()`, `shown()`, `update(changes)`, `select(id)`, `selected()`, `sort`, `flash(id)`, `focus()`, `scroller`, `destroy()`. For a few thousand rows; the files table draws only the rows in view, for more.
+
+Types are in `web/table.d.ts`. **The look:** `--ttb-*` variables at the top of `web/table.css`. Give the element a height.
+
+## Status bar
+
+The status bar along a window's foot: on its left the last message, with an Undo (or another action) for a moment; on its right the app's segments.
+
+```js
+const status = TaurisStatus.mount(document.querySelector("footer"), {
+  segments: [
+    { id: "online", dot: "ok", text: "Online", title: "Connected to the server" },   // ok, warn, bad, wait (a pulse), off
+    { id: "tasks", text: "7 / 20 tasks" },
+    { id: "sound", text: "Sound: On", pressed: true, onClick: toggleSound },        // a toggle
+  ],
+});
+status.say("Deleted “Atlas”.", { undo: () => restore(atlas) });
+status.say("Could not save.", { kind: "error", action: { label: "Retry", run: save } });
+status.set("online", { dot: "bad", text: "Offline" });
+```
+
+- **A message** stays until the next one (or `timeout`, on the bar or the message), read out politely; a long one ends in "…", whole in its tooltip. Its action (Undo by default) goes after `actionFor` (10 s), so an old one is never pressed by mistake; after it runs, the message goes and the focus is back where it was (the list the person undid in).
+- **Segments** are text, with a `dot`, `strong` for a count at its limit, `pressed` for a toggle, `onClick` to make one a button. `set(id, changes)` changes one; `update({ segments })` all of them.
+- `onContextMenu({ x, y })`: a right click on the bar. **Methods:** `say`, `clear`, `message`, `set`, `update`, `destroy`.
+
+Types are in `web/status.d.ts`. **The look:** `--tst-*` variables at the top of `web/status.css`.
 
 ## Reorder
 
@@ -936,6 +1012,8 @@ python test/finder_run.py                  # the finder: matching, groups, the k
 python test/dialog_run.py                  # the dialogs: questions, forms, reviews, sheets, panels
 python test/reorder_run.py [shots-dir]     # drag to reorder: the drag, the keys, groups, items of several rows
 python test/glance_run.py [shots-dir]      # the sparkline, the status and the capacity bar
+python test/table_run.py [shots-dir]       # the data table: groups, sorting, the keys, a row's buttons
+python test/status_run.py [shots-dir]      # the status bar: messages, Undo, segments
 python test/all_run.py [shots-dir]         # examples/all: every component in one app
 python test/doctor_run.py                  # the checker, on small apps set up right and wrong
 (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build) && python scripts/doctor.py examples/basic

@@ -4,7 +4,8 @@ This folder is the one set of UI components for every Tauri app that uses it:
 tabs (`TaurisTabs`), a tree view / configuration editor (`TaurisTree`), a
 shared-files table (`TaurisFiles`), in-window menus (`TaurisMenu`), a
 collapsible sidebar (`TaurisSidebar`), a find-anything panel (`TaurisFinder`), dialogs (`TaurisDialog`), drag to reorder (`TaurisReorder`),
-small figures (`TaurisGlance`: a sparkline, a status, a capacity bar) and an optional terminal look
+small figures (`TaurisGlance`: a sparkline, a status, a capacity bar), a dense data table (`TaurisTable`),
+a status bar (`TaurisStatus`) and an optional terminal look
 (`TaurisTerminal`). An
 app never has its own tab or tree code: it uses this library, and a fix made
 here reaches every app at its next build. Below, `<library>` means the folder
@@ -23,7 +24,7 @@ this file is in.
    UI components (tabs, tree view) come from <library>. Read its AGENTS.md before touching them, and run its scripts/doctor.py on this app.
    ```
 5. Never copy `web/*.js` or `web/*.css` into the app. The plugin injects them. (A TypeScript app keeps a copy of `web/*.d.ts`; doctor says when it is out of date.)
-6. To change the look, set `--tt-*` (tabs), `--tv-*` (tree), `--tf-*` (files), `--tmn-*` (menus), `--tsb-*` (sidebar), `--tfd-*` (finder), `--tdl-*` (dialogs), `--trd-*` (reorder), `--tgl-*` (glance) or `--tm-*` (terminal) variables in the app's CSS, outside every `@layer` block. Do not edit the library for one app's colours.
+6. To change the look, set `--tt-*` (tabs), `--tv-*` (tree), `--tf-*` (files), `--tmn-*` (menus), `--tsb-*` (sidebar), `--tfd-*` (finder), `--tdl-*` (dialogs), `--trd-*` (reorder), `--tgl-*` (glance), `--ttb-*` (table), `--tst-*` (status bar) or `--tm-*` (terminal) variables in the app's CSS, outside every `@layer` block. Do not edit the library for one app's colours.
 7. Read fields in Rust with `tab.str("view")` or `tab.get("n")`, never `tab.fields["view"]`, which panics when the field is missing.
 8. If the app has unsaved work, give `mount` an `onBeforeClose`. ⌘W, the close button and every other way of closing then ask it first.
 
@@ -50,7 +51,7 @@ Do all of these, every time:
 3. **Add a `CHANGELOG.md` entry** under the new version and date (or under **Unreleased** for a pull request; the maintainer releases). If apps must change, add **Upgrade** lines with the exact steps.
 4. **Update the docs** to match: `README.md`, the component's `web/*.d.ts`, `examples/basic`.
 5. **New behaviour gets a test:**
-   - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`, the sidebar in `test/sidebar_run.py`, the finder in `test/finder_run.py`, the dialogs in `test/dialog_run.py`, reorder in `test/reorder_run.py`, glance in `test/glance_run.py`, the example that uses every component in `test/all_run.py`
+   - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`, the sidebar in `test/sidebar_run.py`, the finder in `test/finder_run.py`, the dialogs in `test/dialog_run.py`, reorder in `test/reorder_run.py`, glance in `test/glance_run.py`, the table in `test/table_run.py`, the status bar in `test/status_run.py` (the toolbar's keys in `test/menus_run.py`), the example that uses every component in `test/all_run.py`
    - window behaviour in `src/runtime_tests.rs` (real windows on Tauri's test runtime)
    - pure logic next to it (`#[cfg(test)]`)
 6. **Never open a window inside the plugin's `on_event`** (`src/lib.rs`), nor run app code there: Tauri holds its plugin lock and opening a window takes it, so the app freezes. Send the work through `after_event(app, |app| ...)`. The same holds for plain (not async) page commands, which must start with `let _locked = windows::InPlugin::enter();` (a test checks): inside that lock, and on the worker that opens windows, the app's `on_change` hook runs on its own worker. The test `the_event_handler_opens_no_window_itself` reads the source for it, and debug builds stop at once when a window opens while the lock is marked; only `test/freeze_check` proves it in a real app (see below), on macOS.
@@ -75,6 +76,8 @@ Do all of these, every time:
    python test/dialog_run.py
    python test/reorder_run.py
    python test/glance_run.py
+   python test/table_run.py
+   python test/status_run.py
    python test/all_run.py                    # the example that uses every component
    (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build)
    (cd examples/all/src-tauri && cargo clippy -- -D warnings && cargo build)
@@ -102,6 +105,7 @@ Do all of these, every time:
 | `src/menu.rs` | `default_menu`, `file_menu` |
 | `src/platform.rs` | macOS calls; stubs elsewhere |
 | `src/commands.rs` | What a page can call (`plugin:tauris-ui|…`); a page only touches its own window's tabs |
+| `src/dialogs.rs` | Dialogs in windows of their own (TaurisDialog with `window: true`): opening, sizing, attaching, the messages between a dialog and the window that asked |
 | `src/files.rs` | `tauris_ui::files`: names, types, `inspect`; with the `files` feature the system's pickers and `open_path` (+ tests) |
 | `src/runtime_tests.rs` | Window tests on Tauri's test runtime |
 | `build.rs`, `permissions/` | The commands and the `tauris-ui:default` permission |
@@ -118,10 +122,12 @@ Do all of these, every time:
 | `web/dialog.js`, `web/dialog.css`, `web/dialog.d.ts` | Questions, forms, reviews, sheets and titled panels: script, look (`--tdl-*`), types |
 | `web/reorder.js`, `web/reorder.css`, `web/reorder.d.ts` | Drag rows into another order (and ⌥⌘↑ ⌥⌘↓): script, look (`--trd-*`), types |
 | `web/glance.js`, `web/glance.css`, `web/glance.d.ts` | The sparkline, the status and the capacity bar: script, look (`--tgl-*`), types |
+| `web/table.js`, `web/table.css`, `web/table.d.ts` | The dense data table: script, look (`--ttb-*`), types |
+| `web/status.js`, `web/status.css`, `web/status.d.ts` | The status bar: script, look (`--tst-*`), types |
 | `web/native.js` | `Config::native_feel()`: the page behaves like a desktop app's window (no web right-click menu, no page zoom, …) |
-| `test/` | Headless tests: tabs (`run.py`, with a stand-in for Rust), tree (`tree_run.py`, `tree_demo.html`), terminal (`terminal_run.py`, `terminal_demo.html`), files and menus (`files_run.py`, `menus_run.py`, both on `files_demo.html`), the sidebar (`sidebar_run.py`, `sidebar_demo.html`), the finder (`finder_run.py`, `finder_demo.html`), the dialogs (`dialog_run.py`, `dialog_demo.html`), reorder (`reorder_run.py`, `reorder_demo.html`), glance (`glance_run.py`, `glance_demo.html`), the browser each runs in (`engine.py`); the checker (`doctor_run.py`, on small apps it writes); `mock_tauri.js`, Rust stood in for the tabs page; `freeze_check/`, a real macOS app (see below) |
+| `test/` | Headless tests: tabs (`run.py`, with a stand-in for Rust), tree (`tree_run.py`, `tree_demo.html`), terminal (`terminal_run.py`, `terminal_demo.html`), files and menus (`files_run.py`, `menus_run.py`, both on `files_demo.html`), the sidebar (`sidebar_run.py`, `sidebar_demo.html`), the finder (`finder_run.py`, `finder_demo.html`), the dialogs (`dialog_run.py`, `dialog_demo.html`), reorder (`reorder_run.py`, `reorder_demo.html`), glance (`glance_run.py`, `glance_demo.html`), the table (`table_run.py`, `table_demo.html`), the status bar and the toolbar (`status_run.py`, `frame_demo.html`), the browser each runs in (`engine.py`); the checker (`doctor_run.py`, on small apps it writes); `mock_tauri.js`, Rust stood in for the tabs page; `freeze_check/`, a real macOS app (see below) |
 | `examples/basic/` | The smallest complete app |
-| `examples/all/` | An app that uses every component: tabs, a sidebar holding a tree, the files table, menus, the finder, the dialogs, Home's projects (reorder and glance) and the terminal look (`CLAUDE.md` says what it does; `test/all_run.py` tests its page) |
+| `examples/all/` | An app that uses every component: tabs, a sidebar holding a tree, the files table, menus, the finder, the dialogs (Edit in a window of its own), Home's projects (a table, reorder and glance), the status bar and the terminal look (`CLAUDE.md` says what it does; `test/all_run.py` tests its page) |
 | `scripts/doctor.py` | Checks an app's setup and version requirement |
 
 ## What tests cannot cover

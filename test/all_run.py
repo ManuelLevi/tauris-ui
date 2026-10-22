@@ -29,7 +29,8 @@ def scripts():
     tabs = component("tabs", "TABS").replace("__TAURIS_TABS_VERSION__", "test").replace('"__TAURIS_TABS_CAN_DRAG_OUT__"', "true")
     return [(HERE / "mock_tauri.js").read_text(), tabs, component("menus", "MENUS"), component("tree", "TREE"),
             component("files", "FILES"), component("terminal", "TERMINAL"), component("sidebar", "SIDEBAR"),
-            component("finder", "FINDER"), component("dialog", "DIALOG"), component("reorder", "REORDER"), component("glance", "GLANCE")]
+            component("finder", "FINDER"), component("dialog", "DIALOG"), component("reorder", "REORDER"), component("glance", "GLANCE"),
+            component("table", "TABLE"), component("status", "STATUS")]
 
 
 # What Rust does for the example: a new tab is a project, the picker gives one file, `inspect` sizes it.
@@ -134,16 +135,17 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(50)
     check("Edit…: a form (the name selected), the change reviewed, then it does nothing but say so",
-          lambda: form == ["Edit File", "Sup.txt"] and review == ["Name:Sup.txt → Sup 2.txt"] and page.text_content("#status") == "Edit does nothing in this example."
-          and active_title(page) == "Sup.txt", lambda: (form, review, page.text_content("#status")))
+          lambda: form == ["Edit File", "Sup.txt"] and review == ["Name:Sup.txt → Sup 2.txt"] and page.text_content("#status .tst-msg") == "Edit does nothing in this example."
+          and active_title(page) == "Sup.txt", lambda: (form, review, page.text_content("#status .tst-msg")))
     page.click(".tv-row:has-text('Sup.txt')", button="right")
     page.click(".tmn-item:has-text('Delete')")
     page.wait_for_selector(".tdl")
     asked = page.evaluate("[document.querySelector('.tdl-title').textContent, document.activeElement.textContent]")
     page.click(".tdl-danger")
-    page.wait_for_timeout(50)
-    check("Delete…: a question (on Cancel at first), then it does nothing but say so",
-          lambda: asked == ["Delete “Sup.txt”?", "Cancel"] and page.text_content("#status") == "Delete does nothing in this example." and "Sup.txt" in tree_names(page), lambda: asked)
+    check("Delete…: a question (on Cancel at first); the delete runs in it, refused: the reason on its line, the question stays",
+          lambda: asked == ["Delete “Sup.txt”?", "Cancel"] and page.inner_text(".tdl-question-line") == "Deleting does nothing in this example."
+          and page.is_visible(".tdl") and "Sup.txt" in tree_names(page), lambda: asked)
+    page.keyboard.press("Escape")
     page.click(".tv-row:has-text('Team B')", button="right")
     check("a team has no menu", page.locator(".tmn-menu").count() == 0)
 
@@ -174,38 +176,53 @@ with sync_playwright() as p:
           lambda: active_title(page) == "Home" and page.is_visible("#home") and not page.is_visible("#files")
           and page.get_attribute("#toolbar .tmn-tool:has-text('Home')", "aria-pressed") == "true",
           lambda: active_title(page))
-    home_rows = "#home-rows tr td:first-child"
+    home_rows = "#home-table .ttb-row td:first-child"
     check("a row a project: its team, files, activity (a sparkline) and status",
           texts(page, home_rows) == ["Project A", "Megalomania", "Vacation Mexico"]
-          and page.locator("#home-rows .tgl-spark").count() == 3
-          and texts(page, "#home-rows .tgl-status") == ["Growing", "Slowing", "Growing"], texts(page, home_rows))
+          and page.locator("#home-table .ttb-row .tgl-spark").count() == 3
+          and texts(page, "#home-table .ttb-row .tgl-status") == ["Growing", "Slowing", "Growing"], texts(page, home_rows))
     n = page.evaluate("TEAMS.flatMap(t => t.projects).reduce((a, p) => a + p.files.length, 0)")
     check("the files' capacity bar: how many of 12, a segment each, in its project's colour",
           page.evaluate("document.querySelector('#home-head .tgl-cap-count').textContent") == f"{n} / 12"
           and page.evaluate("document.querySelectorAll('#home-head .tgl-capbar > i.tgl-on').length") == n
           and page.evaluate("document.querySelector('#home-head .tgl-capbar > i').title") == "Hello.md · Project A",
           page.evaluate("document.querySelector('#home-head').textContent"))
-    first = page.evaluate("(() => { const r = document.querySelector('#home-rows tr').getBoundingClientRect(); return [r.left + 60, r.top + r.height / 2, r.height]; })()")
+    first = page.evaluate("(() => { const r = document.querySelector('#home-table .ttb-row').getBoundingClientRect(); return [r.left + 60, r.top + r.height / 2, r.height]; })()")
     page.mouse.move(first[0], first[1])
     page.mouse.down()
     page.mouse.move(first[0], first[1] + 2.2 * first[2], steps=8)
     check("a project row drags (TaurisReorder)", page.locator(".trd-ghost").count() == 1)
     page.mouse.up()
-    check("dropped, the order changes, and the status line says where it went",
-          lambda: texts(page, home_rows) == ["Megalomania", "Vacation Mexico", "Project A"] and page.inner_text("#status") == "Project A is now 3 of 3.",
-          lambda: (texts(page, home_rows), page.inner_text("#status")))
+    check("dropped, the order changes, and the status bar says where it went, with an Undo",
+          lambda: texts(page, home_rows) == ["Megalomania", "Vacation Mexico", "Project A"] and page.inner_text("#status .tst-msg") == "Project A is now 3 of 3."
+          and page.is_visible("#status .tst-act"), lambda: (texts(page, home_rows), page.inner_text("#status .tst-msg")))
+    page.click("#status .tst-act")
+    check("Undo puts it back", lambda: texts(page, home_rows) == ["Project A", "Megalomania", "Vacation Mexico"], lambda: texts(page, home_rows))
+    page.mouse.move(first[0], first[1])
+    page.mouse.down()
+    page.mouse.move(first[0], first[1] + 2.2 * first[2], steps=8)
+    page.mouse.up()
+    check("(and dragged again)", lambda: texts(page, home_rows) == ["Megalomania", "Vacation Mexico", "Project A"], lambda: texts(page, home_rows))
     page.wait_for_timeout(250)  # the rows' slide into place
     page.keyboard.press("ControlOrMeta+Alt+ArrowUp")
     check("⌥⌘↑ moves the selected project up", lambda: texts(page, home_rows) == ["Megalomania", "Project A", "Vacation Mexico"], lambda: texts(page, home_rows))
-    page.click("#home-rows tr:nth-child(1) td:first-child", button="right")
+    page.click("#home-table .ttb-row:nth-child(1) td:first-child", button="right")
     page.wait_for_selector(".tmn-menu")
-    check("a project's menu: Open, Open in new tab, Move Up (off at the top), Move Down",
-          menu(page) == ["Open", "Open in new tab", "-", "Move Up", "Move Down"]
+    check("a project's menu: Open, Open in new tab, Move Up (off at the top), Move Down, Manual Order (off: not sorted)",
+          menu(page) == ["Open", "Open in new tab", "-", "Move Up", "Move Down", "Manual Order"]
           and page.get_attribute(".tmn-item:has-text('Move Up')", "aria-disabled") == "true", menu(page))
     page.click(".tmn-item:has-text('Move Down')")
-    check("Move Down from the menu", lambda: texts(page, home_rows) == ["Project A", "Megalomania", "Vacation Mexico"], lambda: texts(page, home_rows))
+    check("Move Down from the menu, the row flashed", lambda: texts(page, home_rows) == ["Project A", "Megalomania", "Vacation Mexico"]
+          and page.locator("#home-table .ttb-flash").count() == 1, lambda: texts(page, home_rows))
+    page.click("#home-table th:nth-child(3) .ttb-sort")
+    check("a header sorts it (TaurisTable): by Files", lambda: texts(page, home_rows) == ["Megalomania", "Vacation Mexico", "Project A"], lambda: texts(page, home_rows))
+    page.keyboard.press("ControlOrMeta+Alt+ArrowDown")
+    check("sorted, the rows do not move by hand", texts(page, home_rows) == ["Megalomania", "Vacation Mexico", "Project A"])
+    page.click("#home-table .ttb-row:nth-child(1) td:first-child", button="right")
+    page.click(".tmn-item:has-text('Manual Order')")
+    check("Manual Order: the person's order again", lambda: texts(page, home_rows) == ["Project A", "Megalomania", "Vacation Mexico"], lambda: texts(page, home_rows))
     shot(page, "home")
-    page.dblclick("#home-rows tr:nth-child(1) td:first-child")
+    page.dblclick("#home-table .ttb-row:nth-child(1) td:first-child")
     page.wait_for_timeout(100)
     check("a double click opens the project", lambda: active_title(page) == "Project A" and page.is_visible("#files"), lambda: active_title(page))
 
@@ -218,8 +235,8 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Delete").last.click()
     page.wait_for_timeout(200)
     check("Delete in the table does nothing: the file stays, and it says so",
-          lambda: texts(page, ".tf-file .tf-name") == ["Hello.md", "Sup.txt"] and "does nothing" in page.text_content("#status"),
-          lambda: (texts(page, ".tf-file .tf-name"), page.text_content("#status")))
+          lambda: texts(page, ".tf-file .tf-name") == ["Hello.md", "Sup.txt"] and "does nothing" in page.text_content("#status .tst-msg"),
+          lambda: (texts(page, ".tf-file .tf-name"), page.text_content("#status .tst-msg")))
 
     # ---------- File > Add files… ----------
     page.click(".tmn-title:has-text('File')")
@@ -232,16 +249,37 @@ with sync_playwright() as p:
 
     # ---------- View > Hide Sidebar ----------
     page.click(".tmn-title:has-text('View')")
-    check("View: Hide Sidebar, Find…, Search Line", menu(page) == ["Hide Sidebar", "Find…", "Search Line"], menu(page))
+    check("View: Back, Forward, Hide Sidebar, Find…, Search Line", menu(page) == ["Back", "Forward", "-", "Hide Sidebar", "Find…", "Search Line"], menu(page))
     page.click(".tmn-item:has-text('Hide Sidebar')")
     page.wait_for_timeout(300)
     state = page.get_attribute("#side", "data-tsb-state")
     check("Hide Sidebar collapses it", state in ("rail", "hidden"), state)
     page.click(".tmn-title:has-text('View')")
-    check("and the menu then says Show Sidebar", menu(page)[0] == "Show Sidebar", menu(page))
+    check("and the menu then says Show Sidebar; the status bar's toggle says so too",
+          menu(page)[3] == "Show Sidebar" and page.inner_text("#status .tst-seg[data-id=sidebar]") == "Sidebar: Hidden", menu(page))
     page.click(".tmn-item:has-text('Show Sidebar')")
     page.wait_for_timeout(300)
     check("Show Sidebar opens it again", lambda: page.get_attribute("#side", "data-tsb-state") == "open", lambda: page.get_attribute("#side", "data-tsb-state"))
+
+    # ---------- the toolbar's Back, Forward and Find; the status bar ----------
+    tools = page.evaluate("[...document.querySelectorAll('#toolbar button')].map(b => b.dataset.tool ?? b.textContent.trim())")
+    check("the toolbar (TaurisMenu.toolbar): Back, Forward, Home, the teams, Find anything at its end",
+          tools[:3] == ["back", "forward", "Home"] and tools[-1] == "find" and page.get_attribute("#toolbar", "role") == "toolbar", tools)
+    before = active_title(page)
+    page.click("#toolbar [data-tool=back]")
+    check("Back: the view shown before, in this tab", lambda: active_title(page) != before, lambda: active_title(page))
+    page.click("#toolbar [data-tool=forward]")
+    check("Forward: back again", lambda: active_title(page) == before, lambda: active_title(page))
+    page.click("#toolbar [data-tool=find]")
+    check("Find anything opens the finder", lambda: page.locator(".tfd").count() == 1)
+    page.keyboard.press("Escape")
+    segs = texts(page, "#status .tst-seg")
+    n = page.evaluate("TEAMS.flatMap(t => t.projects).reduce((a, p) => a + p.files.length, 0)")
+    check("the status bar (TaurisStatus): the files against the plan, the sidebar's toggle", segs == [f"{n} / 12 files", "Sidebar: Shown"], segs)
+    page.click("#status .tst-seg[data-id=sidebar]")
+    check("its toggle hides the sidebar", lambda: page.get_attribute("#side", "data-tsb-state") != "open" and page.inner_text("#status .tst-seg[data-id=sidebar]") == "Sidebar: Hidden")
+    page.click("#status .tst-seg[data-id=sidebar]")
+    page.wait_for_timeout(300)
     page.close()
 
     # ---------- the search line ----------
@@ -295,7 +333,7 @@ with sync_playwright() as p:
     check("nothing matching turns the band red and lists nothing",
           page.get_attribute("#matches", "data-tm-state") == "error" and page.locator("#hits tr").count() == 0, page.get_attribute("#matches", "data-tm-state"))
     page.keyboard.press("Enter")
-    check("Enter on it says so and opens nothing", "Nothing to open" in page.text_content("#status") and active_title(page) == shown)
+    check("Enter on it says so and opens nothing", "Nothing to open" in page.text_content("#status .tst-msg") and active_title(page) == shown)
     page.keyboard.press("Escape")
     page.wait_for_timeout(50)
     check("Escape clears the line and the list", lambda: page.input_value(".tm-cmd-input") == "" and page.get_attribute("#matches", "data-tm-state") in (None, ""),

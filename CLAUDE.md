@@ -11,12 +11,13 @@ Examples:
   * if I want to expand obviously I have two options:
     * double click the element
     * or press the "+" before the icon
+    * obviously double-clicking the "+" before the icon expands and contracts so it would look the same.
 
 # Example App
 
 Example app must use all components of tauris-ui, no exception.
 
-It lives in `examples/all` (`test/all_run.py` tests its page). The plugin delivers every component to the page (`Config::new()` has all ten). All data is the sample below, kept in the page: nothing is saved but the tabs.
+It lives in `examples/all` (`test/all_run.py` tests its page). The plugin delivers every component to the page (`Config::new()` has all twelve). All data is the sample below, kept in the page: nothing is saved but the tabs.
 
 | Component | Where the app uses it |
 | --- | --- |
@@ -24,12 +25,14 @@ It lives in `examples/all` (`test/all_run.py` tests its page). The plugin delive
 | Tree view (`TaurisTree`) | The teams, projects and files, inside the sidebar |
 | Tabs (`TaurisTabs`) | "Open in new tab": a tab per opened file |
 | Files (`TaurisFiles`) | The table of the selected project's files |
-| Menus (`TaurisMenu`) | Menu bar, right-click menus, a toolbar |
+| Menus (`TaurisMenu`) | Menu bar, right-click menus, the toolbar (`TaurisMenu.toolbar`: Back, Forward, Find anything) |
 | Terminal (`TaurisTerminal`) | The search line |
 | Finder (`TaurisFinder`) | ⌘K: find any team, project or file |
-| Dialogs (`TaurisDialog`) | Edit (a form, with a review) and Delete (a question) on a file; Help › Keyboard Shortcuts (⌘/) and About |
+| Dialogs (`TaurisDialog`) | Edit (a form, with a review, in a window of its own) and Delete (a question whose delete runs inside it) on a file; Help › Keyboard Shortcuts (⌘/) and About |
 | Reorder (`TaurisReorder`) | Home: the projects' rows dragged into the person's order, ⌥⌘↑ ⌥⌘↓, and Move Up / Move Down in a row's menu |
 | Glance (`TaurisGlance`) | Home: each project's activity (a sparkline) and status (Growing, Slowing), and the files' capacity bar |
+| Table (`TaurisTable`) | Home: the projects' table (sorting, a row's Open and Copy Name buttons, a flash after a move) |
+| Status bar (`TaurisStatus`) | The window's foot: the last message (Undo after a move), the files against the plan, the sidebar's toggle |
 
 ## Collapsable Sidebar + Treeview (2 components)
 
@@ -67,16 +70,21 @@ User can right click any file and click "Open" "Open in new tab" "Edit" "Delete"
 
 ## Menus
 
-* Menu bar (`TaurisMenu.bar`): File (Add files… calls the Files table's `add()`), View (Show/Hide Sidebar calls `toggle()`; Search, ⌘K), Help.
+* Menu bar (`TaurisMenu.bar`): File (Add files… calls the Files table's `add()`), View (Back, Forward; Show/Hide Sidebar calls `toggle()`; Search, ⌘K), Help.
 * Right-click menus: on a tree file (`TaurisMenu.open`, above); the Files table's row menu is its own.
 * A toolbar (`.tmn-toolbar` with `.tmn-tool` buttons, an icon on each): Home, and one button per team that opens a menu of its projects (`TaurisMenu.button`); the button of the shown project's team is the pressed one.
+* `TaurisMenu.toolbar` on it: one stop for Tab, ← → between its buttons; Back and Forward through the views shown (⌘[ ⌘]); Find anything (⌘K) at its end opens the finder.
+
+## Status bar
+
+* `TaurisStatus.mount` on the window's foot: every message of the app (an Undo after a project is moved on Home); on its right the files against the sample's plan ("5 / 12 files") and the sidebar's toggle ("Sidebar: Shown").
 
 ## Home
 
-* The toolbar's Home shows Home in the current tab: the projects in a table (name, team, files, activity, status), in the order the person puts them in, and above it the files' capacity bar ("Files 5 / 12", a segment each, in its project's colour).
-* `TaurisReorder.attach` on the table's scroll box: a row dragged to another place, or ⌥⌘↑ ⌥⌘↓ on the selected one, moves it; the status line says where it went. The order is kept in the page.
+* The toolbar's Home shows Home in the current tab: the projects in a `TaurisTable` (name, team, files, activity, status, and a row's Open and Copy Name buttons), in the order the person puts them in, and above it the files' capacity bar ("Files 5 / 12", a segment each, in its project's colour).
+* `TaurisReorder.attach` on the table's scroller: a row dragged to another place, or ⌥⌘↑ ⌥⌘↓ on the selected one, moves it; the status bar says where it went, with an Undo. The order is kept in the page. A header sorts the table; sorted, rows do not move by hand until a project's menu's Manual Order.
 * `TaurisGlance.sparkline` draws each project's edits a week (the last six, in `data.js`), `TaurisGlance.status` its trend (the last three weeks against the three before), `TaurisGlance.capacity` the files against the sample's limit (`MAX_FILES`).
-* A click selects a project, ↑ ↓ move, Enter or a double click opens it; its right-click menu is the tree's Open and Open in new tab, then Move Up and Move Down.
+* A click selects a project, ↑ ↓ move, typing a name jumps to it, Enter or a double click opens it; its right-click menu is the tree's Open and Open in new tab, then Move Up and Move Down (the row flashes), and Manual Order.
 
 ## Terminal/Search
 
@@ -88,3 +96,16 @@ User can write "mexico" and sees autocomplete ( 1) vacation mexico; 2) places to
 ## Data
 
 Example app is mock data only - read only too.
+
+# Write things in FUCKIN ENGLISH
+
+Innapropriate:
+
+> * Sidebar: its items are one level (places, as in Mail or Finder). A tree is a `TaurisTree` give
+n as `content`: the desktop outline, +/- boxes and dotted lines, where a click on a row's text o
+nly selects it. The sidebar's own nested groups (arrows, `children`, `expanded`) and `openOnSele
+ct` are gone; an item's `children` are left out, and the console says so once.
+
+Appropriate:
+
+> * Sidebar: no more nested groups. For a tree, put a `TaurisTree` in the sidebar (`content`).

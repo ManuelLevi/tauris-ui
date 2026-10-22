@@ -44,6 +44,7 @@
 
 mod commands;
 mod config;
+mod dialogs;
 mod drag;
 pub mod files;
 mod menu;
@@ -92,6 +93,10 @@ const REORDER_SCRIPT: &str = include_str!("../web/reorder.js");
 const REORDER_STYLE: &str = include_str!("../web/reorder.css");
 const GLANCE_SCRIPT: &str = include_str!("../web/glance.js");
 const GLANCE_STYLE: &str = include_str!("../web/glance.css");
+const TABLE_SCRIPT: &str = include_str!("../web/table.js");
+const TABLE_STYLE: &str = include_str!("../web/table.css");
+const STATUS_SCRIPT: &str = include_str!("../web/status.js");
+const STATUS_STYLE: &str = include_str!("../web/status.css");
 const NATIVE_SCRIPT: &str = include_str!("../web/native.js");
 
 // The page scripts carry their stylesheets and the version, so one crate
@@ -125,6 +130,10 @@ pub(crate) fn page_script<R: Runtime>(config: &Config<R>) -> String {
         REORDER_SCRIPT.replace("\"__TAURIS_REORDER_CSS__\"", &serde_json::to_string(REORDER_STYLE).unwrap_or_default());
     let glance =
         GLANCE_SCRIPT.replace("\"__TAURIS_GLANCE_CSS__\"", &serde_json::to_string(GLANCE_STYLE).unwrap_or_default());
+    let table =
+        TABLE_SCRIPT.replace("\"__TAURIS_TABLE_CSS__\"", &serde_json::to_string(TABLE_STYLE).unwrap_or_default());
+    let status =
+        STATUS_SCRIPT.replace("\"__TAURIS_STATUS_CSS__\"", &serde_json::to_string(STATUS_STYLE).unwrap_or_default());
     [
         (Component::Tabs, tabs),
         (Component::Tree, tree),
@@ -136,6 +145,8 @@ pub(crate) fn page_script<R: Runtime>(config: &Config<R>) -> String {
         (Component::Dialog, dialog),
         (Component::Reorder, reorder),
         (Component::Glance, glance),
+        (Component::Table, table),
+        (Component::Status, status),
     ]
     .into_iter()
     .filter(|(c, _)| config.components.contains(c))
@@ -168,6 +179,12 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
             commands::close_asked,
             commands::pick_files,
             commands::save_dialog,
+            commands::dialog_window_open,
+            commands::dialog_window_spec,
+            commands::dialog_window_ready,
+            commands::dialog_window_send,
+            commands::dialog_window_reply,
+            commands::dialog_window_close,
         ])
         .js_init_script(script)
         // A page that (re)loads has not mounted the strip yet: nothing to ask.

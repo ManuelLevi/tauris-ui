@@ -532,16 +532,16 @@ pub(crate) async fn ask_for_page<R: Runtime>(
             return Err(NO_DIALOG_PLUGIN.into());
         }
         let kind = if warning { MessageDialogKind::Warning } else { MessageDialogKind::Info };
+        // No cancel: a notice with one button (why something could not be done).
+        let buttons = if cancel.is_empty() {
+            MessageDialogButtons::OkCustom(ok)
+        } else {
+            MessageDialogButtons::OkCancelCustom(ok, cancel)
+        };
         let (tx, rx) = std::sync::mpsc::channel();
-        app.dialog()
-            .message(message)
-            .title(title)
-            .kind(kind)
-            .buttons(MessageDialogButtons::OkCancelCustom(ok, cancel))
-            .parent(&window)
-            .show(move |yes| {
-                let _ = tx.send(yes);
-            });
+        app.dialog().message(message).title(title).kind(kind).buttons(buttons).parent(&window).show(move |yes| {
+            let _ = tx.send(yes);
+        });
         Ok(answer(rx).await.unwrap_or(false))
     }
     #[cfg(not(feature = "files"))]

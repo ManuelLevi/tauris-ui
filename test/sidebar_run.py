@@ -81,8 +81,8 @@ with sync_playwright() as p:
 
     # ---------- what it shows ----------
     page = fresh(browser)
-    check("its items, a group's open below it, in order", labels(page) == ["Inbox", "Flagged", "Sent", "Atlas", "Documents", "Board minutes", "Northwind", "Archive"],
-          labels(page))
+    check("its items, one level, in order", labels(page) == ["Inbox", "Flagged", "Sent", "Atlas", "Northwind", "Archive"], labels(page))
+    check("no arrows, no groups: a tree is a TaurisTree in content", page.locator("#side .tsb-chevron, #side .tsb-sub, #side [aria-expanded]:not(.tsb-toggle)").count() == 0)
     check("a title, a heading between sections, 220px wide",
           page.inner_text("#side .tsb-title") == "Mail" and page.locator("#side .tsb-heading").count() == 1 and width(page) == 220, width(page))
     check("the selected item is the page shown; the list is one Tab stop, on it",
@@ -90,7 +90,7 @@ with sync_playwright() as p:
           and page.evaluate("[...document.querySelectorAll('#side .tsb-item')].filter(i => i.tabIndex === 0).map(i => i.dataset.key)") == ["inbox"])
     check("named for screen readers: the list by the title, an item with its count",
           page.get_attribute("#side .tsb-nav", "aria-label") == "Mail" and page.get_attribute("[data-key=inbox]", "aria-label") == "Inbox, 12"
-          and page.get_attribute("[data-key=atlas]", "aria-expanded") == "true" and page.get_attribute("[data-key=archive]", "aria-disabled") == "true")
+          and page.get_attribute("[data-key=archive]", "aria-disabled") == "true")
     rows = page.evaluate("[...document.querySelectorAll('#side .tsb-item')].map(i => Math.round(i.getBoundingClientRect().height))")
     check("rows 28px high", set(rows) == {28}, rows)
     if SHOTS:
@@ -102,12 +102,6 @@ with sync_playwright() as p:
     check("a click selects an item, and the app hears it",
           said(page) == [["select", "sent", "mouse"]] and page.get_attribute("[data-key=sent]", "aria-current") == "page"
           and page.get_attribute("[data-key=inbox]", "aria-current") is None and page.inner_text("#heading") == "Sent")
-    page.click("[data-key=atlas] .tsb-chevron")
-    check("a group's arrow closes it, selecting nothing", page.locator("[data-key=atlas-docs]").count() == 0 and said(page) == []
-          and page.get_attribute("[data-key=atlas]", "aria-expanded") == "false")
-    page.dblclick("[data-key=atlas] .tsb-label")
-    check("a double-click on a group opens it (and its click selects it)", page.locator("[data-key=atlas-docs]").count() == 1
-          and said(page) == [["select", "atlas", "mouse"]])
     page.click("[data-key=archive]", force=True)
     check("a disabled item is not chosen", said(page) == [])
     page.close()
@@ -172,16 +166,7 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     check("Enter selects the item with the focus", said(page) == [["select", "flagged", "keyboard"]])
     page.keyboard.press("a")
-    on_atlas = focused(page)
-    page.keyboard.press("ArrowLeft")
-    closed = page.locator("[data-key=atlas-docs]").count() == 0
-    page.keyboard.press("ArrowRight")
-    opened = page.locator("[data-key=atlas-docs]").count() == 1
-    page.keyboard.press("ArrowRight")
-    in_group = focused(page)
-    page.keyboard.press("ArrowLeft")
-    check("a letter jumps to an item; Left closes a group, Right opens it, then goes into it; Left goes back up",
-          (on_atlas, closed, opened, in_group, focused(page)) == ("atlas", True, True, "atlas-docs", "atlas"), (on_atlas, closed, opened, in_group, focused(page)))
+    check("a letter jumps to an item", focused(page) == "atlas", focused(page))
     page.keyboard.press("Space")
     check("Space selects too", said(page) == [["select", "atlas", "keyboard"]])
     ring = page.evaluate("getComputedStyle(document.activeElement).outlineStyle")
@@ -197,19 +182,22 @@ with sync_playwright() as p:
             page.get_attribute("#side .tsb-toggle", "aria-label"), said(page))
     check("its button collapses it to a 44px rail of icons, each named by a tooltip; the app hears it",
           rail == ("rail", 44, True, "Inbox (12)", "false", "Show sidebar", [["toggle", True, "button"]]), rail)
-    check("the rail shows the first level only, a count as a dot, an item with no icon by its letter",
+    check("the rail shows its items, a count as a dot, an item with no icon by its letter",
           labels(page) == ["Inbox", "Flagged", "Sent", "Atlas", "Northwind", "Archive"] and page.is_visible("[data-key=inbox] .tsb-count")
           and page.inner_text("[data-key=northwind] .tsb-icon") == "N", labels(page))
     if SHOTS:
         page.screenshot(path=str(SHOTS / "sidebar_rail.png"))
     page.focus("[data-key=inbox]")
     page.keyboard.press("End")
-    check("in the rail the keys go through the first level", focused(page) == "northwind", focused(page))
+    check("in the rail the keys go through its items", focused(page) == "northwind", focused(page))
     page.click("[data-key=atlas]")
-    page.wait_for_timeout(300)
-    check("a group chosen in the rail opens the sidebar, the group open", lambda: page.get_attribute("#side", "data-tsb-state") == "open"
-          and page.locator("[data-key=atlas-docs]").count() == 1 and heard(page) == [["toggle", False, "button"], ["select", "atlas", "mouse"]], lambda: heard(page))
+    check("an item chosen in the rail is chosen; the rail stays", lambda: page.get_attribute("#side", "data-tsb-state") == "rail"
+          and heard(page) == [["select", "atlas", "mouse"]], lambda: heard(page))
     said(page)
+    page.evaluate("side.toggle(false); 0")
+    page.wait_for_timeout(300)
+    said(page)
+    page.focus("[data-key=atlas]")
     page.focus("#field")
     page.keyboard.press(shortcut(page))
     page.wait_for_timeout(50)
@@ -305,18 +293,18 @@ with sync_playwright() as p:
           look[0] == 280 and look[1] == "1px" and abs(look[2] - (SIZE["width"] - 220)) <= 1, look)
     page.close()
 
-    # ---------- the app's own menu on an item; a group opened by choosing it ----------
+    # ---------- the app's own menu on an item ----------
     page = fresh(browser)
-    page.evaluate("side.update({ onContextMenu: (item, at) => said.push(['menu', item.id, at.how, at.x > 0 && at.y > 0]), openOnSelect: true }); 0")
+    page.evaluate("side.update({ onContextMenu: (item, at) => said.push(['menu', item.id, at.how, at.x > 0 && at.y > 0]) }); 0")
     page.click("[data-key=northwind] .tsb-label", button="right")
     page.focus("[data-key=sent]")
     page.keyboard.press("Shift+F10")
     page.click("[data-key=northwind] .tsb-label")
     check("onContextMenu hears a right click and the menu key on an item, where to open the app's menu",
           said(page) == [["menu", "northwind", "mouse", True], ["menu", "sent", "keyboard", True], ["select", "northwind", "mouse"]], page.evaluate("said"))
-    check("openOnSelect: choosing a group opens it", page.locator("[data-key=nw-plan]").count() == 1)
-    page.click("[data-key=northwind] .tsb-label")
-    check("and choosing it again leaves it open", page.locator("[data-key=nw-plan]").count() == 1)
+    page.evaluate("window.warned = []; const w = console.warn; console.warn = (...a) => { warned.push(a.join(' ')); w(...a); }; side.setItems([{ id: 'x', label: 'Atlas', children: [{ id: 'y', label: 'Docs' }] }]); 0")
+    check("an item's children are left out, and said once (a tree is a TaurisTree in content)",
+          labels(page) == ["Atlas"] and len(page.evaluate("warned")) == 1 and "TaurisTree" in page.evaluate("warned[0]"), page.evaluate("warned"))
     page.close()
 
     # ---------- the app's own part: a tree view, say ----------
@@ -359,10 +347,10 @@ with sync_playwright() as p:
     page.focus("[data-key=flagged]")
     page.evaluate("side.setItems([{ id: 'new', label: 'New' }, ...ITEMS]); 0")
     kept = focused(page)
-    page.evaluate("side.select('nw-plan'); 0")
-    check("new items keep the focus on the same item; select() opens the groups around an item (and says nothing)",
-          kept == "flagged" and page.get_attribute("[data-key=nw-plan]", "aria-current") == "page" and said(page) == []
-          and page.evaluate("side.selected().id") == "nw-plan", kept)
+    page.evaluate("side.select('northwind'); 0")
+    check("new items keep the focus on the same item; select() selects one (and says nothing)",
+          kept == "flagged" and page.get_attribute("[data-key=northwind]", "aria-current") == "page" and said(page) == []
+          and page.evaluate("side.selected().id") == "northwind", kept)
     page.evaluate("side.update({ title: 'Post', labels: { hide: 'Fold' } }); 0")
     check("update() changes the title and the words", page.inner_text("#side .tsb-title") == "Post"
           and page.get_attribute("#side .tsb-toggle", "aria-label") == "Fold" and page.get_attribute("#side .tsb-nav", "aria-label") == "Post")
@@ -372,7 +360,7 @@ with sync_playwright() as p:
     check("destroy() empties the element and the shortcut does nothing more",
           page.evaluate("document.getElementById('side').children.length") == 0 and not page.evaluate("document.getElementById('side').classList.contains('tsb')"))
     page.evaluate("window.side = TaurisSidebar.mount(document.getElementById('side'), { items: ITEMS }); 0")
-    check("and mount works again on it", page.locator("#side .tsb-item").count() == 8)
+    check("and mount works again on it", page.locator("#side .tsb-item").count() == 6)
     page.close()
 
     # ---------- the look: light and dark, contrast, motion ----------

@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from engine import WEBKIT, launch
+from engine import WEBKIT, launch, settled
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -19,6 +19,7 @@ failures = []
 
 
 def check(name, ok, detail=""):
+    ok, detail = settled(ok, detail)
     print(("PASS " if ok else "FAIL ") + name + ("" if ok else f"  {detail}"))
     if not ok:
         failures.append(name)
@@ -39,6 +40,44 @@ def ask(page, script):
     """Starts a dialog; its answer lands in window.answer."""
     page.evaluate("window.answer = undefined; (" + script + ").then(a => { window.answer = a === undefined ? '(none)' : a; }); 0")
     page.wait_for_selector(".tdl")
+
+
+# A dialog's own window, stood in for: what the plugin would do, the page's calls kept in __sent.
+MOCK = """window.__sent = []; window.__TAURI__ = { core: { invoke: async (name, args) => {
+  __sent.push([name, args]);
+  if (name === 'plugin:tauris-ui|dialog_window_open') return 'tauris-dialog-1';
+  if (name === 'plugin:tauris-ui|dialog_window_spec') return window.__spec;
+  if (name === 'plugin:tauris-ui|dialog_window_ready') return args.height;
+  return null; } } };"""
+
+
+def relay(owner, child):
+    """Carries the plugin's messages: the dialog window's sends to the window that asked, and its replies back."""
+    for name, args in child.evaluate("__sent.splice(0)"):
+        if name == "plugin:tauris-ui|dialog_window_send":
+            owner.evaluate("m => __taurisUiDeliver('tauris-ui:dialog-window', { label: 'tauris-dialog-1', message: m })", args["message"])
+        elif name == "plugin:tauris-ui|dialog_window_ready":
+            child.evaluate("s => { window.__size = s; }", args)
+        elif name == "plugin:tauris-ui|dialog_window_close":
+            child.evaluate("window.__closed = true")
+            owner.evaluate("__taurisUiDeliver('tauris-ui:dialog-window', { label: 'tauris-dialog-1', message: { type: 'closed' } })")
+    for name, args in owner.evaluate("__sent.splice(0)"):
+        if name == "plugin:tauris-ui|dialog_window_reply" and args["message"].get("type") != "focus":
+            child.evaluate("m => __taurisUiDeliver('tauris-ui:dialog-window', { label: 'tauris-dialog-1', message: m })", args["message"])
+        elif name == "plugin:tauris-ui|dialog_window_open":
+            owner.evaluate("s => { window.__opened = s; }", args)
+
+
+def pump(owner, child, until, seconds=3):
+    """Relays until `until` (a script on the dialog window or the owner) holds."""
+    import time
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        relay(owner, child)
+        if until():
+            return True
+        time.sleep(0.03)
+    return False
 
 
 def answer(page):
@@ -198,6 +237,138 @@ with sync_playwright() as p:
           return [ratio(cs[0], cs[1]), ratio(cs[2], cs[3]), ratio(cs[4], cs[5]), ratio(cs[6], cs[1])]; }""", c)
         check(f"{scheme}: labels, the default button, a field's refusal and the hint read (4.5:1)", min(ratios) >= 4.5, (c, ratios))
         page.close()
+
+    # ---------- a question whose action can fail ----------
+    page = fresh(browser)
+    page.focus("#list")
+    ask(page, "TaurisDialog.confirm({ title: 'Delete “Atlas”?', ok: 'Delete', danger: true, run: async () => { window.tries = (window.tries || 0) + 1; if (window.tries === 1) throw new Error('The server refused: Atlas has open tasks.'); } })")
+    page.click(".tdl-btn.tdl-danger")
+    check("run: refused, the question stays, the reason on its line, the keys on Cancel",
+          lambda: page.is_visible(".tdl") and page.inner_text(".tdl-question-line") == "The server refused: Atlas has open tasks." and focused(page) == "Cancel",
+          lambda: (page.is_visible(".tdl"), focused(page)))
+    page.click(".tdl-btn.tdl-danger")
+    check("run again, done: the question closes, true", answer(page) is True and page.locator(".tdl").count() == 0)
+    page.close()
+
+    # ---------- the app's own fields ----------
+    page = fresh(browser)
+    page.evaluate("""TaurisDialog.defineField('people', (cell, field) => {
+      const list = document.createElement('div'); list.className = 'people';
+      let chosen = [...(field.value || [])];
+      const draw = () => { list.replaceChildren(...field.options.map(n => { const b = document.createElement('label'); const c = document.createElement('input');
+        c.type = 'checkbox'; c.checked = chosen.includes(n); c.addEventListener('change', () => { chosen = c.checked ? [...chosen, n] : chosen.filter(x => x !== n); }); b.append(c, n); return b; })); };
+      draw(); cell.append(list); window.peopleDestroyed = false;
+      return { value: () => chosen, focus: () => list.querySelector('input').focus(), destroy: () => { window.peopleDestroyed = true; } };
+    }); 0""")
+    ask(page, "TaurisDialog.form({ title: 'New Task', fields: [{ name: 'name', label: 'Name', value: 'Brief' }, { name: 'who', label: 'People', type: 'people', options: ['Ana', 'Ben'], required: true }], validate: async v => (v.who.includes('Ben') ? { field: 'who', text: 'Ben is away.' } : null) })")
+    check("a field type the app defines: drawn in the form's layout, its label beside it", page.locator(".tdl-custom .people label").count() == 2
+          and page.inner_text(".tdl-label.tdl-top:nth-of-type(2)") == "People:")
+    page.keyboard.press("Enter")
+    check("needed and empty: the balloon under it, its own focus", lambda: page.inner_text(".tdl-custom ~ .tdl-tip") == "People is needed." and page.evaluate("document.activeElement.closest('.people') !== null"))
+    page.click(".people label:nth-child(2) input")
+    page.click(".tdl-primary")
+    check("an async check: its refusal on the app's field", lambda: page.inner_text(".tdl-custom ~ .tdl-tip") == "Ben is away.")
+    page.click(".people label:nth-child(2) input")
+    page.click(".people label:nth-child(1) input")
+    page.click(".tdl-primary")
+    check("its value with the others, and destroy() when the dialog closes", answer(page) == {"name": "Brief", "who": ["Ana"]} and page.evaluate("peopleDestroyed") is True,
+          page.evaluate("window.answer"))
+    ask(page, "TaurisDialog.form({ title: 'Photo', fields: [{ name: 'photo', label: 'Photo', render: cell => { const i = document.createElement('input'); i.id = 'ph'; i.value = 'me.png'; cell.append(i); return { value: () => i.value }; } }] })")
+    page.keyboard.press("ControlOrMeta+Enter")
+    check("a one-off field (render on the field), ⌘↩ from inside it", answer(page) == {"photo": "me.png"}, page.evaluate("window.answer"))
+    page.close()
+
+    # ---------- a password: Show, Generate ----------
+    page = fresh(browser)
+    ask(page, "TaurisDialog.form({ title: 'New Password', fields: [{ name: 'pw', label: 'Password', type: 'password', reveal: true, generate: true }] })")
+    check("Show and Generate beside the field", page.locator(".tdl-pw .tdl-pw-btn").count() == 1 and page.inner_text(".tdl-pw-gen") == "Generate"
+          and page.get_attribute(".tdl-pw input", "type") == "password")
+    page.click(".tdl-pw-btn")
+    check("Show: its text readable, the button pressed", page.get_attribute(".tdl-pw input", "type") == "text" and page.get_attribute(".tdl-pw-btn", "aria-pressed") == "true")
+    page.click(".tdl-pw-btn")
+    page.click(".tdl-pw-gen")
+    made = page.evaluate("document.querySelector('.tdl-pw input').value")
+    check("Generate: a strong one, shown and selected", len(made) == 20 and page.get_attribute(".tdl-pw input", "type") == "text"
+          and page.evaluate("(() => { const i = document.querySelector('.tdl-pw input'); return i.selectionStart === 0 && i.selectionEnd === i.value.length; })()"), made)
+    page.click(".tdl-pw-gen")
+    check("and another each time", page.evaluate("document.querySelector('.tdl-pw input').value") != made)
+    page.keyboard.press("Escape")
+    page.close()
+
+    # ---------- pictures in a review, About's values ----------
+    page = fresh(browser)
+    ask(page, "TaurisDialog.review({ rows: [{ field: 'Photo', beforeImage: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', afterImage: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }, { field: 'Name', before: 'Ana', after: 'Ana Silva' }] })")
+    check("a picture's change: its two pictures, named for a screen reader",
+          page.evaluate("[...document.querySelectorAll('.tdl-review-rows tr[data-field=Photo] img')].map(i => i.alt)") == ["Photo, before", "Photo, after"]
+          and page.locator(".tdl-review-rows .tdl-thumb").first.evaluate("e => Math.round(e.getBoundingClientRect().width)") == 34)
+    page.keyboard.press("Escape")
+    ask(page, "TaurisDialog.about({ name: 'MLPC', description: 'A shared plan.', rows: [['Server', 'https://plan.example.com']] })")
+    check("About: its values and description can be selected (and copied)",
+          page.evaluate("[...document.querySelectorAll('.tdl-about-rows dd, .tdl-about-text')].every(e => e.classList.contains('tauris-selectable') && getComputedStyle(e).userSelect === 'text')"))
+    page.keyboard.press("Escape")
+    page.close()
+
+    # ---------- in a window of its own ----------
+    owner = fresh(browser)
+    owner.add_init_script(MOCK)
+    owner.reload()
+    owner.evaluate("TaurisDialog.defineField('people', (cell, f) => { const i = document.createElement('input'); i.className = 'pp'; i.value = (f.value || []).join(','); cell.append(i); return { value: () => i.value.split(',').filter(Boolean) }; }); 0")
+    owner.focus("#list")
+    owner.evaluate("""window.answer = undefined; window.saved = null; TaurisDialog.form({ window: true, title: 'Edit Task', wide: true, fields: [
+      { name: 'name', label: 'Name', value: 'Brief' }, { name: 'who', label: 'People', type: 'people', value: ['Ana'] }],
+      validate: v => (v.name === 'x' ? { field: 'name', text: 'Too short.' } : null),
+      review: v => [{ field: 'Name', before: 'Brief', after: v.name }],
+      submit: async v => { if (v.name === 'Nope') throw { field: 'name', text: 'Taken.' }; window.saved = v; } }).then(a => { window.answer = a; }); 0""")
+    owner.wait_for_function("__sent.some(s => s[0] === 'plugin:tauris-ui|dialog_window_open')")
+    opened = owner.evaluate("__sent.find(s => s[0] === 'plugin:tauris-ui|dialog_window_open')[1]")
+    spec = json.loads(opened["spec"])
+    check("window: true asks the plugin for a window of its own: its title and width, the dialog as data (its functions stay)",
+          opened["title"] == "Edit Task" and opened["width"] == 560 and spec["kind"] == "form" and spec["has"] == {"validate": True, "review": True, "submit": True}
+          and "validate" not in spec["options"] and [f["name"] for f in spec["options"]["fields"]] == ["name", "who"], opened)
+    check("meanwhile this page is out of reach, its clicks bring the dialog forward",
+          owner.evaluate("document.querySelector('main').inert") and owner.locator(".tdl-shield").count() == 1 and owner.evaluate("TaurisDialog.isOpen"))
+    owner.click(".tdl-shield")
+    check("(a click on it: focus the dialog's window)", owner.evaluate("__sent.some(s => s[0] === 'plugin:tauris-ui|dialog_window_reply' && s[1].message.type === 'focus')"))
+    child = browser.new_page(viewport={"width": 560, "height": 160}, device_scale_factor=2)
+    child.on("pageerror", lambda e: failures.append(f"page error: {e}") or print("PAGEERROR", e))
+    child.add_init_script(MOCK + "window.__spec = " + json.dumps(opened["spec"]) + ";")
+    child.add_init_script("window.addEventListener('DOMContentLoaded', () => TaurisDialog.defineField('people', (cell, f) => { const i = document.createElement('input'); i.className = 'pp'; i.value = (f.value || []).join(','); cell.append(i); return { value: () => i.value.split(',').filter(Boolean) }; }));")
+    child.goto(DEMO.as_uri() + "#tauris-dialog")
+    check("the dialog's window: the app's page, and only the dialog shows (no title bar of its own: the window's)",
+          pump(owner, child, lambda: child.locator(".tdl-form").count() == 1)
+          and child.evaluate("TaurisDialog.inWindow") is True and not child.is_visible("main") and not child.is_visible(".tdl-head")
+          and child.evaluate("[...document.querySelectorAll('.tdl-label')].map(l => l.textContent)") == ["Name:", "People:"])
+    check("it says its size, the window takes it", pump(owner, child, lambda: child.evaluate("window.__size?.width") == 560),
+          child.evaluate("window.__size"))
+    child.fill(".tdl-input", "x")
+    child.keyboard.press("Enter")
+    check("the app's check runs in the window that asked; its refusal shows here", pump(owner, child, lambda: child.inner_text(".tdl-tip:not([hidden])") == "Too short."))
+    child.fill(".tdl-input", "Nope")
+    child.keyboard.press("Enter")
+    check("its review comes back to show", pump(owner, child, lambda: child.is_visible(".tdl-review") and "Brief → Nope" in child.inner_text(".tdl-review-rows")))
+    child.keyboard.press("Enter")
+    check("a save refused there: back to the fields, the balloon here", pump(owner, child, lambda: child.inner_text(".tdl-tip:not([hidden])") == "Taken."))
+    child.fill(".tdl-input", "Brief 2")
+    child.fill(".pp", "Ana,Ben")
+    child.keyboard.press("ControlOrMeta+Enter")  # Enter in the app's own field is the field's
+    pump(owner, child, lambda: child.is_visible(".tdl-review"))
+    child.keyboard.press("Enter")
+    check("saved: the values (the app's field's too) arrive, the window closes itself",
+          pump(owner, child, lambda: owner.evaluate("window.answer") is not None and child.evaluate("window.__closed") is True)
+          and owner.evaluate("window.saved") == {"name": "Brief 2", "who": ["Ana", "Ben"]} and owner.evaluate("window.answer") == {"name": "Brief 2", "who": ["Ana", "Ben"]})
+    check("this page is in reach again, the keys back where they were",
+          lambda: owner.locator(".tdl-shield").count() == 0 and not owner.evaluate("document.querySelector('main').inert") and focused(owner) == "list",
+          lambda: focused(owner))
+    child.close()
+    owner.evaluate("window.answer = 'waiting'; TaurisDialog.about({ window: true, name: 'X' }).then(a => { window.answer = a ?? 'closed'; }); 0")
+    owner.wait_for_function("__sent.some(s => s[0] === 'plugin:tauris-ui|dialog_window_open')")
+    owner.evaluate("__sent.length = 0; __taurisUiDeliver('tauris-ui:dialog-window', { label: 'tauris-dialog-1', message: { type: 'closed' } })")
+    check("its window closed from its title bar: the dialog ends", lambda: owner.evaluate("window.answer") == "closed" and owner.locator(".tdl-shield").count() == 0)
+    owner.evaluate("window.__TAURI__.core.invoke = async () => { throw new Error('no window'); }; window.answer = undefined; TaurisDialog.confirm({ title: 'x' }); 0")
+    owner.evaluate("document.querySelector('.tdl .tdl-btn').click()")
+    owner.evaluate("TaurisDialog.form({ window: true, title: 'Here', fields: [{ name: 'a' }] }).then(a => { window.answer = a; }); 0")
+    check("no window to be had (no plugin, no permission): in the page instead", lambda: owner.locator(".tdl-form").count() == 1)
+    owner.close()
 
     # ---------- as the plugin delivers it ----------
     page = browser.new_page(viewport={"width": 800, "height": 500})

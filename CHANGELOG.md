@@ -8,6 +8,27 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.35 — 2026-10-22
+
+- New: `TaurisTable` (from MLPC's tables): a dense data table. 25px rows under a header that stays, ▲▼ sorting by a click on a header (natural order, within groups), rows in groups (a colour square, a name, a count), the keys of a desktop list (↑ ↓, Home End, ⌘↑ ⌘↓, Page Up and Down, Enter, ⇧F10, typing a name), a row's own buttons (shown on hover and selection; toggles; Copy with a tick), `flash(id)` for a row just added. `Component::Table`.
+- New: `TaurisStatus`: the status bar along a window's foot. The last message, with an Undo (or another action) for 10 s, after which the focus goes back where it was; on its right the app's segments: a dot (ok, warn, bad, wait, off), counters, toggles, buttons. `Component::Status`.
+- New: `TaurisMenu.toolbar(nav, { back, forward, find })`: a toolbar is one stop for Tab, with ← → Home End between its buttons; Back and Forward (⌘[ ⌘], Alt+← Alt+→ elsewhere) with `setHistory`; a Find anything button at its end.
+- Dialogs (MLPC's needs):
+  - `window: true` opens a form, a review or a sheet in a native window of its own, attached to the window that asked and sized to the dialog. The app's checks and save run in the window that asked. New plugin commands `dialog_window_*` are in `tauris-ui:default`; the capability must cover `"tauris-dialog-*"` too, and the page checks `TaurisDialog.inWindow` (the checker says both).
+  - `TaurisDialog.defineField(type, render)` (and `render` on one field): the app's own widgets inside a form.
+  - Passwords take `reveal` and `generate`.
+  - A review row can show a picture's change (`beforeImage`, `afterImage`).
+  - `confirm({ run })` runs the action inside the question, a refusal kept on its line.
+  - About's values can be selected.
+  - `validate` and `review` may be async.
+- Sidebar: no more nested groups. For a tree, put a `TaurisTree` in the sidebar (`content`).
+- The system's alert (`plugin:tauris-ui|ask`) with an empty `cancel` is a notice with one button.
+- The full example uses all twelve components: Home is a `TaurisTable`, the window's foot a `TaurisStatus` (Undo after a move), the toolbar has Back, Forward and Find, Edit… opens in a window of its own, and Delete runs inside its question.
+
+**Upgrade** (only if your sidebar items had `children`): move that tree into a `TaurisTree` and pass it as `content`, as examples/all does.
+
+**Upgrade** (only for `window: true`): add `"tauris-dialog-*"` to the `windows` of the capability that has `core:default` and `tauris-ui:default`, and start the page with `if (TaurisDialog.inWindow) { /* defineField(...) only */ } else { /* the app */ }`.
+
 ## 0.4.34 — 2026-10-22
 
 - Reorder: a control in a row marked `.tauris-drag` (a project's name that opens on a click) starts a drag too: a click still opens it, a press and a move drags the row, and the click that ends the drag is swallowed. Other controls still never start one.

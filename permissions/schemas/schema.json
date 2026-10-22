@@ -355,6 +355,78 @@
           "markdownDescription": "Denies the close_window command without any pre-configured scope."
         },
         {
+          "description": "Enables the dialog_window_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dialog-window-close",
+          "markdownDescription": "Enables the dialog_window_close command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dialog_window_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dialog-window-close",
+          "markdownDescription": "Denies the dialog_window_close command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dialog_window_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dialog-window-open",
+          "markdownDescription": "Enables the dialog_window_open command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dialog_window_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dialog-window-open",
+          "markdownDescription": "Denies the dialog_window_open command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dialog_window_ready command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dialog-window-ready",
+          "markdownDescription": "Enables the dialog_window_ready command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dialog_window_ready command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dialog-window-ready",
+          "markdownDescription": "Denies the dialog_window_ready command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dialog_window_reply command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dialog-window-reply",
+          "markdownDescription": "Enables the dialog_window_reply command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dialog_window_reply command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dialog-window-reply",
+          "markdownDescription": "Denies the dialog_window_reply command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dialog_window_send command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dialog-window-send",
+          "markdownDescription": "Enables the dialog_window_send command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dialog_window_send command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dialog-window-send",
+          "markdownDescription": "Denies the dialog_window_send command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dialog_window_spec command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dialog-window-spec",
+          "markdownDescription": "Enables the dialog_window_spec command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dialog_window_spec command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dialog-window-spec",
+          "markdownDescription": "Denies the dialog_window_spec command without any pre-configured scope."
+        },
+        {
           "description": "Enables the drag_out command without any pre-configured scope.",
           "type": "string",
           "const": "allow-drag-out",
@@ -511,10 +583,10 @@
           "markdownDescription": "Denies the window_state command without any pre-configured scope."
         },
         {
-          "description": "Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-other-windows`\n- `allow-move-to-window`\n- `allow-ask`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`",
+          "description": "Lets a window use the tab strip (read its tabs, open, close, move and drag them), the system's file pickers and alerts, which return only what the person chose, and dialogs in windows of their own (each talks only to the window that opened it).\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-other-windows`\n- `allow-move-to-window`\n- `allow-ask`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`\n- `allow-dialog-window-open`\n- `allow-dialog-window-spec`\n- `allow-dialog-window-ready`\n- `allow-dialog-window-send`\n- `allow-dialog-window-reply`\n- `allow-dialog-window-close`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-other-windows`\n- `allow-move-to-window`\n- `allow-ask`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`"
+          "markdownDescription": "Lets a window use the tab strip (read its tabs, open, close, move and drag them), the system's file pickers and alerts, which return only what the person chose, and dialogs in windows of their own (each talks only to the window that opened it).\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-other-windows`\n- `allow-move-to-window`\n- `allow-ask`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`\n- `allow-dialog-window-open`\n- `allow-dialog-window-spec`\n- `allow-dialog-window-ready`\n- `allow-dialog-window-send`\n- `allow-dialog-window-reply`\n- `allow-dialog-window-close`"
         }
       ]
     }
