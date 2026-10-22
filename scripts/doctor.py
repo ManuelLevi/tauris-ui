@@ -183,24 +183,41 @@ def keys(obj):
 
 
 def own_picker(text):
-    """Whether the app never needs the system's dialogs: every TaurisFiles.mount
-    is given a pick option (in the object it is given, through what that object
-    spreads in, or in the object its variable is declared with), and nothing
-    calls TaurisFiles.pick or TaurisFiles.saveDialog itself."""
+    """Whether the app never needs the system's dialogs: True when every
+    TaurisFiles.mount is given a pick option (in the object it is given,
+    through what that object spreads in, or in the object its variable is set
+    to) and nothing calls TaurisFiles.pick or TaurisFiles.saveDialog itself;
+    False when one is not; None when that cannot be told (options from a call,
+    from a variable set elsewhere)."""
     if re.search(r"TaurisFiles\s*\??\.\s*(?:pick|saveDialog)\s*\(", text):
         return False
     # TaurisFiles.mount(, TaurisFiles?.mount(, TaurisFiles.mount<MyFile>(
     mounts = list(re.finditer(r"TaurisFiles\s*\??\.\s*mount\s*(?:<[^<>()]*>)?\s*\(", text))
-    return bool(mounts) and all(mount_has_pick(text, m) for m in mounts)
+    if not mounts:
+        return False
+    found = [mount_has_pick(text, m) for m in mounts]
+    return False if False in found else None if None in found else True
+
+
+def all_of(results):
+    """True if any is, else None if any cannot be told, else False."""
+    results = list(results)
+    return True if True in results else None if None in results else False
 
 
 def mount_has_pick(text, m):
     given = arguments(balanced(text, m.end() - 1, "(", ")"))
     options = given[1] if len(given) > 1 else ""
+    if not options:
+        return False
     if options.startswith("{"):
         body = balanced(options, 0, "{", "}")
-        return "pick" in keys(body) or any(has_pick(text, base) for base in re.findall(r"\.\.\.\s*([A-Za-z_$][\w$]*)", body))
-    return bool(re.fullmatch(r"[A-Za-z_$][\w$]*", options)) and has_pick(text, options)
+        if "pick" in keys(body):
+            return True
+        return all_of(has_pick(text, base) for base in re.findall(r"\.\.\.\s*([A-Za-z_$][\w$]*)", body)) if "..." in body else False
+    if re.fullmatch(r"[A-Za-z_$][\w$]*", options):
+        return has_pick(text, options)
+    return None  # a call, a member, a condition: cannot be told
 
 
 def arguments(args):
@@ -220,16 +237,21 @@ def arguments(args):
 
 
 def has_pick(text, name, seen=()):
-    """Whether the object variable `name` is declared with a pick key, itself
-    or through an object it spreads in ({ ...base })."""
-    # const o = { ... }, or React's const o = useMemo(() => ({ ... }), [])
-    decl = re.search(rf"\b(?:const|let|var)\s+{re.escape(name)}\s*(?::[^=;]+)?=\s*(?:[\w$.]+\s*\(\s*\(\s*\)\s*=>\s*\(\s*)?\{{", text)
-    if not decl or name in seen:
+    """Whether the object variable `name` is set to an object with a pick key,
+    itself or through an object it spreads in ({ ...base }); None when it is
+    not set to an object here (it comes from elsewhere)."""
+    if name in seen:
         return False
+    # const o = { ... }, a minified `,o={...}`, a later `o = { ... }`, or React's useMemo(() => ({ ... }), [])
+    decl = re.search(rf"(?:\b(?:const|let|var)\s+|[,;{{}}(]\s*|^\s*){re.escape(name)}\s*(?::[^=;,]+)?=(?![=>])\s*"
+                     rf"(?:[\w$.]+\s*\(\s*\(\s*\)\s*=>\s*\(\s*)?\{{", text, re.M)
+    if not decl:
+        return None
     body = balanced(text, decl.end() - 1, "{", "}")
     if "pick" in keys(body):
         return True
-    return any(has_pick(text, base, seen + (name,)) for base in re.findall(r"\.\.\.\s*([A-Za-z_$][\w$]*)", body))
+    bases = re.findall(r"\.\.\.\s*([A-Za-z_$][\w$]*)", body)
+    return all_of(has_pick(text, base, seen + (name,)) for base in bases) if bases else False
 
 
 def manifest_of(folder):
@@ -272,7 +294,9 @@ TAB_COMMANDS = ("window-state", "new-tab", "open-tab", "close-tab", "activate-ta
 def grants(capability, commands):
     """Whether a capability lets its windows use these of the plugin's commands:
     tauris-ui:default, or each one's own allow-… permission."""
-    given = set(capability.get("permissions", [])) if isinstance(capability.get("permissions"), list) else set()
+    # A permission is a name, or an object with its scope ({ "identifier": ..., "allow": [...] }).
+    perms = capability.get("permissions") if isinstance(capability.get("permissions"), list) else []
+    given = {p if isinstance(p, str) else p.get("identifier") for p in perms if isinstance(p, (str, dict))}
     return "tauris-ui:default" in given or all(f"tauris-ui:allow-{c}" in given for c in commands)
 
 
@@ -463,6 +487,62 @@ def find_src_tauri(root):
     return None
 
 
+def json5_to_json(text):
+    """JSON5 as JSON: comments out, single-quoted strings double-quoted, bare
+    keys quoted, trailing commas dropped; what is inside strings is left alone."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c in "\"'":
+            j, chars = i + 1, []
+            while j < n and text[j] != c:
+                if text[j] == "\\" and j + 1 < n:
+                    chars.append(text[j:j + 2])
+                    j += 2
+                    continue
+                chars.append('\\"' if text[j] == '"' else text[j])
+                j += 1
+            out.append('"' + "".join(chars) + '"')
+            i = j + 1
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        elif c == ",":
+            # A trailing comma: only space and comments up to the closing bracket.
+            j = i + 1
+            while j < n:
+                if text[j] in " \t\r\n":
+                    j += 1
+                elif text.startswith("//", j):
+                    while j < n and text[j] != "\n":
+                        j += 1
+                elif text.startswith("/*", j):
+                    end = text.find("*/", j + 2)
+                    j = n if end < 0 else end + 2
+                else:
+                    break
+            if j < n and text[j] in "}]":
+                i += 1
+            else:
+                out.append(c)
+                i += 1
+        elif re.match(r"[A-Za-z_$]", c) and (not out or "".join(out).rstrip()[-1:] in "{,"):
+            m = re.match(r"[A-Za-z_$][\w$]*", text[i:])
+            rest = text[i + m.end():].lstrip()
+            if rest.startswith(":"):
+                out.append(f'"{m.group(0)}"')
+            else:
+                out.append(m.group(0))
+            i += m.end()
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 def read_conf(tauri):
     """tauri.conf.json, tauri.conf.json5 (comments and trailing commas) or Tauri.toml."""
     for name in CONF_NAMES:
@@ -473,10 +553,7 @@ def read_conf(tauri):
         if name.endswith(".toml"):
             return tomllib.loads(text)
         if name.endswith(".json5"):
-            text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-            text = re.sub(r"(?m)^\s*//.*$", "", text)
-            text = re.sub(r",(\s*[}\]])", r"\1", text)
-            text = re.sub(r"(?m)([{,]\s*|^\s*)([A-Za-z_$][\w$]*)\s*:", r'\1"\2":', text)  # bare keys
+            text = json5_to_json(text)
         return json.loads(text)
     return {}
 
@@ -645,6 +722,25 @@ def main():
 
     # 4. files: drops and the picker reach Tauri from the page; the picker needs the feature and the dialog plugin
     if uses_files:
+        picks = own_picker(text)
+        if picks is None:
+            note("could not tell whether every TaurisFiles.mount has its own pick (options from a call or from elsewhere): "
+                 "the checks for the system's picker are left out")
+        every = [c for _, c in capabilities(tauri, app)]
+        dialogs = ("pick-files", "save-dialog") if re.search(r"TaurisFiles\s*\??\.\s*saveDialog\s*\(", text) else ("pick-files",)
+        # Drops switched off for a window: Tauri never hands them to the page.
+        off = [w.get("label", "main") for w in app.get("windows", []) if isinstance(w, dict) and w.get("dragDropEnabled") is False]
+        if off or "disable_drag_drop_handler" in rust:
+            bad(f"dropping files is switched off ({', '.join(off) or 'disable_drag_drop_handler() in the Rust code'}), so dropped files never reach the files component",
+                'remove "dragDropEnabled": false from the window (or the disable_drag_drop_handler() call)')
+        if uses_tabs:
+            # The strip's checks covered the tab windows' events; the system's picker needs its permission there too.
+            tab_prefix = (re.search(r'window_prefix\(\s*"([^"]*)"', rust) or [None, "tabs-"])[1]
+            for_tabs = [c for c in every if any(w == "*" or (w.endswith("*") and f"{tab_prefix}1".startswith(w[:-1]))
+                                                 for w in c.get("windows") or c.get("webviews") or [])]
+            if picks is False and not any(grants(c, dialogs) for c in for_tabs):
+                bad("no capability for the tab windows grants the system's picker, so Add files… is refused",
+                    'add "tauris-ui:default" (or "tauris-ui:allow-pick-files") to their capability')
         if not uses_tabs:
             if app.get("withGlobalTauri") is True:
                 ok("withGlobalTauri is on (the files component hears drops through it)")
@@ -654,8 +750,6 @@ def main():
             labels = window_labels(app, rust)
             reach = lambda c: any(pattern == "*" or pattern == label or (pattern.endswith("*") and label.startswith(pattern[:-1]))
                                   for pattern in c.get("windows") or c.get("webviews") or [] for label in labels)
-            every = [c for _, c in capabilities(tauri, app)]
-            dialogs = ("pick-files", "save-dialog") if re.search(r"TaurisFiles\s*\??\.\s*saveDialog\s*\(", text) else ("pick-files",)
             granting = [c for c in every if grants(c, dialogs)]
             # Dropped files reach the page as events, with or without the app's own pick
             # (windows not known: at least one capability must allow it).
@@ -667,7 +761,7 @@ def main():
                 bad(f"no capability lets the app's windows ({', '.join(labels) or 'main'}) listen for events, so dropped files are never heard",
                     f'add "core:default" to "permissions" in a capability whose "windows" has {json.dumps((labels or ["main"])[0])}')
             # Only the system's picker needs tauris-ui:default: an app with its own pick does not.
-            if own_picker(text):
+            if picks is not False:
                 pass
             elif granting and not labels:
                 note("could not tell which windows the app opens: the capability with tauris-ui:default must cover them")
@@ -684,7 +778,10 @@ def main():
         on_by_default = feature_on(manifest_data, found[0] if found else "tauris-ui", "files")
         if "files" in features or on_by_default:
             ok('the "files" feature is on (the system\'s picker and save dialog)')
-            if not any("tauri-plugin-dialog" in d for d in sections):
+            # With its own pick, the app turns the feature on for open_path or inspect alone: no dialog plugin needed.
+            if picks is not False:
+                pass
+            elif not any("tauri-plugin-dialog" in d for d in sections):
                 bad("the files feature needs the dialog plugin, and Cargo.toml does not depend on it",
                     'add tauri-plugin-dialog = "2" under [dependencies], and .plugin(tauri_plugin_dialog::init()) to tauri::Builder')
             elif any(re.search(rf"\b{re.escape(n)}::init\s*\(", rust)
@@ -693,8 +790,10 @@ def main():
             else:
                 bad("the files feature needs the dialog plugin, and the app does not register it",
                     ".plugin(tauri_plugin_dialog::init()) on tauri::Builder")
-        elif own_picker(text):
+        elif picks:
             ok("the files component has its own picker (pick)")
+        elif picks is None:
+            pass
         else:
             bad('Add files… opens the system\'s picker, which needs tauris-ui\'s "files" feature',
                 'set features = ["files"] on the tauris-ui dependency (and register tauri_plugin_dialog), '

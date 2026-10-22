@@ -4,6 +4,7 @@ way, and what the checker says about them.
     python test/doctor_run.py
 """
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,8 @@ HERE = Path(__file__).parent
 LIBRARY = HERE.parent
 # As TOML and JSON take it on every system (a Windows path's backslashes would be escapes).
 LIB = LIBRARY.as_posix()
+# The series this library is in ("0.4" for 0.4.21): what a good app asks for.
+SERIES = ".".join(re.search(r'^version = "([^"]+)"', (LIBRARY / "Cargo.toml").read_text(), re.M).group(1).split(".")[:2])
 DOCTOR = LIBRARY / "scripts" / "doctor.py"
 failures = []
 
@@ -48,7 +51,7 @@ def checked(root, page, rust, dependency, capability, conf_app, workspace, extra
     (tauri / "src").mkdir(parents=True)
     (tauri / "capabilities").mkdir()
     (root / "dist").mkdir()
-    dep = dependency or f'{{ path = "{LIB}", version = "0.4" }}'
+    dep = dependency or f'{{ path = "{LIB}", version = "{SERIES}" }}'
     (tauri / "Cargo.toml").write_text(manifest or f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauris-ui = {dep}\n')
     if tsconfig:
         (root / "tsconfig.json").write_text("{}")
@@ -140,7 +143,7 @@ wrong = [(r, v) for r, v, want in cases if accepts(r, v) != want]
 check("version requirements read as Cargo reads them", not wrong, wrong)
 out, _ = app(dependency=f'{{ path = "{LIB}", version = "*" }}')
 check('version "*" counts as no version', "accepts any version" in out, out)
-out, _ = app(dependency="{ workspace = true }", workspace=f'[workspace]\nmembers = ["src-tauri"]\n[workspace.dependencies]\ntauris-ui = {{ path = "{LIB}", version = "0.4" }}\n')
+out, _ = app(dependency="{ workspace = true }", workspace=f'[workspace]\nmembers = ["src-tauri"]\n[workspace.dependencies]\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n')
 check("{ workspace = true } is read from the workspace", "ok    Cargo.toml depends on this tauris-ui" in out, out)
 
 # ---------- a sixth review ----------
@@ -159,7 +162,7 @@ out, code = app(capability={"identifier": "default", "windows": ["*"], "permissi
 check("an app with its own pick needs no tauris-ui:default for the picker", "no capability grants" not in out and code == 0, out)
 out, code = app(capability=None, conf_app={"withGlobalTauri": True, "windows": [{"title": "x"}]})
 check("but its windows must listen for events, or dropped files are never heard", "listen for events, so dropped files" in out and code == 1, out)
-out, code = app(page="<script>TaurisFiles.mount(el)</script>", dependency=f'{{ path = "{LIB}", version = "0.4", features = ["files"] }}',
+out, code = app(page="<script>TaurisFiles.mount(el)</script>", dependency=f'{{ path = "{LIB}", version = "{SERIES}", features = ["files"] }}',
                 capability={**GOOD_CAP, "windows": ["settings"]}, conf_app={"withGlobalTauri": True, "windows": [{"title": "x"}]})
 check("a capability for other windows does not cover the app's", "does not cover the app's windows" in out and code == 1, out)
 out, _ = app(capability={**GOOD_CAP, "windows": ["tabs-1"]}, page=TABS)
@@ -177,7 +180,10 @@ for req, want in [(">0.4", False), ("<=0.4", True), ("<=1", None), ("<=0", True)
 check('"<=1" takes 1.2.3', accepts("<=1", "1.2.3"))
 out, code = app(manifest="[package\nname = x")
 check("a Cargo.toml that cannot be read is said so, not a crash", "cannot be read" in out and code == 1 and "Traceback" not in out, out)
-renamed = f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\nui = {{ package = "tauris-ui", path = "{LIB}", version = "0.4" }}\n'
+out, code = app(extra_tauri={"broken.json": '{ "identifier": "x", }', "more/broken.toml": "identifier = "})
+check("a capability file that cannot be read is said so (JSON and TOML, in a folder too), not a crash",
+      "broken.json cannot be read" in out and "broken.toml cannot be read" in out and code == 1 and "Traceback" not in out, out)
+renamed = f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\nui = {{ package = "tauris-ui", path = "{LIB}", version = "{SERIES}" }}\n'
 out, _ = app(manifest=renamed, rust="fn main() { tauri::Builder::default().plugin(ui::init(ui::Config::new())); }\n")
 check("a renamed dependency (ui = { package = \"tauris-ui\" })", "ok    Cargo.toml depends on this tauris-ui" in out and "ok    the plugin is registered" in out, out)
 for name, rust in [("init::<Wry>(...)", "fn main() { tauri::Builder::default().plugin(tauris_ui::init::<tauri::Wry>(tauris_ui::Config::new())); }\n"),
@@ -189,21 +195,21 @@ for name, rust in [("init::<Wry>(...)", "fn main() { tauri::Builder::default().p
 # ---------- a seventh review ----------
 out, _ = app(page="<script>TaurisFiles.mount(document.getElementById(`files-${tab.id}`), { pick: myPick })</script>")
 check("a ${ } in the first argument is not the options", "own picker" in out, out)
-out, code = app(page="<script>TaurisFiles.mount(el)</script>", dependency=f'{{ path = "{LIB}", version = "0.4", features = ["files"] }}',
+out, code = app(page="<script>TaurisFiles.mount(el)</script>", dependency=f'{{ path = "{LIB}", version = "{SERIES}", features = ["files"] }}',
                 capability={**GOOD_CAP, "windows": ["files"]}, conf_app={"withGlobalTauri": True, "windows": []},
                 rust=GOOD_RUST + 'fn open(app: &tauri::App) { tauri::WebviewWindowBuilder::new(app, "files", tauri::WebviewUrl::default()); }\n'
                 + "fn d() { tauri_plugin_dialog::init(); }\n",
                 manifest=f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauri-plugin-dialog = "2"\n'
-                         f'tauris-ui = {{ path = "{LIB}", version = "0.4", features = ["files"] }}\n')
+                         f'tauris-ui = {{ path = "{LIB}", version = "{SERIES}", features = ["files"] }}\n')
 check("a window the Rust code opens is one of the app's windows", "does not cover" not in out and code == 0, out)
 out, code = app(page="<script>TaurisFiles.mount(el)</script>", rust=GOOD_RUST + "fn d() { tauri_plugin_dialog::init(); }\n",
                 manifest=f'[package]\nname = "x"\nversion = "0.1.0"\n[features]\ndefault = ["tauris-ui/files"]\n[dependencies]\n'
-                         f'tauri-plugin-dialog = "2"\ntauris-ui = {{ path = "{LIB}", version = "0.4" }}\n')
+                         f'tauri-plugin-dialog = "2"\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n')
 check("the files feature turned on by the app's default features", 'the "files" feature is on' in out and code == 0, out)
 root = Path(tempfile.mkdtemp(prefix="tauris-doctor-"))
 try:
     (root / "src-tauri").mkdir()
-    (root / "src-tauri" / "Cargo.toml").write_text(f'[package]\nname = "x"\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "0.4" }}\n')
+    (root / "src-tauri" / "Cargo.toml").write_text(f'[package]\nname = "x"\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n')
     (root / "src-tauri" / "tauri.conf.json").write_text('{ "app": { "withGlobalTauri": true, }, }')
     run = subprocess.run([sys.executable, str(DOCTOR), str(root)], capture_output=True, text=True, encoding="utf-8")
     check("a tauri.conf.json that cannot be read is said so, not a crash",
@@ -214,7 +220,7 @@ nested = {"files": {"desktop/main.json": json.dumps(GOOD_CAP)}}
 out, code = app(capability=None, page=TABS, extra_tauri=nested["files"],
                 rust=GOOD_RUST + "fn s(app: &tauri::App) { app.tabs().start(); }\n")
 check("a capability in a folder under capabilities/ counts", "grants tauris-ui:default to the tab windows" in out, out)
-git = f'{{ git = "https://example.com/tauris-ui", version = "0.4" }}'
+git = f'{{ git = "https://example.com/tauris-ui", version = "{SERIES}" }}'
 out, code = app(dependency=git, workspace='[workspace]\nmembers = ["src-tauri"]\n',
                 root_files={"Cargo.lock": '[[package]]\nname = "tauris-ui"\nversion = "0.4.1"\n'})
 check("the workspace's Cargo.lock is read", "locked to tauris-ui 0.4.1" in out and code == 1, out)
@@ -229,7 +235,7 @@ out, _ = app(page=TABS, rust=GOOD_RUST + "fn s(app: &tauri::App) { let tabs = ap
 check("let tabs = app.tabs(); tabs.start() starts them", "ok    app.tabs().start()" in out, out)
 out, code = app(page="<script>TaurisFiles.mount(el)</script>", rust=GOOD_RUST + "use tauri_plugin_dialog as dialog;\nfn d() { dialog::init(); }\n",
                 manifest=f'[package]\nname = "x"\nversion = "0.1.0"\n[features]\ndefault = ["native-files"]\nnative-files = ["tauris-ui/files"]\n'
-                         f'[dependencies]\ntauri-plugin-dialog = "2"\ntauris-ui = {{ path = "{LIB}", version = "0.4" }}\n',
+                         f'[dependencies]\ntauri-plugin-dialog = "2"\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n',
                 conf_app={"withGlobalTauri": True, "windows": [{"title": "x"}]})
 check("the files feature through a feature of the app's own, and the dialog plugin under another name",
       'the "files" feature is on' in out and "ok    the dialog plugin is registered" in out and code == 0, out)
@@ -258,13 +264,39 @@ check("an app's own tabs() is not the library's", "app.tabs().start() is never c
 root = Path(tempfile.mkdtemp(prefix="tauris-doctor-"))
 try:
     (root / "src-tauri" / "src").mkdir(parents=True)
-    (root / "src-tauri" / "Cargo.toml").write_bytes(f'[package]\nname = "x"\nauthors = ["Jos\xe9"]\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "0.4" }}\n'.encode("latin-1"))
+    (root / "src-tauri" / "Cargo.toml").write_bytes(f'[package]\nname = "x"\nauthors = ["Jos\xe9"]\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n'.encode("latin-1"))
     (root / "src-tauri" / "Tauri.toml").write_text('[app]\nwithGlobalTauri = true\n')
     run = subprocess.run([sys.executable, str(DOCTOR), str(root)], capture_output=True, text=True, encoding="utf-8")
     check("a Tauri.toml is read; a Cargo.toml not in UTF-8 is said so, not a crash",
           "Traceback" not in run.stdout + run.stderr and "cannot be read" in run.stdout and run.returncode == 1, run.stdout + run.stderr)
 finally:
     shutil.rmtree(root, ignore_errors=True)
+
+# ---------- an eleventh review ----------
+scoped = {**GOOD_CAP, "permissions": GOOD_CAP["permissions"] + [{"identifier": "fs:allow-read-file", "allow": [{"path": "$APPDATA/**"}]}]}
+out, code = app(page=TABS, rust=GOOD_RUST + START, capability=scoped)
+check("a permission written as an object (a scope) is read, not a crash", "Traceback" not in out and "grants tauris-ui:default to the tab windows" in out, out[-300:])
+out, code = app(page="<script>TaurisFiles.mount(el, { pick: myPick, onOpen })</script>", dependency=f'{{ path = "{LIB}", version = "{SERIES}", features = ["files"] }}')
+check("the files feature with the app's own pick (open_path alone) needs no dialog plugin", "dialog plugin" not in out and code == 0, out[-300:])
+out, code = app(page="<script>const r=document.body,n={pick:async()=>[],onAdd:async e=>e};window.TaurisFiles.mount(r,n);</script>")
+check("a minified page (const r=…,n={pick}) has its own pick", "own picker" in out and code == 0, out[-300:])
+out, code = app(page="<script>TaurisFiles.mount(el, options())</script>")
+check("options from a call: said it cannot be told, not a FIX", "could not tell whether every TaurisFiles.mount" in out and "needs tauris-ui's" not in out, out[-300:])
+TABS_FILES = TABS + "<script>TaurisFiles.mount(el)</script>"
+tabs_only = {**GOOD_CAP, "permissions": ["core:default"] + [f"tauris-ui:allow-{c}" for c in
+             ("window-state", "new-tab", "open-tab", "close-tab", "activate-tab", "move-tab", "update-tab", "report-strip", "drag-out",
+              "set-close-guard", "close-asked", "close-window", "move-to-new-window")]}
+out, code = app(page=TABS_FILES, rust=GOOD_RUST + START + "fn d() { tauri_plugin_dialog::init(); }\n", capability=tabs_only,
+                manifest=f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauri-plugin-dialog = "2"\n'
+                         f'tauris-ui = {{ path = "{LIB}", version = "{SERIES}", features = ["files"] }}\n')
+check("tabs and files: the tab windows without the picker's permission is said", "grants the system's picker" in out and code == 1, out[-300:])
+out, code = app(conf_app={"withGlobalTauri": True, "windows": [{"title": "x", "dragDropEnabled": False}]})
+check("dropping switched off for a window is said", "dropping files is switched off" in out and code == 1, out[-300:])
+to_json = doctor["json5_to_json"]
+cases = ["{ app: { withGlobalTauri: true }, // the strip needs it\n}", "{ productName: 'Docs', }", '{ productName: "Board, minutes: 2026" /* a note */ }']
+read = [json.loads(to_json(c)) for c in cases]
+check("JSON5: a comment at a line's end, single quotes, and a colon inside a string", read == [{"app": {"withGlobalTauri": True}}, {"productName": "Docs"},
+      {"productName": "Board, minutes: 2026"}], read)
 
 for name in ("Tauri.toml", "tauri.conf.json5"):
     out, code = app(conf_name=name)
@@ -283,8 +315,8 @@ for name, kwargs, says in [
     ("layers", {"page": "<style>@layer reset { p { margin: 0 } }</style><script>TaurisFiles.mount(el, { pick: f })</script>"}, "the app's CSS uses layers"),
     ("the strip's padding", TABS_APP, "give the page padding-top"),
     ("an older build", {"root_files": {"src-tauri/Cargo.lock": '[[package]]\nname = "tauris-ui"\nversion = "0.3.0"\n'}}, "last built with tauris-ui 0.3.0"),
-    ("git", {"dependency": '{ git = "https://example.com/tauris-ui", version = "0.4" }'}, "the app takes tauris-ui from git"),
-    ("another copy", {"dependency": f'{{ path = "{other_copy}", version = "0.4" }}'}, "the app uses the copy of tauris-ui at"),
+    ("git", {"dependency": f'{{ git = "https://example.com/tauris-ui", version = "{SERIES}" }}'}, "the app takes tauris-ui from git"),
+    ("another copy", {"dependency": f'{{ path = "{other_copy.as_posix()}", version = "{SERIES}" }}'}, "the app uses the copy of tauris-ui at"),
     ("its own windows", {**TABS_APP, "conf_app": WINDOWS}, "tauri.conf.json opens its own windows"),
     ("no dragging permission", TABS_APP, "core:window:allow-start-dragging"),
 ]:
@@ -293,12 +325,12 @@ for name, kwargs, says in [
 shutil.rmtree(other_copy, ignore_errors=True)
 out, code = app(page="<script>TaurisFiles.mount(el)</script>", conf_app=WINDOWS,
                 capability={"identifier": "default", "windows": ["*"], "permissions": ["core:default"]},
-                dependency=f'{{ path = "{LIB}", version = "0.4", features = ["files"] }}')
+                dependency=f'{{ path = "{LIB}", version = "{SERIES}", features = ["files"] }}')
 check("the picker without tauris-ui:default: said, exit 1", "so Add files… cannot open the system's picker" in out and code == 1, out[-400:])
 
 # ---------- what is wrong is said, and the exit code says so ----------
 for name, kwargs, says in [
-    ("a dependency path that leads nowhere", {"dependency": '{ path = "/nowhere", version = "0.4" }'}, "does not lead to tauris-ui"),
+    ("a dependency path that leads nowhere", {"dependency": f'{{ path = "/nowhere", version = "{SERIES}" }}'}, "does not lead to tauris-ui"),
     ("an older version asked for", {"dependency": f'{{ path = "{LIB}", version = "0.3" }}'}, "which needs changes in the app"),
     ("withGlobalTauri off", {"conf_app": {"withGlobalTauri": False}}, "dropped files are never heard"),
     ("the tauris-ui layer declared", {"page": "<style>@layer reset, tauris-ui;</style><script>TaurisFiles.mount(el, { pick: f })</script>"}, "declares the tauris-ui layer"),
@@ -313,14 +345,14 @@ for name, kwargs, says in [
     ("no tauris-ui dependency", {"manifest": '[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\n'}, "has no tauris-ui dependency"),
     ("a newer version asked for", {"dependency": f'{{ path = "{LIB}", version = "0.9" }}'}, "newer than this library"),
     ("the files feature without the dialog plugin", {"page": "<script>TaurisFiles.mount(el)</script>",
-                                                     "dependency": f'{{ path = "{LIB}", version = "0.4", features = ["files"] }}'}, "Cargo.toml does not depend on it"),
+                                                     "dependency": f'{{ path = "{LIB}", version = "{SERIES}", features = ["files"] }}'}, "Cargo.toml does not depend on it"),
     ("the dialog plugin not registered", {"page": "<script>TaurisFiles.mount(el)</script>",
                                           "manifest": f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauri-plugin-dialog = "2"\n'
-                                                      f'tauris-ui = {{ path = "{LIB}", version = "0.4", features = ["files"] }}\n'}, "the app does not register it"),
+                                                      f'tauris-ui = {{ path = "{LIB}", version = "{SERIES}", features = ["files"] }}\n'}, "the app does not register it"),
     ("the files feature off, no pick", {"page": "<script>TaurisFiles.mount(el)</script>"}, "needs tauris-ui's \"files\" feature"),
     ("no page files", {"no_page": True}, "found no page files"),
     ("a page that mounts nothing", {"page": "<p>Hello</p>"}, "no page mounts a tauris-ui component"),
-    ("git, locked to an older version", {"dependency": '{ git = "https://example.com/tauris-ui", version = "0.4" }',
+    ("git, locked to an older version", {"dependency": f'{{ git = "https://example.com/tauris-ui", version = "{SERIES}" }}',
                                          "root_files": {"src-tauri/Cargo.lock": '[[package]]\nname = "tauris-ui"\nversion = "0.4.1"\n'}}, "locked to tauris-ui 0.4.1"),
 ]:
     out, code = app(**kwargs)

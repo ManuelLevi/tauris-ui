@@ -257,6 +257,16 @@ pub fn inspect(path: impl AsRef<Path>, max_bytes: Option<u64>) -> Result<FileInf
         Err(_) => return Err(format!("{name} could not be read.")),
     };
     if meta.is_dir() {
+        // A macOS package: one document to the person (TextEdit's .rtfd, Pages, Keynote), a folder on disk.
+        let ext = Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        if ["rtfd", "pages", "key", "numbers", "bundle"].contains(&ext.as_str())
+            || path.join("Contents").is_dir()
+            || path.join("index.xml").is_file()
+        {
+            return Err(format!(
+                "{name} is a package (a document saved as a folder). Export it as a single file, or zip it."
+            ));
+        }
         return Err(format!("{name} is a folder. Add files, not folders."));
     }
     if !meta.is_file() {
@@ -345,7 +355,7 @@ fn is_alias(head: &[u8]) -> bool {
 }
 
 // A script ("#!"), or an ELF or Mach-O program.
-#[cfg(any(feature = "files", test))]
+#[cfg(all(unix, any(feature = "files", test)))]
 fn starts_as_program(head: &[u8]) -> bool {
     const MAGIC: [&[u8]; 6] =
         [b"#!", b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe"];
@@ -404,6 +414,7 @@ fn runs_something(path: &Path) -> bool {
         "vsw", "webpnp",
         "shs", "shb", "psdm1", "ppsm", "xlm", "xlsb", "themepack", "deskthemepack", "onepkg", "afploc", "ftploc",
         "rdp", "sparseimage", "sparsebundle", "cdr", "toast", "mht", "mhtml",
+        "ipa", "vncloc", "mailloc", "atloc", "newsloc", "pst",
     ];
     let ext = Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     PROGRAMS.contains(&ext.as_str())
@@ -621,6 +632,13 @@ mod tests {
         assert_eq!(info.mime, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         assert_eq!(inspect(&folder, None).unwrap_err(), "Contracts is a folder. Add files, not folders.");
         assert_eq!(inspect(dir.join("nope.pdf"), None).unwrap_err(), "nope.pdf could not be found.");
+        // A macOS package is one document to the person, a folder on disk.
+        let rtfd = dir.join("Notes.rtfd");
+        std::fs::create_dir_all(&rtfd).unwrap();
+        assert_eq!(
+            inspect(&rtfd, None).unwrap_err(),
+            "Notes.rtfd is a package (a document saved as a folder). Export it as a single file, or zip it."
+        );
         // A shortcut is not the file: a Windows one, and a Finder alias named like a document.
         let lnk = dir.join("Report - Shortcut.lnk");
         std::fs::write(&lnk, "L").unwrap();
@@ -677,6 +695,10 @@ mod tests {
             "x.cdr",
             "x.toast",
             "x.mht",
+            "Game.ipa",
+            "Office.vncloc",
+            "x.mailloc",
+            "Mail.pst",
         ] {
             assert!(runs_something(Path::new(name)), "{name}");
         }

@@ -186,6 +186,9 @@
     // for: a newer answer, or a change made here (a click, an update).
     let loads = 0;
     let pending = 0;
+    // Each tab object the strip hands out, as it was then: update(tab) applies
+    // only what the app changed in it since.
+    const given = new WeakMap();
     async function load() {
       const mine = ++loads;
       pending++;
@@ -203,6 +206,7 @@
       }
       const was = active;
       tabs = state.tabs;
+      for (const t of tabs) given.set(t, { ...t });
       active = state.active;
       render();
       emit("change", { tabs, active });
@@ -444,12 +448,23 @@
       // others around one in place (taking out the element with the focus would drop it).
       const stay = new Set(items);
       for (const node of [...tabsEl.children]) if (!stay.has(node)) node.remove();
-      items.forEach((node, i) => {
-        const at = tabsEl.children[i] ?? null;
-        if (at === node) return;
-        if (node.isConnected && typeof tabsEl.moveBefore === "function") tabsEl.moveBefore(node, at);
-        else tabsEl.insertBefore(node, at);
-      });
+      // The tab the focus is in stays where it is; the others go around it (a
+      // browser without moveBefore, WebKit, would take it out and put it back).
+      const fixed = items.find(n => n.isConnected && n.contains(document.activeElement));
+      if (fixed) {
+        const at = items.indexOf(fixed);
+        for (const node of items.slice(0, at)) tabsEl.insertBefore(node, fixed);
+        let prev = fixed;
+        for (const node of items.slice(at + 1)) {
+          if (prev.nextSibling !== node) prev.after(node);
+          prev = node;
+        }
+      } else {
+        items.forEach((node, i) => {
+          const at = tabsEl.children[i] ?? null;
+          if (at !== node) tabsEl.insertBefore(node, at);
+        });
+      }
       finishRender(hadFocus);
     }
 
@@ -486,7 +501,12 @@
       node.__ttSig = JSON.stringify(tab); // what it was drawn from: a tab that changed is drawn again
       node.querySelectorAll("button, a, input, select, textarea").forEach(c => c.setAttribute("tabindex", "-1"));
       node.addEventListener("pointerdown", e => startDrag(e, tab.id));
-      node.addEventListener("contextmenu", e => { e.preventDefault(); openMenu(e.clientX, e.clientY, tab, beforePress() ?? node); });
+      node.addEventListener("contextmenu", e => {
+        // In a field the app drew in the tab: the browser's own menu (paste, spelling).
+        if (e.target.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false])")) return;
+        e.preventDefault();
+        openMenu(e.clientX, e.clientY, tab, beforePress() ?? node);
+      });
       node.addEventListener("click", e => {
         if (!e.target.closest("[data-tt-close]")) return;
         e.stopPropagation();
@@ -571,7 +591,13 @@
     let pressed = null; // the tab under a press, until its click is done
     function startDrag(e, id) {
       // A control-click is a right click on a Mac: it opens the menu, not a drag.
-      if (e.button !== 0 || e.ctrlKey || e.target.closest(OWN_CLICKS)) return;
+      if (e.button !== 0 || e.ctrlKey) return;
+      // A press on the tab's own controls (×, the app's buttons) drags nothing, but the
+      // tab stays the element pressed until its click is done (an update meanwhile waits).
+      if (e.target.closest(OWN_CLICKS)) {
+        pressed = id;
+        return;
+      }
       closeMenu();
       pressed = id;
       activate(id);
@@ -755,8 +781,17 @@
       // changed the tabs since (one closed elsewhere): it is found by its id.
       const beside = finished.to !== finished.from ? Number(finished.els[finished.to]?.dataset.id) : null;
       const [tab] = tabs.splice(at, 1);
-      const near = tabs.findIndex(t => t.id === beside);
+      let near = tabs.findIndex(t => t.id === beside);
       let to = finished.to === finished.from ? at : near >= 0 ? near + (finished.to > finished.from ? 1 : 0) : finished.to;
+      // The tab it was dropped by went meanwhile: placed by the nearest one still there.
+      if (beside != null && near < 0) {
+        for (let d = 1; d < finished.els.length; d++) {
+          near = tabs.findIndex(t => t.id === Number(finished.els[finished.to + d]?.dataset.id));
+          if (near >= 0) { to = near; break; }
+          near = tabs.findIndex(t => t.id === Number(finished.els[finished.to - d]?.dataset.id));
+          if (near >= 0) { to = near + 1; break; }
+        }
+      }
       to = Math.min(to, tabs.length);
       tabs.splice(to, 0, tab);
       render();
@@ -874,21 +909,39 @@
         const at = tabs.findIndex(t => t.id === (typeof tab === "number" ? tab : tab?.id));
         if (at < 0) return;
         const { id: _id, ...rest } = patch; // a tab's id is Rust's, never the page's
-        // Changes made to the tab object itself are kept too; the result is a
-        // new object, so frameworks that compare objects (React) see the change.
-        const next = { ...tabs[at], ...(typeof tab === "object" ? tab : {}), ...rest, id: tabs[at].id };
+        // Changes made to the tab object itself are kept too: those since the
+        // strip handed it out (an object kept from earlier brings back none of
+        // its older values). The result is a new object, so frameworks that
+        // compare objects (React) see the change.
+        let own = {};
+        if (tab && typeof tab === "object") {
+          const was = given.get(tab);
+          if (was) {
+            for (const k of new Set([...Object.keys(was), ...Object.keys(tab)])) {
+              if (JSON.stringify(tab[k]) !== JSON.stringify(was[k])) own[k] = tab[k];
+            }
+          } else {
+            own = tab;
+          }
+        }
+        const next = { ...tabs[at], ...own, ...rest, id: tabs[at].id };
         // The object the app holds gets the patch too, so changing it later and
         // calling update(tab) again does not undo this.
-        if (tab && typeof tab === "object" && !Object.isFrozen(tab)) Object.assign(tab, rest);
+        if (tab && typeof tab === "object" && !Object.isFrozen(tab)) {
+          Object.assign(tab, rest);
+          given.set(tab, { ...tab });
+        }
         tabs = tabs.slice();
         tabs[at] = next;
+        given.set(next, { ...next });
         local(save(next));
         const old = tabEl(next.id);
         if (drag?.moved && !drag.handedOff) {
           // Drawn when the drag ends.
-        } else if (old && !hover && old.contains(document.activeElement) && document.activeElement !== old) {
-          // A field the app drew in the tab has the focus (its title being typed): the
-          // tab stays as it is until the focus leaves it.
+        } else if (old && !hover && (next.id === pressed || (old.contains(document.activeElement) && document.activeElement !== old))) {
+          // Being pressed (its click, or a double-click's second, is still to come), or
+          // a field the app drew in it has the focus (its title being typed): the tab
+          // stays the element it is until that is done.
           old.__ttStale = true;
         } else if (old && !hover) {
           // Only this tab is drawn again; it keeps the focus, and stays the one Tab reaches.
@@ -907,7 +960,8 @@
         emit("update", next);
         emit("change", { tabs, active });
       },
-      reload: load,
+      // Asked again until an answer is drawn: resolves once the strip shows Rust's newest tabs.
+      reload: current,
       reportStrip,
       on,
       destroy() {

@@ -844,16 +844,19 @@ pub(crate) fn forget_window<R: Runtime>(app: &AppHandle<R>, label: &str) {
         m.close_win(label);
         m.wins.is_empty()
     };
-    changed(app, label);
+    // Saved before the hook hears of it: a hook that opens a window when the
+    // last one closes then brings back the layout as it just was.
     if last {
         crate::persist::save(app, true);
     }
+    changed(app, label);
 }
 
 pub(crate) fn bring_to_front<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let mut m = inner(app).model();
     if let Some(pos) = m.wins.iter().position(|w| w.label == label) {
         let mut win = m.wins.remove(pos);
+        win.focused = m.next_focus();
         // Focused again after a close went ahead: it did not close after all
         // (the app kept it open), and its page is asked at the next close.
         if win.leaving {
@@ -895,19 +898,20 @@ pub(crate) fn window_count<R: Runtime>(app: &AppHandle<R>) -> usize {
 
 // The frontmost window; with none open, the remembered ones come back first.
 fn front_or_restored<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    if frontmost(app).is_none() && crate::persist::restore_saved(app) {
-        // Another thread is opening the windows: the tab waits for them and
-        // goes in the front one, not a window of its own. Not on the main
-        // thread, which may be the one they need to open.
-        let main = std::thread::current().name() == Some("main");
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        // All of them: the last to open is the one in front.
-        while !main && inner(app).restoring.load(Ordering::SeqCst) {
-            if std::time::Instant::now() >= until {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
+    if frontmost(app).is_none() {
+        crate::persist::restore_saved(app);
+    }
+    // Remembered windows still opening on another thread (the first ones may
+    // be open already): the tab waits for all of them and goes in the front
+    // one. Not on the main thread, which may be the one they need, nor on the
+    // thread opening them (the hook it calls).
+    let main = std::thread::current().name() == Some("main");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while !main && !crate::persist::restoring_here() && inner(app).restoring.load(Ordering::SeqCst) {
+        if std::time::Instant::now() >= until {
+            break;
         }
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
     frontmost(app)
 }

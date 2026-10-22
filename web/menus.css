@@ -25,8 +25,8 @@
     --tmn-disabled: var(--tauris-faint, #a3a6ad);
     /* --tmn-focus: unset, the soft halo around a focus line: --tmn-focus-line at --tmn-focus-mix */
     --tmn-focus-mix: 32%;
-    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: no lighter than oklch 0.5 in light mode, no darker than 0.75 in dark. */
-    --tmn-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
+    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: no lighter than oklch 0.5
+       in light mode, no darker than 0.75 in dark (the @supports block below). */
     --tmn-focus-line: var(--tauris-accent-ink, var(--tmn-ink-auto, #2675bf));
     /* the bar */
     --tmn-bar-h: 24px;
@@ -67,7 +67,6 @@
       --tmn-fg: var(--tauris-fg, #dfe1e5);
       --tmn-disabled: var(--tauris-faint, #6f737a);
       --tmn-focus-mix: 45%;
-      --tmn-ink-auto: oklch(from var(--tauris-accent) max(l, 0.75) c h);
       --tmn-focus-line: var(--tauris-accent-ink, var(--tmn-ink-auto, #6aa6e0));
       --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
       --tmn-bar-line: var(--tauris-line, #515356);
@@ -90,7 +89,6 @@
     --tmn-fg: var(--tauris-fg, #dfe1e5);
     --tmn-disabled: var(--tauris-faint, #6f737a);
     --tmn-focus-mix: 45%;
-    --tmn-ink-auto: oklch(from var(--tauris-accent) max(l, 0.75) c h);
     --tmn-focus-line: var(--tauris-accent-ink, var(--tmn-ink-auto, #6aa6e0));
     --tmn-bar-bg: var(--tauris-chrome, #3c3f41);
     --tmn-bar-line: var(--tauris-line, #515356);
@@ -105,6 +103,17 @@
     --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
     --tmn-tool-border: var(--tauris-line, #5e6165);
     --tmn-tool-on-bg: var(--tauris-sel-inactive, #3d5a8f);
+  }
+
+  /* The accent made readable, where the engine works colours out (relative colours: Safari 18,
+     Chromium 119). Elsewhere the fallbacks above stand.
+     (`l * 1`, not a bare `l`: Chromium 130, WebView2's engine for a while, hangs on a bare channel in clamp().) */
+  @supports (color: oklch(from red l c h)) {
+    :root { --tmn-ink-auto: oklch(from var(--tauris-accent) clamp(0, l * 1, 0.5) c h); }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-tauris-theme="light"]) { --tmn-ink-auto: oklch(from var(--tauris-accent) clamp(0.75, l * 1, 1) c h); }
+    }
+    :root[data-tauris-theme="dark"] { --tmn-ink-auto: oklch(from var(--tauris-accent) clamp(0.75, l * 1, 1) c h); }
   }
 
   /* ---------- the bar ---------- */

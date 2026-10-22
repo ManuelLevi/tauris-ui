@@ -41,15 +41,15 @@
     --tv-box-border: var(--tauris-dim, #85858f);
     --tv-box-bg: transparent;
     --tv-box-fg: var(--tauris-fg, #dcdce2);
-    --tv-box-hover: var(--tauris-accent, #8fb0ff);
+    --tv-box-hover: var(--tauris-accent-ink, var(--tv-ink-auto, #8fb0ff));
     --tv-hover-bg: var(--tauris-hover, #1f1f24);
     --tv-sel-bg: var(--tauris-sel-bg, #2b5bd6);           /* the selected row while the tree has focus */
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
     /* --tv-sel-line: unset, the selection's text at 70%: the lines and boxes on a selected row */
     --tv-sel-inactive-bg: var(--tauris-sel-inactive, #34343b);  /* the selected row while focus is elsewhere */
     /* --tv-sel-inactive-fg: unset, the text colour */
-    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: no lighter than oklch 0.5 in light mode, no darker than 0.75 in dark. */
-    --tv-ink-auto: oklch(from var(--tauris-accent) max(l, 0.75) c h);
+    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: no lighter than oklch 0.5
+       in light mode, no darker than 0.75 in dark (the @supports block below). */
     --tv-focus: var(--tauris-accent-ink, var(--tv-ink-auto, #5b8cff));
     --tv-head-bg: var(--tauris-chrome, #1c1c20);
     --tv-head-fg: var(--tauris-dim, #9e9ea8);
@@ -60,8 +60,10 @@
     --tv-edit-fg: var(--tauris-fg, #f4f4f6);
     --tv-check-bg: var(--tauris-bg, #1e1e22);
     --tv-check-border: var(--tauris-dim, #74747e);
-    --tv-check-on: var(--tauris-accent, #4d7dff);
-    /* --tv-check-mark: unset, the tick on --tv-check-on: --tauris-on-accent, else white or black, whichever reads on it */
+    --tv-check-on: var(--tauris-accent, #4d7dff);  /* a ticked box's fill */
+    /* --tv-check-on-edge: unset, a ticked box's edge: the accent as lines (--tv-focus), so the box shows on any accent */
+    /* --tv-check-mark: unset, the tick on --tv-check-on: --tauris-on-accent, else white or black, whichever reads on it.
+       --tauris-on-accent goes with --tauris-accent: give the ticks their own --tv-check-on, and give them their own --tv-check-mark too. */
     --tv-swatch-line: rgb(255 255 255 / 0.28);
     --tv-scroll-thumb: var(--tauris-line, #3b3b43);
     /* icons */
@@ -87,12 +89,11 @@
       --tv-line: var(--tauris-dim, #9a9aa4);
       --tv-box-border: var(--tauris-dim, #8b8b95);
       --tv-box-fg: var(--tauris-fg, #2c2c32);
-      --tv-box-hover: var(--tauris-accent, #2f6bff);
+      --tv-box-hover: var(--tauris-accent-ink, var(--tv-ink-auto, #2f6bff));
       --tv-hover-bg: var(--tauris-hover, #f0f2f6);
       --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
       --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
       --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
-      --tv-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
       --tv-focus: var(--tauris-accent-ink, var(--tv-ink-auto, #2f6bff));
       --tv-head-bg: var(--tauris-chrome, #f6f6f8);
       --tv-head-fg: var(--tauris-dim, #5c5c66);
@@ -126,12 +127,11 @@
     --tv-line: var(--tauris-dim, #9a9aa4);
     --tv-box-border: var(--tauris-dim, #8b8b95);
     --tv-box-fg: var(--tauris-fg, #2c2c32);
-    --tv-box-hover: var(--tauris-accent, #2f6bff);
+    --tv-box-hover: var(--tauris-accent-ink, var(--tv-ink-auto, #2f6bff));
     --tv-hover-bg: var(--tauris-hover, #f0f2f6);
     --tv-sel-bg: var(--tauris-sel-bg, #2a64f0);
     --tv-sel-fg: var(--tauris-sel-fg, #ffffff);
     --tv-sel-inactive-bg: var(--tauris-sel-inactive, #d7d9e0);
-    --tv-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
     --tv-focus: var(--tauris-accent-ink, var(--tv-ink-auto, #2f6bff));
     --tv-head-bg: var(--tauris-chrome, #f6f6f8);
     --tv-head-fg: var(--tauris-dim, #5c5c66);
@@ -154,6 +154,17 @@
     --tv-icon-image: #17985c;
     --tv-icon-package: #cc6a22;
     --tv-icon-lock: #7a7a83;
+  }
+
+  /* The accent made readable, where the engine works colours out (relative colours: Safari 18,
+     Chromium 119). Elsewhere the fallbacks above stand.
+     (`l * 1`, not a bare `l`: Chromium 130, WebView2's engine for a while, hangs on a bare channel in clamp().) */
+  @supports (color: oklch(from red l c h)) {
+    :root { --tv-ink-auto: oklch(from var(--tauris-accent) clamp(0.75, l * 1, 1) c h); }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-tauris-theme="dark"]) { --tv-ink-auto: oklch(from var(--tauris-accent) clamp(0, l * 1, 0.5) c h); }
+    }
+    :root[data-tauris-theme="light"] { --tv-ink-auto: oklch(from var(--tauris-accent) clamp(0, l * 1, 0.5) c h); }
   }
 
   /* ---------- frame ---------- */
@@ -486,18 +497,21 @@
   }
 
   .tv-check.tv-on {
-    border-color: var(--tv-check-on);
+    border-color: var(--tv-check-on-edge, var(--tv-focus));
     background: var(--tv-check-on);
   }
 
-  .tv-check.tv-on::after { border-color: var(--tv-check-mark, var(--tauris-on-accent, color(from var(--tv-check-on) xyz-d65 calc(0.9505 * clamp(0, (0.179 - y) * 1e9, 1)) clamp(0, (0.179 - y) * 1e9, 1) calc(1.089 * clamp(0, (0.179 - y) * 1e9, 1))))); }
+  .tv-check.tv-on { --tv-tick: var(--tv-check-mark, var(--tauris-on-accent, #fff)); }
+  /* Where the engine works colours out (relative colours: Safari 18, Chromium 119): white or black, whichever reads on the fill. */
+  @supports (color: color(from red xyz-d65 x y z)) {
+    .tv-check.tv-on { --tv-tick: var(--tv-check-mark, var(--tauris-on-accent, color(from var(--tv-check-on) xyz-d65 calc(0.9505 * clamp(0, (0.179 - y) * 1e9, 1)) clamp(0, (0.179 - y) * 1e9, 1) calc(1.089 * clamp(0, (0.179 - y) * 1e9, 1))))); }
+  }
+  .tv-check.tv-on::after { border-color: var(--tv-tick); }
 
   /* On the selection, an empty box is edged in the selection's text colour (it reads on the tint). */
   .tv-body:focus-within .tv-row[aria-selected="true"] .tv-check:not(.tv-on) { border-color: var(--tv-sel-fg); }
 
-  .tv-body:focus-within .tv-row[aria-selected="true"] .tv-check.tv-on {
-    border-color: var(--tv-check-mark, var(--tauris-on-accent, color(from var(--tv-check-on) xyz-d65 calc(0.9505 * clamp(0, (0.179 - y) * 1e9, 1)) clamp(0, (0.179 - y) * 1e9, 1) calc(1.089 * clamp(0, (0.179 - y) * 1e9, 1)))));
-  }
+  .tv-body:focus-within .tv-row[aria-selected="true"] .tv-check.tv-on { border-color: var(--tv-tick); }
 
   .tv-body:focus-within .tv-row[aria-selected="true"] .tv-swatch {
     box-shadow: 0 0 0 1px var(--tv-sel-fg);

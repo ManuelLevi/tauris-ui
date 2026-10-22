@@ -1008,6 +1008,80 @@ with sync_playwright() as p:
           tick in ("rgb(0, 0, 0)", "color(xyz-d65 0 0 0)") and tick2 in ("rgb(0, 0, 0)", "color(xyz-d65 0 0 0)"), (tick, tick2))
     page.close()
 
+    # A light accent on a light tree: a ticked box and a hovered +/- box are edged in the accent made readable (3:1), not the accent.
+    for scheme in ("light", "dark"):
+        page = fresh(browser, scheme)
+        page.add_style_tag(content=":root { --tauris-accent: %s; }" % ("#ffd400" if scheme == "light" else "#000080"))
+        page.evaluate("(" + MINE + ")({ columns: [{ label: 'Name' }, { label: 'On', key: 'on', editable: true }],"
+                      " data: [{ id: 'a', label: 'A', values: { on: true }, children: [{ id: 'b', label: 'B' }] }] }); 0")
+        page.hover("#mine .tv-box")
+        page.wait_for_timeout(50)
+        colours = page.evaluate("""(() => { const c = s => getComputedStyle(document.querySelector(s));
+          return [c('#mine .tv-check.tv-on').borderTopColor, c('#mine .tv-box').borderTopColor, c('#mine .tv-body').getPropertyValue('--tv-bg').trim()]; })()""")
+        ratios = page.evaluate("""(cs) => { const rgb = c => { const cv = document.createElement('canvas').getContext('2d'); cv.fillStyle = c; cv.fillRect(0, 0, 1, 1);
+            return [...cv.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+          const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+          const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+          return [ratio(cs[0], cs[2]), ratio(cs[1], cs[2])]; }""", colours)
+        check(f"--tauris-accent alone ({scheme}): a ticked box and a hovered +/- box show on the tree (3:1)", min(ratios) >= 3, (colours, ratios))
+        page.close()
+
+    # ---------- an eleventh review ----------
+    page = fresh(browser)
+    page.evaluate("(" + MINE + ")({ columns: [{ label: 'Name' }, { label: 'T', key: 't', editable: true }, { label: 'On', key: 'on', editable: true }],"
+                  " data: [{ id: 'a', label: 'A', values: { t: 'x', on: false } }, { id: 'b', label: 'B', values: { t: 'y', on: true } }] }); 0")
+    page.click("#mine .tv-row[data-key=a] .tv-label")
+    page.keyboard.press("Enter")
+    page.keyboard.press("Tab")
+    page.keyboard.press("Shift+Tab")
+    check("Shift+Tab from a checkbox goes back to the field before it (not out of the tree)",
+          page.evaluate("document.activeElement.classList.contains('tv-editor')"), page.evaluate("document.activeElement.className"))
+    page.keyboard.press("Tab")
+    page.evaluate("t.setData([{ id: 'a', label: 'A', values: { t: 'x', on: false } }, { id: 'b', label: 'B', values: { t: 'y', on: true } }]); 0")
+    check("new data while a checkbox has the focus: it keeps it", page.evaluate("document.activeElement.getAttribute('role')") == "checkbox",
+          page.evaluate("document.activeElement.className"))
+    page.keyboard.press("Escape")
+    page.mouse.click(*(lambda r: (r["x"] + 40, r["y"] + r["height"] - 6))(page.locator("#mine").bounding_box()))
+    check("a press on the empty space below the rows keeps the focus in the tree", page.evaluate("document.activeElement.closest('#mine') !== null"),
+          page.evaluate("document.activeElement.tagName"))
+    page.click("#mine .tv-row[data-key=b] .tv-label", button="right")
+    page.keyboard.press("ArrowUp")
+    check("a right click moves neither the selection nor the focus the keys use", page.evaluate("t.selected()?.id") == "a", page.evaluate("t.selected()?.id"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("(" + MINE + ")({ columns: [{ label: 'Name' }, { label: 'N', key: 'n', editable: true, editor: { type: 'number', min: 10, max: 16 } }],"
+                  " data: [{ id: 'r', label: 'R', values: { n: 10 } }] }); 0")
+    page.evaluate("t.edit('r', 'n'); 0")
+    page.keyboard.press("ControlOrMeta+a")
+    page.keyboard.type("1")
+    page.evaluate("t.setData([{ id: 'r', label: 'R', values: { n: 11 } }]); 0")
+    page.keyboard.type("5")
+    page.keyboard.press("Enter")
+    check("what was typed is kept through new data, even a start that reads as the old value (1, on the way to 15)",
+          page.evaluate("t.get('r').values.n") == 15, page.evaluate("t.get('r').values.n"))
+    page.evaluate("t.edit('r', 'n'); 0")
+    page.keyboard.type("2")
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.evaluate("t.setData([{ id: 'g', label: 'Group', children: [{ id: 'r', label: 'R', values: { n: 15 } }] }]); 0")
+    page.wait_for_timeout(50)
+    check("new data putting the row being edited in a closed folder: the edit ends without an error, its value said for the new node",
+          not errors and page.locator("#mine .tv-editor").count() == 0 and page.evaluate("got")[-1] == ["r", "n", 10],  # 2, kept to min 10
+          (errors, page.evaluate("got")))
+    page.close()
+
+    page = fresh(browser)
+    page.set_viewport_size({"width": 450, "height": 400})
+    page.evaluate("(" + MINE + ")({ columns: [{ label: 'Name', width: 240 }, { label: 'T', key: 't', editable: true, width: 200 }, { label: 'On', key: 'on', editable: true, width: 120 }],"
+                  " data: [{ id: 'a', label: 'A', values: { t: 'x', on: false } }] }); document.getElementById('mine').style.width = '440px'; 0")
+    page.click("#mine .tv-row[data-key=a] .tv-label")
+    page.keyboard.press("Enter")
+    page.keyboard.press("Tab")
+    seen = page.evaluate("(() => { const c = document.activeElement.getBoundingClientRect(), s = document.querySelector('#mine .tv-scroll').getBoundingClientRect(); return c.right <= s.right + 1 && c.left >= s.left - 1; })()")
+    check("a checkbox reached with Tab in a column off to the side comes into view", seen)
+    page.close()
+
     # ---------- light mode ----------
     page = fresh(browser, "light")
     bg = page.evaluate("getComputedStyle(document.getElementById('files')).backgroundColor")

@@ -528,6 +528,18 @@ with sync_playwright() as p:
     page.close()
 
     page = fresh(browser)
+    page.evaluate("document.getElementById('cmd').setAttribute('dir', 'rtl'); demo.cmd.clear(); demo.cmd.focus()")
+    page.keyboard.insert_text("שלום")
+    page.evaluate(TWO_FRAMES)
+    sits = page.evaluate("""(() => { const i = document.querySelector('.tm-cmd-input'); const c = document.querySelector('.tm-cmd .tm-cursor').getBoundingClientRect();
+      const cs = getComputedStyle(i); const m = document.createElement('span'); m.style.font = cs.font; m.style.position = 'absolute'; m.style.whiteSpace = 'pre';
+      m.textContent = i.value; document.body.append(m); const w = m.getBoundingClientRect().width; m.remove();
+      const caret = i.getBoundingClientRect().right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth) - w;
+      return [Math.round(c.right), Math.round(caret)]; })()""")
+    check("right-to-left: the block covers the character before the caret's left, not the last one typed", abs(sits[0] - sits[1]) <= 2, sits)
+    page.close()
+
+    page = fresh(browser)
     rows = page.evaluate("""(() => { const ol = document.createElement('ol'); ol.style.cssText = 'height:120px;overflow:auto;overflow-anchor:none'; /* as WebKit: no scroll anchoring */ document.body.prepend(ol);
       const log = TaurisTerminal.log(ol, { max: 20 }); for (let i = 1; i <= 20; i++) log.add(`ROW ${i}`);
       const r9 = [...ol.children][8]; ol.scrollTop = r9.offsetTop - ol.firstElementChild.offsetTop;
@@ -547,6 +559,17 @@ with sync_playwright() as p:
       const before = document.adoptedStyleSheets.length; t.destroy(); TaurisTerminal.mount(document.createElement('div'));
       return [before, document.adoptedStyleSheets.length]; }""")
     check("styles: false keeps every part from adding the stylesheet; a later mount without it adds it", sheets == [0, 1], sheets)
+    page.close()
+
+    page = browser.new_page(viewport={"width": 600, "height": 300})
+    page.add_init_script(term_js)
+    page.goto("about:blank")
+    sheets = page.evaluate("""() => { const div = () => document.body.appendChild(document.createElement('div'));
+      const a = TaurisTerminal.mount(div(), { styles: false }); TaurisTerminal.mount(div(), { styles: false }); a.destroy();
+      TaurisTerminal.log(document.createElement('ul')); const one = document.adoptedStyleSheets.length;
+      TaurisTerminal.log(document.createElement('ul'), { styles: true }); return [one, document.adoptedStyleSheets.length]; }""")
+    check("two terminals with styles: false, one gone: the other still keeps the parts from adding it; styles: true adds it",
+          sheets == [0, 1], sheets)
     page.close()
 
     # ---------- mount and destroy ----------

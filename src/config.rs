@@ -117,7 +117,8 @@ impl<R: Runtime> Config<R> {
     /// Where the layout is remembered between runs (default: `tabs.json` in the
     /// app's data folder). Return None to remember nothing. It can be called
     /// inside Tauri's plugin lock (⌘W on the last tab, quitting): it must not
-    /// open a window or wait for the main thread (a panic there saves nothing).
+    /// open a window or wait for the main thread. A panic there saves nothing,
+    /// and forgets nothing either (closing the last tab then leaves the file).
     pub fn layout_file(mut self, file: impl Fn(&AppHandle<R>) -> Option<PathBuf> + Send + Sync + 'static) -> Self {
         self.layout_file = Some(Arc::new(file));
         self

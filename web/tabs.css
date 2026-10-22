@@ -36,8 +36,8 @@
     --tt-hover-bg: var(--tauris-hover, #222226);
     --tt-active-bg: var(--tauris-bg, #0f0f11);        /* make it your page's background */
     --tt-active-border: transparent;
-    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: no lighter than oklch 0.5 in light mode, no darker than 0.75 in dark. */
-    --tt-ink-auto: oklch(from var(--tauris-accent) max(l, 0.75) c h);
+    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: no lighter than oklch 0.5
+       in light mode, no darker than 0.75 in dark (the @supports block below). */
     --tt-accent: var(--tauris-accent-ink, var(--tt-ink-auto, #5b8cff));           /* the bar along the top of the active tab */
     --tt-accent-size: 2px;
     --tt-separator: var(--tauris-line, #2c2c31);        /* the thin line between idle tabs */
@@ -69,6 +69,7 @@
     --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
     --tt-menu-muted: var(--tauris-dim, #a4a4ad);
     --tt-menu-danger: #fa8a8a;
+    --tt-menu-focus: var(--tauris-accent-ink, var(--tt-ink-auto, #5b8cff));   /* a menu item's focus line: the menu's mode, not --tt-accent (made for the strip) */
   }
 
   /* The system's light mode, unless the app chose a mode with
@@ -83,7 +84,6 @@
       --tt-fg-active: var(--tauris-fg, #111114);
       --tt-hover-bg: var(--tauris-hover, #e1e1e6);
       --tt-active-bg: var(--tauris-bg, #ffffff);
-      --tt-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
       --tt-accent: var(--tauris-accent-ink, var(--tt-ink-auto, #2f6bff));
       --tt-separator: var(--tauris-line, #d0d0d6);
       --tt-drag-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
@@ -94,6 +94,7 @@
       --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
       --tt-menu-muted: var(--tauris-dim, #686871);
       --tt-menu-danger: #b3261e;
+      --tt-menu-focus: var(--tauris-accent-ink, var(--tt-ink-auto, #2f6bff));
     }
   }
 
@@ -106,7 +107,6 @@
     --tt-fg-active: var(--tauris-fg, #111114);
     --tt-hover-bg: var(--tauris-hover, #e1e1e6);
     --tt-active-bg: var(--tauris-bg, #ffffff);
-    --tt-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
     --tt-accent: var(--tauris-accent-ink, var(--tt-ink-auto, #2f6bff));
     --tt-separator: var(--tauris-line, #d0d0d6);
     --tt-drag-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
@@ -117,6 +117,18 @@
     --tt-menu-shadow: 0 10px 30px rgb(0 0 0 / 0.16);
     --tt-menu-muted: var(--tauris-dim, #686871);
     --tt-menu-danger: #b3261e;
+    --tt-menu-focus: var(--tauris-accent-ink, var(--tt-ink-auto, #2f6bff));
+  }
+
+  /* The accent made readable, where the engine works colours out (relative colours: Safari 18,
+     Chromium 119). Elsewhere the fallbacks above stand.
+     (`l * 1`, not a bare `l`: Chromium 130, WebView2's engine for a while, hangs on a bare channel in clamp().) */
+  @supports (color: oklch(from red l c h)) {
+    :root { --tt-ink-auto: oklch(from var(--tauris-accent) clamp(0.75, l * 1, 1) c h); }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-tauris-theme="dark"]) { --tt-ink-auto: oklch(from var(--tauris-accent) clamp(0, l * 1, 0.5) c h); }
+    }
+    :root[data-tauris-theme="light"] { --tt-ink-auto: oklch(from var(--tauris-accent) clamp(0, l * 1, 0.5) c h); }
   }
 
   .tt-strip {
@@ -342,9 +354,12 @@
     color: var(--tt-fg-hover);
   }
 
-  .tt-new:focus-visible,
-  .tt-menu-item:focus-visible {
+  .tt-new:focus-visible {
     outline: 2px solid var(--tt-focus, var(--tauris-accent-ink, var(--tt-accent)));
+    outline-offset: -2px;
+  }
+  .tt-menu-item:focus-visible {
+    outline: 2px solid var(--tt-menu-focus);
     outline-offset: -2px;
   }
 

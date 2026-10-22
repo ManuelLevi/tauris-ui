@@ -956,6 +956,82 @@ with sync_playwright() as p:
     check("a menu scrolled leaves no sub-menu hanging beside a row that moved", page.locator(".tmn-menu").count() == 1, page.locator(".tmn-menu").count())
     page.close()
 
+    # ---------- an eleventh review ----------
+    page = fresh(browser)
+    page.evaluate("""(() => { const b = document.createElement('button'); b.id = 'many'; b.textContent = 'Many'; b.style.cssText = 'position:fixed;left:300px;top:40px';
+      document.body.append(b); window.itemsMany = Array.from({ length: 60 }, (_, i) => i === 40 ? { label: 'Sub 40', items: [{ label: 'Alpha' }, { label: 'Beta' }] } : { label: 'Item ' + i });
+      window.manyMenu = TaurisMenu.button(b, { items: itemsMany }); return 0; })()""")
+    page.focus("#many")
+    page.keyboard.press("Enter")
+    for _ in range(40):
+        page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowRight")
+    page.evaluate("manyMenu.setItems(itemsMany); 0")
+    page.wait_for_timeout(50)
+    check("new items while a scrolled menu has its sub-menu open: both stay, the focus in the sub-menu",
+          page.locator(".tmn-menu").count() == 2 and focused(page) == "Alpha", (page.locator(".tmn-menu").count(), focused(page)))
+    page.keyboard.press("Escape")
+    page.keyboard.press("ArrowRight")
+    # A scroll event that moved nothing (the browser's, for the arrow key just before the sub-menu opened).
+    page.evaluate("document.querySelector('.tmn-menu').dispatchEvent(new Event('scroll')); 0")
+    page.wait_for_timeout(50)
+    check("a late scroll event that moved no row leaves the sub-menu open", page.locator(".tmn-menu").count() == 2 and focused(page) == "Alpha",
+          (page.locator(".tmn-menu").count(), focused(page)))
+    page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""(() => { const b = document.createElement('button'); b.id = 'gapped'; b.textContent = 'Gap'; b.style.cssText = 'position:fixed;left:300px;top:40px';
+      document.body.append(b); TaurisMenu.button(b, { items: [{ label: 'One' }], gap: 20 }); return 0; })()""")
+    page.click("#gapped")
+    page.wait_for_selector(".tmn-menu")
+    page.wait_for_timeout(300)  # its opening slide done
+    gap = page.evaluate("Math.round(document.querySelector('.tmn-menu').getBoundingClientRect().top - document.getElementById('gapped').getBoundingClientRect().bottom)")
+    page.evaluate("TaurisMenu.close(); 0")
+    check("gap puts that much room between a button and its menu; TaurisMenu.close() closes the open menu",
+          gap == 20 and page.locator(".tmn-menu").count() == 0, gap)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("""(() => { const pop = document.createElement('div'); pop.popover = 'auto'; pop.id = 'pop'; pop.style.cssText = 'margin:0;left:100px;top:100px;width:300px;height:160px';
+      pop.innerHTML = '<div id="prow" style="height:40px">row</div>'; document.body.append(pop); pop.showPopover();
+      window.popGot = []; document.getElementById('prow').addEventListener('contextmenu', e => { e.preventDefault();
+        TaurisMenu.open([{ label: 'Open', action: () => popGot.push('open') }], { x: e.clientX, y: e.clientY }); }); return 0; })()""")
+    page.click("#prow", button="right")
+    page.wait_for_timeout(100)
+    page.click(".tmn-menu .tmn-item")
+    check("a right-click menu inside an app's popover (the focus elsewhere) is drawn over it, and works", page.evaluate("popGot") == ["open"], page.evaluate("popGot"))
+    page.close()
+
+    page = fresh(browser)
+    own(page, "() => [{ label: 'Edit', items: [{ label: 'Rename', action: () => ran.push('rename') }, { label: 'Save a copy', action: () => ran.push('copy') },"
+              " { label: 'Recent', items: [{ label: 'R1' }] }, { label: 'Zoom In', shortcut: '⌘+' }, { label: 'Weird', shortcut: '⌘ then K' }] }]")
+    page.focus(TITLE("Edit"))
+    page.keyboard.press("Enter")
+    page.keyboard.press("s")
+    page.keyboard.press(" ")
+    check("Space right after a letter chooses the item when no label goes on with a space", page.evaluate("ran") == ["copy"], page.evaluate("ran"))
+    page.focus(TITLE("Edit"))
+    page.keyboard.press("Enter")
+    page.evaluate("[...document.querySelectorAll('.tmn-menu .tmn-item')].find(n => n.textContent.startsWith('Recent')).click(); 0")
+    check("a click no pointer made on an item with a sub-menu opens it with the focus in it", focused(page) == "R1", focused(page))
+    page.keyboard.press("Escape")
+    keys = page.evaluate("""[...document.querySelectorAll('.tmn-menu .tmn-item')].filter(n => /Zoom|Weird/.test(n.textContent))
+      .map(n => [n.getAttribute('aria-keyshortcuts'), n.querySelector('.tmn-shortcut').getAttribute('aria-hidden')])""")
+    check("⌘+ is said as Meta+Plus; a shortcut it cannot say stays readable", keys == [["Meta+Plus", "true"], [None, None]], keys)
+    page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
+    box = rect(page, TITLE("Edit"))
+    page.mouse.move(box["x"] + 8, box["y"] + 8)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 30, box["y"] + 60, steps=4)
+    page.mouse.move(700, 450, steps=6)
+    page.mouse.up()
+    check("press on a title, drag through its menu, release elsewhere: it closes, nothing chosen",
+          page.locator(".tmn-menu").count() == 0 and page.evaluate("ran") == ["copy"], (page.locator(".tmn-menu").count(), page.evaluate("ran")))
+    page.close()
+
     browser.close()
 
 print()

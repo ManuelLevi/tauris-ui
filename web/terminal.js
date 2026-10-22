@@ -35,9 +35,11 @@
   // Filled in by the plugin; left as is when the file is loaded on its own.
   const CSS = "__TAURIS_TERMINAL_CSS__";
   let stylesAdded = false;
-  let ownStyles = false; // mount(root, { styles: false }): the page brings its own
-  function addStyles() {
-    if (stylesAdded || ownStyles || CSS.startsWith("__TAURIS")) return;
+  // Roots mounted with { styles: false } (the page brings its own): while one
+  // lives, the parts add no stylesheet unless one asks for it (styles: true).
+  let ownStyles = 0;
+  function addStyles(asked = false) {
+    if (stylesAdded || (ownStyles > 0 && !asked) || CSS.startsWith("__TAURIS")) return;
     stylesAdded = true;
     // A constructed sheet is not blocked by a page's style-src policy.
     try {
@@ -118,8 +120,8 @@
     need(root, "mount");
     if (root.__taurisTerminal) throw new Error("TaurisTerminal.mount: this element is already a terminal; call destroy() first");
     const opt = { styles: true, ...options };
-    if (opt.styles) addStyles();
-    else ownStyles = true; // nor do the command line, the log or a pane add them later
+    if (opt.styles) addStyles(options.styles === true);
+    else ownStyles++; // nor do the command line, the log or a pane add them later
     const ownedStyles = !opt.styles;
     root.__taurisTerminal = true;
     // An app that writes class="tm" itself keeps it after destroy() (React StrictMode mounts twice).
@@ -198,7 +200,7 @@
       destroy() {
         life.abort();
         unwatchClocks(root);
-        if (ownedStyles) ownStyles = false; // a later mount may add them again
+        if (ownedStyles) ownStyles--; // once none is left, a later mount may add them again
         if (addedClass) root.classList.remove("tm");
         delete root.__taurisTerminal;
       },
@@ -213,7 +215,7 @@
 
   // The parts take { styles: false } too, for a page that makes them before mount().
   const partStyles = options => {
-    if (options.styles !== false) addStyles();
+    if (options.styles !== false) addStyles(options.styles === true);
   };
 
   function commandLine(element, options = {}) {
@@ -269,8 +271,11 @@
       const at = input.selectionDirection === "backward" ? input.selectionStart : input.selectionEnd;
       // Kept inside the field: at the end of a line that scrolls, the block
       // would start at its right edge and hang out.
-      const x = caretX(at ?? input.value.length) - input.scrollLeft;
-      const room = Math.max(0, input.clientWidth - cursor.getBoundingClientRect().width);
+      // In right-to-left text the next character is on the caret's left: the block sits there.
+      const width = cursor.getBoundingClientRect().width;
+      const rtl = getComputedStyle(input).direction === "rtl";
+      const x = caretX(at ?? input.value.length) - input.scrollLeft - (rtl ? width : 0);
+      const room = Math.max(0, input.clientWidth - width);
       entry.style.setProperty("--tm-caret-x", `${Math.min(Math.max(x, 0), room)}px`);
       entry.style.setProperty("--tm-scroll", "0px");
       // Solid while typing; it blinks again once the typing stops.

@@ -101,16 +101,30 @@ pub(crate) fn restore<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 // for here: the other one may need this thread to open its windows.
 struct Restoring(&'static AtomicBool);
 
+thread_local! {
+    // This thread is the one opening the remembered windows (and the hook it calls).
+    static RESTORING_HERE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+pub(crate) fn restoring_here() -> bool {
+    RESTORING_HERE.with(|r| r.get())
+}
+
 impl Restoring {
     fn claim<R: Runtime>(app: &AppHandle<R>) -> Option<Self> {
         let flag = &inner(app).restoring;
         // `then`, not `then_some`: a guard made and dropped would clear the flag.
-        (!flag.swap(true, Ordering::SeqCst)).then(|| Restoring(flag))
+        let claimed = (!flag.swap(true, Ordering::SeqCst)).then(|| Restoring(flag));
+        if claimed.is_some() {
+            RESTORING_HERE.with(|r| r.set(true));
+        }
+        claimed
     }
 }
 
 impl Drop for Restoring {
     fn drop(&mut self) {
+        RESTORING_HERE.with(|r| r.set(false));
         self.0.store(false, Ordering::SeqCst);
     }
 }
@@ -135,8 +149,19 @@ fn open_saved<R: Runtime>(app: &AppHandle<R>) -> bool {
     if crate::windows::quitting(app) {
         return false;
     }
+    // The last window closed a moment ago, its save maybe not written yet (it
+    // waits while a restore runs): written first, so the newest layout is the
+    // one that comes back.
+    if !inner(app).model().closing.is_empty() {
+        save_with(app, true, true);
+    }
     let Some(file) = layout_file(app).filter(|f| f.is_file()) else { return false };
-    let saved: Vec<SavedWin> = match fs::read_to_string(&file).map(|t| serde_json::from_str(&t)) {
+    // Read with no save writing it meanwhile.
+    let text = {
+        let _writing = inner(app).save_lock();
+        fs::read_to_string(&file)
+    };
+    let saved: Vec<SavedWin> = match text.map(|t| serde_json::from_str(&t)) {
         Ok(Ok(saved)) => saved,
         _ => {
             let _ = fs::rename(&file, file.with_extension("unreadable"));
@@ -285,6 +310,11 @@ pub(crate) fn forget<R: Runtime>(app: &AppHandle<R>) {
 // Saves the layout: once it has settled, or at once with `now`. Never an
 // empty one, so closing the last window keeps what it showed.
 pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
+    save_with(app, now, false);
+}
+
+// `while_restoring`: the restore itself saves the windows that closed, before it reads the file.
+fn save_with<R: Runtime>(app: &AppHandle<R>, now: bool, while_restoring: bool) {
     let state = inner(app);
     // One save at a time, from deciding what to write to the file being in place.
     let _writing = state.save_lock();
@@ -303,28 +333,38 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
             _ => false,
         };
         // While remembered windows are opening, the file still holds them all.
-        if !due || state.restoring.load(Ordering::SeqCst) {
+        if !due || (state.restoring.load(Ordering::SeqCst) && !while_restoring) {
             return;
         }
         m.saved();
         state.retry_now.store(false, Ordering::SeqCst);
         // Windows closed a moment ago are kept only by a save at once (the app
         // quitting closes them one by one); a save after a pause leaves them out.
-        let mut closed: Vec<&crate::model::Closed> = m.closing.iter().filter(|_| now).collect();
-        closed.sort_by_key(|c| c.order); // stable: the same place keeps the order they closed in
-        let just_closed = closed.into_iter().map(|c| SavedWin {
-            active: c.win.active.and_then(|a| c.win.tabs.iter().position(|t| *t == a)).unwrap_or(0),
-            tabs: c.tabs.clone(),
-            frame: c.win.frame,
+        let just_closed = m.closing.iter().filter(|_| now).map(|c| {
+            (
+                c.order,
+                SavedWin {
+                    active: c.win.active.and_then(|a| c.win.tabs.iter().position(|t| *t == a)).unwrap_or(0),
+                    tabs: c.tabs.clone(),
+                    frame: c.win.frame,
+                },
+            )
         });
         // A window still opening may never show (the app is quitting): left out.
-        let open = m.wins.iter().filter(|w| !w.opening).map(|w| SavedWin {
-            tabs: w.tabs.iter().filter_map(|id| m.tabs.get(id).cloned()).collect(),
-            active: w.active.and_then(|a| w.tabs.iter().position(|t| *t == a)).unwrap_or(0),
-            frame: w.frame,
+        let open = m.wins.iter().filter(|w| !w.opening).map(|w| {
+            (
+                w.focused,
+                SavedWin {
+                    tabs: w.tabs.iter().filter_map(|id| m.tabs.get(id).cloned()).collect(),
+                    active: w.active.and_then(|a| w.tabs.iter().position(|t| *t == a)).unwrap_or(0),
+                    frame: w.frame,
+                },
+            )
         });
-        // The frontmost window is saved last, so it opens in front.
-        just_closed.chain(open).filter(|w| !w.tabs.is_empty()).collect()
+        // In the order they were last in front, the frontmost last, so it opens in front.
+        let mut all: Vec<(u64, SavedWin)> = just_closed.chain(open).filter(|(_, w)| !w.tabs.is_empty()).collect();
+        all.sort_by_key(|(focused, _)| *focused);
+        all.into_iter().map(|(_, w)| w).collect()
     };
     if saved.is_empty() {
         return;
@@ -337,7 +377,8 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
     // on the disk before the move, so a power cut never leaves an empty one.
     // Readable by the owner only: tab titles can be people's names. The name
     // aside is this process's own: two copies of the app never write one file.
-    let tmp = file.with_extension(format!("json.{}.tmp", std::process::id()));
+    let name = file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let tmp = file.with_file_name(format!("{name}.{}.tmp", std::process::id()));
     let written = {
         use std::io::Write;
         let mut options = fs::OpenOptions::new();

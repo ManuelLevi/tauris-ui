@@ -63,14 +63,16 @@ Set them on `:root` (on another element they do not reach the components). Which
 | `--tauris-font` | ✓ | ✓ | ✓ | ✓ |
 | `--tauris-bg`, `--tauris-fg`, `--tauris-line`, `--tauris-hover` | ✓ | ✓ | ✓ | ✓ |
 | `--tauris-chrome`, `--tauris-dim` | ✓ | ✓ | ✓ | ✓ (chrome) |
-| `--tauris-accent` | ✓ | ✓ (also its focus lines) | ✓ | ✓ (focus lines, without `--tauris-accent-ink`) |
+| `--tauris-accent` | ✓ (without `--tauris-accent-ink`: the active tab's bar and focus lines, made readable) | ✓ (the ticked boxes; without `--tauris-accent-ink`, made readable: focus lines and box edges) | ✓ (the buttons; without `--tauris-accent-ink`, made readable: the lines) | ✓ (without `--tauris-accent-ink`: focus lines, made readable) |
 | `--tauris-sel-bg`, `--tauris-sel-fg` | | ✓ | ✓ | ✓ |
 | `--tauris-sel-inactive` | | ✓ | | ✓ (an open title, a pressed button) |
 | `--tauris-faint` | | | | ✓ |
 | `--tauris-focus` | | | ✓ | ✓ |
-| `--tauris-accent-ink` | ✓ (focus lines) | ✓ (focus lines, the sort arrow) | ✓ | ✓ (focus lines) |
+| `--tauris-accent-ink` | ✓ (the active tab's bar, focus lines) | ✓ (focus lines, box edges, the sort arrow) | ✓ (lines, the sort arrow, the drop zone) | ✓ (focus lines) |
 | `--tauris-mono` | | | ✓ | |
-| `--tauris-on-accent` | | ✓ (the checkbox tick) | ✓ | |
+| `--tauris-on-accent` | | ✓ (the checkbox tick) | ✓ (text on the buttons) | |
+
+"Made readable": the accent no lighter than oklch 0.5 in light mode, no darker than 0.75 in dark, where the engine works colours out (Safari 18, Chromium 119; elsewhere the component's own default). Unset, `--tauris-on-accent` is white or black, whichever reads on the accent. Set, it is the text on every component's accent: a component given an accent of its own (`--tf-accent`, `--tv-check-on`) needs its own text colour with it (`--tf-on-accent`, `--tv-check-mark`).
 
 **Light and dark.** Every component follows the system's light or dark mode. An app with its own switch, or one that is always light or always dark, sets `data-tauris-theme="light"` or `"dark"` on `<html>`, and every component (all its colours, its scrollbars and checkboxes, not only the ones above) follows the app instead:
 
@@ -512,7 +514,7 @@ Open `test/files_demo.html` in a browser to try it with the menus below.
 
 **The app keeps the files** (on its server, in a folder): the component shows them and hands every action to the app. Only the actions the app gives appear.
 
-**Setup.** The page side comes with the plugin. Dropping files and the picker reach Tauri through `window.__TAURI__`, so `app.withGlobalTauri` must be true, and the window needs `tauris-ui:default` in a capability (the tab windows have it already). For the system's picker and save dialog, turn on the `files` feature and register the dialog plugin:
+**Setup.** The page side comes with the plugin. Dropping files and the picker reach Tauri through `window.__TAURI__`, so `app.withGlobalTauri` must be true, and the window needs `core:default` (dropped files arrive as events) and `tauris-ui:default` (the picker) in a capability (the tab windows have both already). For the system's picker and save dialog, turn on the `files` feature and register the dialog plugin:
 
 ```toml
 tauris-ui = { path = "../tauris-ui", version = "0.4", features = ["files"] }
@@ -637,7 +639,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 
 Types are in `web/files.d.ts`: copy it into a TypeScript app.
 
-**The look:** every size and colour is a `--tf-*` variable at the top of `web/files.css` (set them outside every `@layer` block). An app with its own colour tokens maps them: `--tf-accent: var(--accent); --tf-bg: var(--field);`. `--tf-accent-ink` is the accent as text and lines (the drop zone, the sort arrow): keep it readable on `--tf-bg`. The columns have fixed widths, so they stay put while searching: `--tf-size-w`, `--tf-added-w`, `--tf-by-w` and `--tf-acts-w` change them, and the name takes the rest. The defaults follow the system's light or dark mode; an app with its own light/dark switch sets the variables for each.
+**The look:** every size and colour is a `--tf-*` variable at the top of `web/files.css` (set them outside every `@layer` block). An app with its own colour tokens maps them: `--tf-accent: var(--accent); --tf-bg: var(--field);`. `--tf-accent-ink` is the accent as text and lines (the drop zone, the sort arrow): unset, it is `--tf-accent` made readable on the list; set it to keep your own. The columns have fixed widths, so they stay put while searching: `--tf-size-w`, `--tf-added-w`, `--tf-by-w` and `--tf-acts-w` change them, and the name takes the rest. The defaults follow the system's light or dark mode; an app with its own light/dark switch sets the variables for each.
 
 ## Menus
 

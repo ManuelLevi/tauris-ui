@@ -88,6 +88,25 @@ def css(page, selector, prop, pseudo=None):
     return page.evaluate("([s, p, ps]) => getComputedStyle(document.querySelector(s), ps).getPropertyValue(p)", [selector, prop, pseudo])
 
 
+def ink(page):
+    """The accent as lines, as this page works it out (from the accent, where the engine can)."""
+    return page.evaluate("""(() => { const s = document.createElement('span'); s.style.color = 'var(--tf-accent-ink)';
+      document.querySelector('.tf').append(s); const c = getComputedStyle(s).color; s.remove(); return c; })()""")
+
+
+def contrasts(browser, pairs):
+    """The contrast of each [colour, colour] pair, in sRGB as drawn."""
+    page = browser.new_page()
+    out = page.evaluate("""(pairs) => { const rgb = c => { const d = document.createElement('div'); d.style.color = c; document.body.append(d);
+        const v = getComputedStyle(d).color; d.remove(); const cv = document.createElement('canvas').getContext('2d'); cv.fillStyle = v; cv.fillRect(0, 0, 1, 1);
+        return [...cv.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+      const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      return pairs.map(([a, b]) => ratio(a, b)); }""", pairs)
+    page.close()
+    return out
+
+
 def rect(page, selector):
     return page.evaluate("""s => { const r = document.querySelector(s).getBoundingClientRect();
       return { x: r.x, y: r.y, w: r.width, h: r.height }; }""", selector)
@@ -197,9 +216,11 @@ with sync_playwright() as p:
           and css(page, ".tf-file:nth-child(2) .tf-cell", "background-color") == DARK_SEL
           and css(page, ".tf-file:nth-child(3) .tf-kind", "color") == "rgb(246, 150, 144)")
     page.evaluate("__emit('tauri://drag-enter', { paths: ['/a.pdf'] })")
-    check("dark: accent text is the lighter ink, readable on the list (about 5:1, not 2.5:1)",
-          css(page, ".tf-drop-title", "color") == "rgb(106, 166, 224)" and css(page, ".tf-arrow", "color") == "rgb(106, 166, 224)")
+    pair = [css(page, ".tf-drop-title", "color"), css(page, ".tf-panel", "background-color")]
+    same = css(page, ".tf-arrow", "color") == pair[0] == ink(page)
     page.close()
+    ratio = contrasts(browser, [pair])[0]
+    check("dark: accent text is the lighter ink, readable on the list (about 5:1, not 2.5:1)", same and ratio >= 4.5, (pair, ratio))
 
     # ---------- sorting and searching ----------
     page = fresh(browser)
@@ -945,7 +966,7 @@ with sync_playwright() as p:
           and page.inner_text(".tf-drop-hint") == "Up to 50 MB per file")
     ring = (css(page, ".tf-drop", "outline-style"), css(page, ".tf-drop", "outline-width"), css(page, ".tf-drop", "outline-color"),
             css(page, ".tf-drop", "border-radius"), rect(page, ".tf-drop") == rect(page, ".tf-list"))
-    check("the zone is a solid 2px ring in the accent round the whole list", ring == ("solid", "2px", ACCENT, "2px", True), ring)
+    check("the zone is a solid 2px ring in the accent round the whole list", ring == ("solid", "2px", ink(page), "2px", True), ring)
     shot(page, "drop")
     page.evaluate("__emit('tauri://drag-leave', null)")
     check("they leave: the zone goes", page.is_hidden(".tf-drop"))
@@ -1127,11 +1148,11 @@ with sync_playwright() as p:
     check("a starter template's input, button and text rules change nothing", not changed, changed)
     page.focus(".tf-q")
     check("the search field keeps its look when focused, under the template",
-          css(page, ".tf-q", "border-top-width") == "0px" and css(page, ".tf-search", "border-top-color") == ACCENT)
+          css(page, ".tf-q", "border-top-width") == "0px" and css(page, ".tf-search", "border-top-color") == ink(page))
     page.click(".tf-file .tf-c-name")
     page.keyboard.press("F2")
     look = (css(page, ".tf-rename", "border-top-color"), css(page, ".tf-rename", "border-radius"), rect(page, ".tf-file")["h"])
-    check("the rename field keeps its look under the template", look == (ACCENT, "3px", 25), look)
+    check("the rename field keeps its look under the template", look == (ink(page), "3px", 25), look)
     page.close()
 
     # ---------- under a strict content policy ----------
@@ -1473,23 +1494,161 @@ with sync_playwright() as p:
     check("the search waits for an input method's text (the list is not filtered by half a word)", shown_while == 8, shown_while)
     page.close()
 
-    for accent, dark in (("#039250", False), ("#ffd400", False), ("#000080", True)):
+    for accent, dark, var in (("#039250", False, "--tauris-accent"), ("#ffd400", False, "--tauris-accent"), ("#000080", True, "--tauris-accent"),
+                              ("#ffd400", False, "--tf-accent"), ("#000080", True, "--tf-accent"), ("#0d6efd", False, "--tf-accent")):
         page = fresh(browser, "dark" if dark else "light", reduced_motion="reduce")
-        page.add_style_tag(content=f":root {{ --tauris-accent: {accent}; }}")
+        page.add_style_tag(content=f":root {{ {var}: {accent}; }}")
         page.evaluate("__emit('tauri://drag-enter', { paths: ['/a.pdf'] }); 0")
-        pair = page.evaluate("""(() => { const c = s => getComputedStyle(document.querySelector(s)); return [c('.tf-primary, .tf-add').color, c('.tf-add').backgroundColor,
-          c('.tf-drop-title').color, c('.tf-panel').backgroundColor]; })()""")
+        lines = [css(page, ".tf-drop-title", "color"), css(page, ".tf-panel", "background-color")]
+        page.evaluate("__emit('tauri://drag-leave', null); demo.files.setFiles([]); 0")
+        page.wait_for_timeout(50)
+        pair = [css(page, ".tf-empty .tf-primary", "color"), css(page, ".tf-empty .tf-primary", "background-color")] + lines
+        page.hover(".tf-empty .tf-primary")
+        page.wait_for_timeout(50)
+        hover = [css(page, ".tf-empty .tf-primary", "color"), css(page, ".tf-empty .tf-primary", "background-color")]
         page.close()
-        page = browser.new_page()
-        ratios = page.evaluate("""(pair) => { const rgb = c => { const d = document.createElement('div'); d.style.color = c; document.body.append(d);
-            const v = getComputedStyle(d).color; d.remove(); const cv = document.createElement('canvas').getContext('2d'); cv.fillStyle = v; cv.fillRect(0, 0, 1, 1);
-            return [...cv.getImageData(0, 0, 1, 1).data].slice(0, 3); };
-          const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-          const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
-          return [ratio(pair[0], pair[1]), ratio(pair[2], pair[3])]; }""", pair)
-        page.close()
-        check(f"--tauris-accent {accent} alone ({'dark' if dark else 'light'}): text on it and the accent as text both read",
-              ratios[0] >= 4.0 and ratios[1] >= 4.5, (pair, ratios))
+        ratios = contrasts(browser, [pair[:2], pair[2:], hover])
+        check(f"{var} {accent} alone ({'dark' if dark else 'light'}): text on it, on it hovered, and the accent as text all read",
+              ratios[0] >= 4.0 and ratios[1] >= 4.5 and ratios[2] >= 4.5 and hover[1] != pair[1]
+              and lines[0] not in ("rgb(38, 117, 191)", "rgb(106, 166, 224)"), (pair, hover, ratios))
+
+    # ---------- a twelfth review: lists that come and go, and the focus with them ----------
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    # The app sends the old place's list, then shows another place, in one go: the old list is never taken.
+    page.evaluate("""v.update({ confirmDelete: false, onDelete: async f => { await wait(20); v.setFiles(A.filter(x => x !== f)); v.update({ title: 'B', files: B }); } });
+      v.selectAll(); v.focus(); 0""")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(300)
+    got = page.evaluate("v.files().map(f => f.where + '/' + f.name)")
+    check("several deleting, the app's list for the old place sent and then another place: the new place's files stay",
+          got == ["B/Plan.docx", "B/Budget.xlsx", "B/Notes.md"], got)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("""v.update({ confirmDelete: false, onDelete: async f => { await wait(20); if (f.name === 'Plan.docx') v.update({ files: A.filter(x => x !== f), sort: { key: 'size', up: false }, multiple: false }); } });
+      v.selectAll(); v.focus(); 0""")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(300)
+    look = (page.get_attribute(".tf-th.tf-c-size", "aria-sort"), page.get_attribute(".tf-list", "aria-multiselectable"))
+    check("update({ files, sort, multiple }) while several are deleted: the files wait for the frame, the rest applies at once",
+          look == ("descending", "false"), look)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.update({ confirmDelete: false, onDelete: async () => log.push('deleted') }); v.update({ onDelete: undefined }); v.select('Plan.docx'); v.focus(); 0")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(100)
+    check("update({ onDelete: undefined }) takes the handler away (as leaving it out of mount does)",
+          page.evaluate("log") == [] and len(page.evaluate("v.files()")) == 3 and page.evaluate("document.body.firstElementChild.querySelectorAll('.tf-ib[data-act=delete]').length") == 0, page.evaluate("log"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    # An add on its way for A; the app shows an empty list, then another place's (other files, same title).
+    page.evaluate("""v.update({ onAdd: async p => { await wait(150); return p.map(x => ({ id: x, name: x.split('/').pop() })); } });
+      v.addPaths(['/u/Late.pdf']); setTimeout(() => { v.setFiles([]); v.setFiles([{ id: 'c1', name: 'Other.pdf' }]); }, 30); 0""")
+    page.wait_for_timeout(400)
+    got = page.evaluate("v.files().map(f => f.name)")
+    check("an add for one place, the app going through an empty list to another place's: the file is not added there", got == ["Other.pdf"], got)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    # The person deletes the last file, then adds one: the same place, so the new file is selected.
+    page.evaluate("""v.setFiles([A[0]]); v.update({ confirmDelete: false, onDelete: async () => v.setFiles([]),
+      onAdd: async p => { const out = p.map(x => ({ id: x, name: x.split('/').pop() })); v.setFiles(out); await wait(20); return out; } });
+      v.select('Plan.docx'); v.focus(); 0""")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(100)
+    page.evaluate("v.addPaths(['/u/First.pdf']); 0")
+    page.wait_for_timeout(200)
+    got = page.evaluate("[v.files().map(f => f.name), v.selected()?.name ?? null]")
+    check("the last file deleted, then one added: it is added and selected (the same place)", got == [["First.pdf"], "First.pdf"], got)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("""window.seen = []; v.update({ confirmDelete: false, onDelete: async (f, { index }) => { if (index === 1) seen.push(v.selection().map(x => x.name)); await wait(30); } });
+      v.selectAll(); v.focus(); 0""")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(300)
+    got = page.evaluate("seen")
+    check("while several are deleted, one already gone is not in selection() any more", got and "Budget.xlsx" not in got[0], got)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("""v.setFiles(Array.from({ length: 10 }, (_, i) => ({ id: 'f' + i, name: 'File ' + i + '.txt', size: i })));
+      window.removed = 0; new MutationObserver(ms => { for (const m of ms) removed += m.removedNodes.length; })
+        .observe(document.querySelector('.tf-tbody'), { childList: true }); 0""")
+    page.wait_for_timeout(50)
+    page.evaluate("v.setFiles(v.files().filter(f => f.id !== 'f4')); 0")
+    page.wait_for_timeout(50)
+    got = page.evaluate("[removed, document.querySelector('.tf-tbody').children.length]")
+    check("one file of ten gone: one row is taken out, the nine others stay where they are", got == [1, 9], got)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.update({ onDelete: async () => {} }); v.select('Plan.docx'); v.focus(); 0")
+    page.keyboard.press("Delete")
+    page.wait_for_selector(".tf-veil:not([hidden])")
+    page.evaluate("v.setFiles([]); 0")
+    page.wait_for_timeout(50)
+    got = page.evaluate("[document.querySelector('.tf-veil').hidden, document.activeElement.closest('.tf') !== null]")
+    check("the delete question, the app's list emptied: it closes, and the focus stays in the component", got == [True, True], got)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.update({ onDelete: async () => {} }); v.select('Plan.docx'); v.focus(); 0")
+    page.keyboard.press("Shift+F10")
+    page.wait_for_selector(".tmn-menu")
+    page.evaluate("v.setFiles([]); 0")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(50)
+    check("the row menu open, the list emptied, then Escape: the focus stays in the component",
+          page.evaluate("document.activeElement.closest('.tf') !== null"), page.evaluate("document.activeElement.outerHTML.slice(0, 80)"))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("document.querySelector('.tf-th.tf-c-by .tf-sort').focus(); 0")
+    page.evaluate("v.update({ columns: ['kind', 'name', 'size'] }); 0")
+    got = page.evaluate("document.activeElement.closest('.tf-th')?.dataset.col ?? document.activeElement.className")
+    check("the focus on a column header the app takes away: the header nearest it", got == "size", got)
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.update({ onAdd: async () => [] }); v.setFiles([]); 0")
+    with_add = (page.get_attribute(".tf-empty", "aria-describedby"), page.is_visible(".tf-empty .tf-primary"))
+    page.evaluate("v.update({ onAdd: undefined }); 0")
+    without = page.get_attribute(".tf-empty", "aria-describedby")
+    check("the empty place's text is read once: by its button, or by the place when there is no button",
+          with_add[0] is None and with_add[1] and without and without.endswith("-empty-text"), (with_add, without))
+    page.close()
+
+    # Options no other test reached.
+    page = fresh(browser)
+    page.evaluate(MOUNT, None)
+    page.evaluate("v.setFiles([{ id: 'd', name: 'Dated.pdf', added: '2026-03-04T10:00:00Z' }]); v.update({ formatDate: (d, f) => 'Y' + d.getUTCFullYear() + ' ' + f.name }); 0")
+    added = page.inner_text(".tf-file .tf-c-added")
+    page.evaluate("v.focusSearch(); 0")
+    check("formatDate writes the Added column; focusSearch() puts the focus in the search field",
+          added == "Y2026 Dated.pdf" and page.evaluate("document.activeElement.classList.contains('tf-q')"), added)
+    page.close()
+    page = browser.new_page()
+    page.add_init_script(library_script())
+    page.goto((HERE / "page.html").as_uri())
+    page.evaluate("""(() => { const h = document.createElement('div'); h.style.height = '200px'; document.body.append(h);
+      TaurisFiles.mount(h, { styles: false, files: [{ id: 1, name: 'a.txt' }] }); return 0; })()""")
+    check("styles: false adds no stylesheet (the app brings its own)",
+          page.evaluate("document.adoptedStyleSheets.length") == 0 and page.locator(".tf-file").count() == 1)
+    page.close()
 
     # ---------- a delete question and the light look, side by side with dark ----------
     if SHOTS:

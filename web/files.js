@@ -343,6 +343,9 @@
     const goneSoon = new Set(); // files deleted, taken out at the next frame
     let goneFrame = 0;
     let waiting = null; // a list the app sent meanwhile, taken at the next frame
+    // The last list that had files, unless the person's own deletes emptied it:
+    // the list after an empty one is compared with it (see elsewhere).
+    let lastFull = [];
     let removalEra = 0;
     // Once a frame while several files are deleted: the app's latest list (one
     // sent after each file costs one pass a frame, not one a file), then the
@@ -356,7 +359,7 @@
       if (waiting) {
         const next = waiting;
         waiting = null;
-        takeList(next);
+        takeList(next, false);
       }
       // Another place is shown now: its files of those ids are not the ones deleted.
       if (era === removalEra) dropFiles(goneSoon);
@@ -395,6 +398,7 @@
         byKeyOf = list;
       }
       if (held) held = held.filter(f => !keys.has(keyOf(f.id)));
+      if (!list.length) lastFull = [];
     }
 
     // ---------- the parts ----------
@@ -488,6 +492,7 @@
     function drawHead() {
       const words = L();
       const had = headRow.contains(document.activeElement) ? document.activeElement.closest(".tf-th")?.dataset.col : null;
+      const hadAt = had ? [...headRow.children].findIndex(c => c.dataset.col === had) : -1;
       headRow.replaceChildren();
       for (const col of columns()) {
         const cell = el("div", `tf-th tf-c-${col}`, { role: "columnheader", "data-col": col });
@@ -505,7 +510,12 @@
       }
       // The buttons are for the mouse (the keys reach each action): no column for screen readers.
       if (actions().length) headRow.append(el("div", "tf-th tf-c-acts", { "aria-hidden": "true" }));
-      if (had) headRow.querySelector(`[data-col="${had}"] .tf-sort`)?.focus({ preventScroll: true });
+      if (had) {
+        // That column is gone (update({ columns })): the header nearest where it was.
+        const near = [...headRow.children].map((c, i) => [Math.abs(i - hadAt), c.querySelector(".tf-sort")]).filter(([, b]) => b)
+          .sort((a, b) => a[0] - b[0])[0]?.[1];
+        (headRow.querySelector(`[data-col="${had}"] .tf-sort`) ?? near)?.focus({ preventScroll: true });
+      }
     }
 
     function sortBy(col) {
@@ -658,6 +668,9 @@
       grid.setAttribute("aria-multiselectable", String(several()));
       emptyTitle.textContent = say(words.emptyTitle, place());
       emptyText.textContent = say(words.emptyText, place());
+      // Described once: by the button when there is one, else by the place itself.
+      if (canAdd) empty.removeAttribute("aria-describedby");
+      else empty.setAttribute("aria-describedby", `${id}-empty-text`);
       dropText.textContent = say(words.drop, place());
       dropHint.textContent = say(words.dropHint, place());
       dropHint.hidden = !dropHint.textContent;
@@ -683,7 +696,7 @@
       const cols = columns();
       const acts = actions();
       rows = new Map();
-      const frag = document.createDocumentFragment();
+      const wanted = [];
       // A row drawn before from the same file, with the same options, is used again.
       const cache = new Map();
       const look = `${optionsDrawn}|${cols}|${acts}|${new Date().toDateString()}`; // "Today" changes at midnight
@@ -695,13 +708,22 @@
         row.id = rowId(key);
         cache.set(key, { sig, row });
         rows.set(key, row);
-        frag.append(row);
+        wanted.push(row);
       });
       // Rows a search hides are kept too, for when it is cleared.
       const inList = new Set(list.map(f => keyOf(f.id)));
       for (const [k, kept] of rowCache) if (!cache.has(k) && inList.has(k)) cache.set(k, kept);
       rowCache = cache;
-      tbody.replaceChildren(frag);
+      // The rows are put right in place: the ones gone taken out, the others moved
+      // only when their order changed (not all of them taken out and put back,
+      // which lays out every row again, and takes the focus off a row's button).
+      const keep = new Set(wanted);
+      for (const child of [...tbody.children]) if (!keep.has(child)) child.remove();
+      let at = tbody.firstElementChild;
+      for (const row of wanted) {
+        if (row === at) at = at.nextElementSibling;
+        else tbody.insertBefore(row, at);
+      }
       root.classList.toggle("tf-has-acts", acts.length > 0);
       root.style.setProperty("--tf-acts-n", String(acts.length));
       grid.hidden = list.length === 0;
@@ -719,8 +741,12 @@
       } else if (!busyText) {
         live.textContent = "";
       }
-      // The part with the focus went (or is a list showing nothing): the focus goes on in the component.
-      if (inPart && (inPart.hidden || (inPart === grid && !shown.length))) focusList();
+      // The delete question about files the app no longer has: nothing is left to ask about.
+      if (asking && asking.keys.size && ![...asking.keys].some(k => have.has(k))) asking.finish(false);
+      // The part with the focus went (or is a list showing nothing, or the header it was on
+      // lost that column): the focus goes on in the component.
+      const dropped = !document.activeElement || document.activeElement === document.body;
+      if (inPart && (inPart.hidden || (inPart === grid && !shown.length) || dropped)) focusList();
       clearSearch.textContent = String(words.clearSearch ?? "");
       clearSearch.hidden = !clearSearch.textContent;
       // The only selected file is gone from the app's list: the file now in its
@@ -755,7 +781,7 @@
     // The selected files that are shown, top to bottom (a search hides the others,
     // and nothing hidden is ever opened or deleted).
     function selection() {
-      return shown.filter(f => sel.has(keyOf(f.id))).map(f => fileById(keyOf(f.id)) ?? f);
+      return shown.filter(f => sel.has(keyOf(f.id)) && !goneSoon.has(keyOf(f.id))).map(f => fileById(keyOf(f.id)) ?? f);
     }
 
     function paintSelection(scroll) {
@@ -984,7 +1010,7 @@
       const mine = era;
       const question = opt.confirmDelete === false ? null
         : typeof opt.confirmDelete === "function" ? opt.confirmDelete(file) : say(L().confirmDelete, file);
-      if (question && !(await ask(String(question)))) return;
+      if (question && !(await ask(String(question), [key]))) return;
       // Another place is shown now: its file of that id is not this one.
       if (deleting.has(key) || signal.aborted || era !== mine) return;
       // The app may have sent a new list while the question was open.
@@ -1010,6 +1036,7 @@
       }
       list = list.filter(f => keyOf(f.id) !== key);
       if (held) held = held.filter(f => keyOf(f.id) !== key);
+      if (!list.length) lastFull = [];
       // While another file's name is being edited the list is not drawn again: the row goes now.
       if (renaming && keyOf(renaming.file.id) === key) renaming.end(); // the file being renamed is gone
       else if (renaming) {
@@ -1043,7 +1070,7 @@
     // The first refusal stops the rest; the ones already gone stay gone.
     async function removeMany(files) {
       // Not the files on their way out, nor the ones already gone.
-      files = files.filter(f => !deleting.has(keyOf(f.id)) && fileById(keyOf(f.id)));
+      files = files.filter(f => !deleting.has(keyOf(f.id)) && !goneSoon.has(keyOf(f.id)) && fileById(keyOf(f.id)));
       if (files.length < 2) return remove(files[0]);
       if (typeof opt.onDelete !== "function" || signal.aborted) return;
       const mine = era;
@@ -1051,7 +1078,7 @@
       // app's confirmDelete function: one written for a single file would name one
       // while several go.
       const question = opt.confirmDelete === false ? null : say(L().confirmDeleteMany, files);
-      if (question && !(await ask(String(question)))) return;
+      if (question && !(await ask(String(question), files.map(f => keyOf(f.id))))) return;
       if (signal.aborted || era !== mine) return;
       // The app may have sent a new list while the question was open.
       files = fresh_(files.map(f => keyOf(f.id)));
@@ -1095,12 +1122,16 @@
         if (waiting) {
           const next = waiting;
           waiting = null;
-          takeList(next);
+          takeList(next, false);
         }
         if (era === mine) dropFiles(goneSoon);
         goneSoon.clear();
       }
-      if (signal.aborted || !gone.size || era !== mine) return refocus();
+      if (signal.aborted) return;
+      if (!gone.size || era !== mine) {
+        draw();
+        return refocus();
+      }
       dropFiles(gone);
       if (renaming && gone.has(keyOf(renaming.file.id))) renaming.end();
       else if (renaming) {
@@ -1125,8 +1156,9 @@
     }
 
     // The delete question: a small card over the list, Cancel focused. The red
-    // button deletes; Escape, Cancel or a click beside it keeps the file.
-    function ask(question) {
+    // button deletes; Escape, Cancel or a click beside it keeps the file. It
+    // closes by itself once the app's list has none of its files (`keys`) left.
+    function ask(question, keys = []) {
       if (asking) asking.finish(false);
       // The list under the question; the header stays usable, and going there is a no.
       const behind = [grid, empty, noMatch];
@@ -1142,12 +1174,14 @@
           veil.hidden = true;
           for (const part of behind) part.inert = false;
           if (refocus && !signal.aborted) {
-            if (back instanceof HTMLElement && back.isConnected && root.contains(back)) back.focus({ preventScroll: true });
-            else focusList();
+            const there = back instanceof HTMLElement && back.isConnected && root.contains(back);
+            if (there) back.focus({ preventScroll: true });
+            // Where the focus was is gone or hidden now (the list emptied meanwhile): the list, or what stands for it.
+            if (!there || document.activeElement !== back) focusList();
           }
           resolve(yes);
         };
-        const state = { finish };
+        const state = { finish, keys: new Set(keys) };
         asking = state;
         veil.addEventListener("pointerdown", e => {
           if (e.target === veil) finish(false);
@@ -1306,6 +1340,8 @@
         returnTo: grid,
         onClose: info => {
           rowMenuHandle = null;
+          // The list it goes back to was hidden meanwhile (its files gone): the focus stays in the component.
+          if (!signal.aborted) refocus();
           if (!signal.aborted && typeof opt.onMenuClose === "function") opt.onMenuClose(info);
         },
       });
@@ -1636,13 +1672,19 @@
     }
 
     // A new list keeping none of the files there were, or another place: what
-    // was started for the old files is dropped (the delete question, a rename).
-    // (A list that became empty is the same place: its last files went.)
+    // was started for the old files is dropped (the delete question, a rename,
+    // an add on its way, a list sent for the old place and not yet taken).
+    // A list that became empty is the same place: its last files went. The one
+    // after it is compared with the last files there were, unless the person's
+    // own deletes emptied the list (then the next files are the ones they add).
     function elsewhere(next, moved) {
       const before = held ?? list;
-      const have = new Set(before.map(f => keyOf(f.id)));
-      if (!moved && (!before.length || !next.length || next.some(f => have.has(keyOf(f.id))))) return;
+      const basis = before.length ? before : lastFull;
+      const have = new Set(basis.map(f => keyOf(f.id)));
+      if (next.length) lastFull = next;
+      if (!moved && (!basis.length || !next.length || next.some(f => have.has(keyOf(f.id))))) return;
       era++;
+      waiting = null;
       if (asking) asking.finish(false);
       // A rename open (or waiting for the app) was for the old place's file: it ends.
       if (renaming) renaming.end();
@@ -1652,8 +1694,8 @@
       selId = anchor = null;
     }
 
-    // The app's new list.
-    function takeList(next) {
+    // The app's new list (drawn now, or by the caller when `now` is false).
+    function takeList(next, now = true) {
       elsewhere(next, false);
       if (renaming) {
         held = next;
@@ -1665,7 +1707,7 @@
       if (same) {
         shown = shown.map(f => fileById(keyOf(f.id)) ?? f);
         report();
-      } else {
+      } else if (now) {
         draw();
       }
     }
@@ -1673,6 +1715,7 @@
     // ---------- start ----------
 
     list = Array.isArray(opt.files) ? opt.files.slice() : [];
+    lastFull = list;
     everyFiles.add(me);
     draw();
     listen();
@@ -1693,19 +1736,25 @@
       files() { return list.slice(); },
       /** Changes options: title, place, subtitle, color, labels, columns, the on… functions, files. */
       update(changes = {}) {
-        changes = given(changes);
+        // An option given as undefined goes back to its default (an on… function: none);
+        // files: undefined leaves the files as they are.
+        changes = Object.fromEntries(Object.entries(changes ?? {}).filter(([k, v]) => !(k === "files" && v === undefined))
+          .map(([k, v]) => [k, v === undefined ? DEFAULTS[k] : v]));
         const wasPlace = place();
         Object.assign(opt, changes);
         // Labels and formatDate change how rows read (columns and actions are part of each row's signature).
         if ("labels" in changes || "formatDate" in changes) optionsDrawn++;
         const moved = place() !== wasPlace;
-        // The same place's list while several files are deleted: taken once a frame, as setFiles does.
-        if (Array.isArray(changes.files) && !moved && removingMany) {
-          waiting = changes.files.slice();
+        let files = Array.isArray(changes.files) ? changes.files.slice() : null;
+        // The same place's list while several files are deleted: taken once a frame, as setFiles
+        // does; the other changes are kept now, and shown by that frame's draw.
+        const queued = Boolean(files && !moved && removingMany);
+        if (queued) {
+          waiting = files;
           frameSoon();
-          return;
+          files = null;
         }
-        if (moved || Array.isArray(changes.files)) elsewhere(Array.isArray(changes.files) ? changes.files : list, moved);
+        if (moved || files) elsewhere(files ?? list, moved);
         // Turning off `multiple` keeps one selected file: the one with the focus
         // if it is selected (a file that only has the focus never is).
         if (!several() && sel.size > 1) {
@@ -1713,11 +1762,11 @@
           setSelection(keep == null ? [] : [keep], keep ?? selId, false);
         }
         if (changes.sort && SORTABLE.has(changes.sort.key)) sort = { key: changes.sort.key, up: changes.sort.up !== false };
-        if (Array.isArray(changes.files)) {
-          if (renaming) held = changes.files.slice();
-          else list = changes.files.slice();
+        if (files) {
+          if (renaming) held = files;
+          else list = files;
         }
-        draw();
+        if (!queued) draw();
       },
       /** Selects one file by id (null: none), or several: an array of ids (the first gets the focus). */
       select(fileId) {

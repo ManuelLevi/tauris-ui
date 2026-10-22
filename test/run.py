@@ -205,7 +205,7 @@ with sync_playwright() as p:
       return [v('--tt-accent'), v('--tt-active-bg'), v('--tt-strip-bg'), v('--tt-fg-active'), getComputedStyle(document.querySelector('.tt-tab')).fontFamily]; }""")
     # The accent alone: its bar is the accent made light enough to read on the (dark) strip.
     check("the tabs follow the shared --tauris-* colours and font",
-          look == ["oklch(from rgb(1, 2, 3) max(l, 0.75) c h)", "rgb(4, 5, 6)", "rgb(10, 11, 12)", "rgb(7, 8, 9)", "Georgia, serif"], look)
+          look == ["oklch(from rgb(1, 2, 3) clamp(0.75, l * 1, 1) c h)", "rgb(4, 5, 6)", "rgb(10, 11, 12)", "rgb(7, 8, 9)", "Georgia, serif"], look)
     page.add_style_tag(content=":root { --tauris-accent-ink: rgb(16, 17, 18); }")
     check("with --tauris-accent-ink, the bar is that", page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--tt-accent').trim()") == "rgb(16, 17, 18)")
     page.close()
@@ -261,6 +261,19 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     check("Escape returns focus to the tab", page.evaluate("document.activeElement.classList.contains('tt-tab')"))
     check("the tab list is labelled", page.get_attribute(".tt-tabs", "aria-label") == "Tabs")
+    page.close()
+
+    # The README's look: a yellow bar for a dark strip. The menu follows the system (light here): its focus line is the menu's own.
+    page = fresh(browser, color_scheme="light")
+    page.add_style_tag(content=":root { --tt-accent: #FFB800; --tt-strip-bg: #0a0c11; }")
+    page.locator(".tt-tab.tt-active").focus()
+    page.keyboard.press("Shift+F10")
+    page.wait_for_selector(".tt-menu")
+    line = page.evaluate("getComputedStyle(document.activeElement).outlineColor")
+    menu = page.evaluate("getComputedStyle(document.querySelector('.tt-menu')).backgroundColor")
+    rgb = lambda c: "#%02x%02x%02x" % tuple(int(v) for v in re.findall(r"[\d.]+", c)[:3])
+    check("--tt-accent set for the strip: a menu item's focus line still reads on the menu (3:1)",
+          _ratio(rgb(line), rgb(menu)) >= 3, (line, menu))
     page.close()
 
     # --- closing asks first ---
@@ -945,6 +958,51 @@ with sync_playwright() as p:
     page.wait_for_timeout(600)
     check("a new tab's pop-in is done once it has played (it does not play again when the strip is put in order)",
           page.locator(".tt-appear").count() == 0)
+    page.close()
+
+    # --- an eleventh review ---
+    page = fresh(browser)
+    page.evaluate("window.held = tabs.tabs[0]; tabs.update(held.id, { title: 'New' }); tabs.update(held, { note: 'x' }); 0")
+    check("update(tab, patch) with an older object of the tab: only what it changes is taken (the newer title stays)",
+          page.evaluate("[tabs.tabs[0].title, tabs.tabs[0].note]") == ["New", "x"], page.evaluate("[tabs.tabs[0].title, tabs.tabs[0].note]"))
+    box = page.locator(".tt-tab.tt-active .tt-close").bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.evaluate("tabs.update(tabs.activeTab(), { title: 'Changed while pressed' }); 0")
+    page.mouse.up()
+    page.wait_for_timeout(200)
+    check("the close button pressed, the tab updated meanwhile, then released: the tab closes", len(titles(page)) == 2, titles(page))
+    check("reload() resolves true when its answer is the one shown", page.evaluate("tabs.reload()") is True)
+    page.close()
+
+    page = fresh(browser, """{ renderTab: tab => { const s = document.createElement('span'); s.className = 'my-title'; s.textContent = tab.title;
+      const i = document.createElement('input'); i.className = 'my-field'; s.append(i); return [s]; } }""")
+    page.click(".tt-tab .my-field", button="right")
+    page.wait_for_timeout(50)
+    check("a right click in a field the app drew in a tab leaves the field its own menu (no tab menu)", page.locator(".tt-menu").count() == 0)
+    page.close()
+
+    page = fresh(browser, "{ contextMenu: false }")
+    page.click(".tt-tab", button="right")
+    page.locator(".tt-tab").first.focus()
+    page.keyboard.press("Shift+F10")
+    page.wait_for_timeout(50)
+    check("contextMenu: false: no tab menu, from the mouse or the keys", page.locator(".tt-menu").count() == 0)
+    page.locator(".tt-tab").nth(2).focus()
+    page.keyboard.press("Home")
+    check("Home shows the first tab", page.locator(".tt-tab.tt-active .tt-title").text_content() == "Tab 1")
+    page.close()
+
+    # WebKit has no moveBefore: the tab with the focus is never taken out and put back as the others move.
+    page = fresh(browser, before="delete Element.prototype.moveBefore;")
+    page.locator(".tt-tab").first.focus()
+    page.keyboard.press("End")
+    page.evaluate("""window.blurred = 0; window.node = document.activeElement; node.addEventListener('blur', () => blurred++);
+      __TAURI__.core.invoke('plugin:tauris-ui|move_tab', { tab: 1, index: 2 }); 0""")
+    page.wait_for_timeout(200)
+    check("tabs moving around the one with the focus (no moveBefore): it keeps the focus all along",
+          titles(page) == ["Tab 2", "Tab 3", "Tab 1"] and page.evaluate("[document.activeElement === node, blurred]") == [True, 0],
+          (titles(page), page.evaluate("[document.activeElement === node, blurred]")))
     page.close()
 
     # --- the example app's page (examples/basic/ui), as a new app starts from it ---

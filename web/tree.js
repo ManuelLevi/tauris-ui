@@ -254,31 +254,47 @@
       let keepRow = null;
       if (editing) {
         const ed = editing;
-        const find = items => {
+        // The node in the new list, and whether every folder above it is open
+        // (an edit in a row that will not show cannot go on).
+        let shows = true;
+        const find = (items, open) => {
           for (const n of Array.isArray(items) ? items : []) {
-            if (keyOf(n.id) === ed.key) return n;
-            const deeper = hasKids(n) ? find(n.children) : null;
+            if (keyOf(n.id) === ed.key) {
+              shows = open;
+              return n;
+            }
+            const k = keyOf(n.id);
+            const opens = open && (expanded.has(k) || (n.expanded === true && !seen.has(k)));
+            const deeper = hasKids(n) ? find(n.children, opens) : null;
             if (deeper) return deeper;
           }
           return null;
         };
-        const incoming = find(list);
-        if (incoming && !incoming.readOnly && ed.col.key != null && has(incoming.values, ed.col.key)) {
-          // A field still as it was opened shows the new value; what was typed stays.
+        const incoming = find(list, true);
+        if (incoming && shows && !incoming.readOnly && ed.col.key != null && has(incoming.values, ed.col.key)) {
+          // A field nobody has typed in yet shows the new value; what was typed stays.
           const fresh = incoming.values[ed.col.key];
-          const untouched = editedValue(ed).ok && Object.is(editedValue(ed).value, ed.start);
-          if (untouched && !Object.is(fresh, ed.start)) {
+          if (!ed.touched && !Object.is(fresh, ed.start)) {
             showValue(ed, fresh);
             ed.start = fresh;
           }
           ed.node = incoming;
           keepRow = pool.get(ed.key) ?? null;
         } else {
+          // The edit ends; a value typed goes into the new list's node (if there is one), and is said for it.
+          const typed = incoming && ed.touched ? editedValue(ed) : { ok: false };
           finishEdit(false, false);
+          if (typed.ok && ed.col.key != null && !Object.is(typed.value, ed.start)) {
+            (incoming.values ??= {})[ed.col.key] = typed.value;
+            queueMicrotask(() => { if (!signal.aborted) emit("change", { node: incoming, column: ed.col.key, value: typed.value }); });
+          }
           if (call !== dataCalls) return;
         }
       }
       const hadFocus = body.contains(document.activeElement);
+      // A checkbox reached with Tab keeps the focus through the new data.
+      const checkHad = document.activeElement?.closest?.(".tv-cell[role=checkbox]");
+      const checkAt = checkHad ? { key: checkHad.closest(".tv-row")?.dataset.key, ci: Number(checkHad.dataset.col) } : null;
       const hadKey = selectedKey;
       const hadPicked = picked.size;
       const hadAt = selectedKey !== null ? index.get(selectedKey) : undefined;
@@ -341,6 +357,7 @@
             render();
           }
           focusRow();
+          if (checkAt && index.has(checkAt.key)) goToCell(checkAt.key, checkAt.ci);
         }
       }
       requestAnimationFrame(checkHeight);
@@ -499,7 +516,16 @@
       if (!frame) frame = requestAnimationFrame(render);
     }
 
+    let rendering = false;
     function render() {
+      rendering = true;
+      try {
+        drawRows();
+      } finally {
+        rendering = false;
+      }
+    }
+    function drawRows() {
       cancelAnimationFrame(frame);
       frame = 0;
       body.style.height = `${rows.length * rowH}px`;
@@ -665,6 +691,15 @@
 
     // Goes to an editable value: a field opens; a checkbox takes the focus,
     // for Space to flip it (and Tab to go on).
+    // A column off to the side comes into view (rows scroll up and down by reveal).
+    function showCell(cell) {
+      const box = scroller.getBoundingClientRect();
+      const right = box.left + scroller.clientWidth; // a scrollbar is not room
+      const at = cell.getBoundingClientRect();
+      if (at.right > right) scroller.scrollLeft += Math.min(at.right - right, at.left - box.left);
+      if (at.left < box.left) scroller.scrollLeft -= box.left - at.left;
+    }
+
     function goToCell(k, ci) {
       const row = rows[index.get(k)];
       if (!canEdit(row, ci)) return false;
@@ -676,6 +711,7 @@
       if (!cell) return false;
       cell.tabIndex = -1;
       cell.focus({ preventScroll: true });
+      showCell(cell);
       return true;
     }
 
@@ -802,17 +838,19 @@
         }
       }, { signal });
       // Clicking elsewhere saves; switching to another app does not (the field is there on coming back).
-      input.addEventListener("blur", () => { if (document.hasFocus()) finishEdit(true, false); }, { signal });
+      input.addEventListener("blur", () => {
+        if (!document.hasFocus()) return;
+        // While rows are being drawn (its row taken out), after the drawing.
+        if (rendering) queueMicrotask(() => finishEdit(true, false));
+        else finishEdit(true, false);
+      }, { signal });
       cell.classList.add("tv-editing");
       cell.append(input);
-      editing = { key: k, ci, input, spec, node: n, col: c, start: v };
+      editing = { key: k, ci, input, spec, node: n, col: c, start: v, touched: false };
+      const ed = editing;
+      input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => { ed.touched = true; }, { signal });
       input.focus({ preventScroll: true });
-      // A column off to the side comes into view (rows scroll up and down by reveal).
-      const box = scroller.getBoundingClientRect();
-      const right = box.left + scroller.clientWidth; // a scrollbar is not room
-      const at = cell.getBoundingClientRect();
-      if (at.right > right) scroller.scrollLeft += Math.min(at.right - right, at.left - box.left);
-      if (at.left < box.left) scroller.scrollLeft -= box.left - at.left;
+      showCell(cell);
       if (input.tagName === "INPUT") input.select();
       if (input.tagName === "SELECT" && typeof input.showPicker === "function") {
         try { input.showPicker(); } catch { /* no user gesture: the list opens on the next click */ }
@@ -1058,7 +1096,7 @@
         return;
       }
       // Any other key there is the row's (the arrows move on from it).
-      if (check && check === document.activeElement) focusRow();
+      if (check && check === document.activeElement && !KEEP_TYPED.has(e.key)) focusRow();
       // Any key but a letter (or Shift and the like, or an accent's first key) ends what was being typed.
       if (e.key.length !== 1 && !KEEP_TYPED.has(e.key)) typed = "";
       const at = index.get(focusKey);
@@ -1167,7 +1205,12 @@
 
     body.addEventListener("mousedown", e => {
       // A right click (Control-click on a Mac) leaves the selection to the app's own menu.
-      if (e.button !== 0 || (MAC && e.ctrlKey)) return;
+      // A right click (Control-click on a Mac) leaves the selection and the
+      // focus to the app's own menu: the browser does not move the focus either.
+      if (e.button !== 0 || (MAC && e.ctrlKey)) {
+        if (e.target.closest(".tv-row")) e.preventDefault();
+        return;
+      }
       if (e.target.closest(".tv-editor, .tv-picker")) return;
       // An edit open elsewhere is saved first: the app's answer to its "change"
       // may draw the rows again, and the press then acts on them as they are
@@ -1249,6 +1292,16 @@
     }, { signal });
 
     scroller.addEventListener("scroll", schedule, { signal, passive: true });
+    // A press on the empty space below the last row (not on a scrollbar): the
+    // focus stays in the tree, on its row, and an open edit is saved.
+    scroller.addEventListener("mousedown", e => {
+      if (e.target !== scroller || e.button !== 0) return;
+      const box = scroller.getBoundingClientRect();
+      if (e.clientX - box.left > scroller.clientWidth || e.clientY - box.top > scroller.clientHeight) return;
+      e.preventDefault();
+      if (editing) finishEdit(true, false);
+      focusRow();
+    }, { signal });
     // A tree mounted while hidden measured nothing: measure again once it shows.
     const resized = new ResizeObserver(() => {
       measure();

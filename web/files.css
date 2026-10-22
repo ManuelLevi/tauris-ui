@@ -65,11 +65,11 @@
     --tf-row-hover: var(--tauris-hover, #f1f5fb);
     --tf-accent: var(--tauris-accent, #2675bf);
     /* --tf-accent-2: unset, the accent a little darker: the primary button's edge and hover */
-    /* With --tauris-accent alone (no --tauris-accent-ink), lines are that accent made readable: no lighter than oklch 0.5 in light mode, no darker than 0.75 in dark. */
-    --tf-ink-auto: oklch(from var(--tauris-accent) min(l, 0.5) c h);
-    --tf-accent-ink: var(--tauris-accent-ink, var(--tf-ink-auto, #2675bf));        /* the accent as text and lines, readable on --tf-bg */
-    /* --tauris-accent alone: white or black text on it, whichever reads */
-    /* --tf-on-accent: unset, text on --tf-accent: --tauris-on-accent, else white or black, whichever reads on it */
+    /* The accent as text and lines, readable on --tf-bg. Unset (and no --tauris-accent-ink), it is --tf-accent made
+       readable: no lighter than oklch 0.5 in light mode, no darker than 0.75 in dark (the @supports block below). */
+    --tf-accent-ink: var(--tauris-accent-ink, var(--tf-ink-auto, #2675bf));
+    /* --tf-on-accent: unset, text on --tf-accent: --tauris-on-accent, else white or black, whichever reads on it.
+       --tauris-on-accent goes with --tauris-accent: give the files their own --tf-accent, and give them their own --tf-on-accent too. */
     --tf-sel-bar-w: 0px;             /* a bar at a selected row's start (dark: the selection's tint alone is under 3:1) */
     /* --tf-focus: unset, the soft halo around a focus line: --tf-accent-ink at --tf-focus-mix */
     --tf-focus-mix: 32%;
@@ -99,7 +99,7 @@
      data-tauris-theme on <html>; then the mode the app chose. */
   @media (prefers-color-scheme: dark) {
     :root:not([data-tauris-theme="light"]) {
-      --tf-flash-mix: 40%;
+      --tf-flash-mix: 30%;
       --tf-scheme: dark;
       --tf-fg: var(--tauris-fg, #dfe1e5);
       --tf-dim: var(--tauris-dim, #adb0b8);
@@ -113,7 +113,6 @@
       --tf-hover: var(--tauris-hover, #4c5052);
       --tf-row-hover: var(--tauris-hover, #3b4148);
       --tf-accent: var(--tauris-accent, #3570b0);
-      --tf-ink-auto: oklch(from var(--tauris-accent) max(l, 0.75) c h);
       --tf-accent-ink: var(--tauris-accent-ink, var(--tf-ink-auto, #6aa6e0));
       --tf-focus-mix: 45%;
       --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
@@ -132,7 +131,7 @@
   }
 
   :root[data-tauris-theme="dark"] {
-    --tf-flash-mix: 40%;
+    --tf-flash-mix: 30%;
     --tf-scheme: dark;
     --tf-fg: var(--tauris-fg, #dfe1e5);
     --tf-dim: var(--tauris-dim, #adb0b8);
@@ -146,7 +145,6 @@
     --tf-hover: var(--tauris-hover, #4c5052);
     --tf-row-hover: var(--tauris-hover, #3b4148);
     --tf-accent: var(--tauris-accent, #3570b0);
-    --tf-ink-auto: oklch(from var(--tauris-accent) max(l, 0.75) c h);
     --tf-accent-ink: var(--tauris-accent-ink, var(--tf-ink-auto, #6aa6e0));
     --tf-focus-mix: 45%;
     --tf-sel-bg: var(--tauris-sel-bg, #2f65ca);
@@ -161,6 +159,17 @@
     --tf-kind-doc: #6aa6e0;
     --tf-kind-ppt: #eda06a;
     --tf-kind-aud: #bea4f3;
+  }
+
+  /* Colours worked out from the accent, where the engine can (relative colours: Safari 18,
+     Chromium 119). Elsewhere the fallbacks above stand.
+     (`l * 1`, not a bare `l`: Chromium 130, WebView2's engine for a while, hangs on a bare channel in clamp().) */
+  @supports (color: oklch(from red l c h)) {
+    :root { --tf-ink-auto: oklch(from var(--tf-accent) clamp(0, l * 1, 0.5) c h); }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-tauris-theme="light"]) { --tf-ink-auto: oklch(from var(--tf-accent) clamp(0.75, l * 1, 1) c h); }
+    }
+    :root[data-tauris-theme="dark"] { --tf-ink-auto: oklch(from var(--tf-accent) clamp(0.75, l * 1, 1) c h); }
   }
 
   /* ---------- frame ---------- */
@@ -251,7 +260,7 @@
   }
 
   /* A focus ring is a solid line (readable against the page) and a soft halo. */
-  .tf-search:focus-within { border-color: var(--tf-accent-ink); box-shadow: 0 0 0 2px var(--tf-focus, var(--tauris-focus, color-mix(in srgb, var(--tf-accent-ink) var(--tf-focus-mix), transparent))); }
+  .tf-search:focus-within { border-color: var(--tf-accent-ink); box-shadow: 0 0 0 1px var(--tf-accent-ink), 0 0 0 3px var(--tf-focus, var(--tauris-focus, color-mix(in srgb, var(--tf-accent-ink) var(--tf-focus-mix), transparent))); }
   .tf-search svg { width: 13px; height: 13px; stroke-width: 1.4; }
 
   /* ---------- buttons ---------- */
@@ -291,12 +300,18 @@
     padding: 0 12px;
     font-size: var(--tf-font-size);
     font-weight: 600;
-    color: var(--tf-on-accent, var(--tauris-on-accent, color(from var(--tf-accent) xyz-d65 calc(0.9505 * clamp(0, (0.179 - y) * 1e9, 1)) clamp(0, (0.179 - y) * 1e9, 1) calc(1.089 * clamp(0, (0.179 - y) * 1e9, 1)))));
+    color: var(--tf-on-accent, var(--tauris-on-accent, #fff));
     background: var(--tf-accent);
     border-color: var(--tf-accent-2, color-mix(in srgb, var(--tf-accent) 82%, #000));
   }
 
   .tf-btn.tf-primary:hover { background: var(--tf-accent-2, color-mix(in srgb, var(--tf-accent) 82%, #000)); }
+  /* Where the engine works colours out: white or black text, whichever reads on the accent, and a hover
+     that moves away from the text (darker under white, lighter under black), so the text still reads. */
+  @supports (color: color(from red xyz-d65 x y z)) {
+    .tf-btn.tf-primary { --tf-btn-text: var(--tf-on-accent, var(--tauris-on-accent, color(from var(--tf-accent) xyz-d65 calc(0.9505 * clamp(0, (0.179 - y) * 1e9, 1)) clamp(0, (0.179 - y) * 1e9, 1) calc(1.089 * clamp(0, (0.179 - y) * 1e9, 1))))); color: var(--tf-btn-text); }
+    .tf-btn.tf-primary:hover { background: var(--tf-accent-2, color-mix(in srgb, var(--tf-accent) 82%, color(from var(--tf-btn-text) xyz-d65 calc(0.9505 * clamp(0, (0.179 - y) * 1e9, 1)) clamp(0, (0.179 - y) * 1e9, 1) calc(1.089 * clamp(0, (0.179 - y) * 1e9, 1))))); }
+  }
   .tf-btn.tf-danger { color: var(--tf-on-danger); background: var(--tf-danger-fill); border-color: var(--tf-danger-fill); }
   .tf-btn.tf-danger:hover { background: color-mix(in srgb, var(--tf-danger-fill) 85%, #000); }
   .tf-btn.tf-primary[aria-disabled="true"]:hover { background: var(--tf-accent); }
@@ -463,18 +478,18 @@
   .tf-file.tf-fresh[aria-selected="true"] .tf-cell { animation-name: tf-flash-selected; }
 
   /* The row with the keyboard focus, when that is not plain from the selection
-     (several selected, or the focus on a row that is not): a thin ring. */
+     (several selected, or the focus on a row that is not): a 2px ring. */
   .tf-list:focus.tf-many .tf-file.tf-focused .tf-cell,
   .tf-list:focus .tf-file.tf-focused:not([aria-selected="true"]) .tf-cell {
-    box-shadow: inset 0 1px var(--tf-ring), inset 0 -1px var(--tf-ring);
+    box-shadow: inset 0 2px var(--tf-ring), inset 0 -2px var(--tf-ring);
   }
   .tf-list:focus.tf-many .tf-file.tf-focused .tf-cell:first-child,
   .tf-list:focus .tf-file.tf-focused:not([aria-selected="true"]) .tf-cell:first-child {
-    box-shadow: inset 0 1px var(--tf-ring), inset 0 -1px var(--tf-ring), inset 1px 0 var(--tf-ring);
+    box-shadow: inset 0 2px var(--tf-ring), inset 0 -2px var(--tf-ring), inset 2px 0 var(--tf-ring);
   }
   .tf-list:focus.tf-many .tf-file.tf-focused .tf-cell:last-child,
   .tf-list:focus .tf-file.tf-focused:not([aria-selected="true"]) .tf-cell:last-child {
-    box-shadow: inset 0 1px var(--tf-ring), inset 0 -1px var(--tf-ring), inset -1px 0 var(--tf-ring);
+    box-shadow: inset 0 2px var(--tf-ring), inset 0 -2px var(--tf-ring), inset -2px 0 var(--tf-ring);
   }
   .tf-file { --tf-ring: var(--tf-accent-ink); }
   .tf-file[aria-selected="true"] { --tf-ring: var(--tf-sel-fg); }
@@ -751,5 +766,4 @@ input:where(.tf-rename):focus { border-color: var(--tf-accent-ink); outline: 0; 
   /* The rename field takes the system's colours, not the selected cell's, and its ring shows on Highlight. */
   input:where(.tf-rename) { forced-color-adjust: auto; }
   input:where(.tf-rename):focus { outline: 2px solid HighlightText; }
-  input:where(.tf-rename):focus { outline: 2px solid Highlight; }
 }

@@ -98,6 +98,8 @@ pub(crate) struct Win {
     pub opening: bool,
     // Its close went ahead and it is about to go: nothing new is put in it.
     pub leaving: bool,
+    // When it was last brought to the front: a number that only grows.
+    pub focused: u64,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -126,15 +128,16 @@ pub(crate) struct Closed {
     pub win: Win,
     pub tabs: Vec<Tab>,
     pub at: Instant,
-    // Its place in the focus order when it closed (0 the back): windows that
-    // closed together come back in front of each other as they were.
-    pub order: usize,
+    // When it was last in front (its focus stamp): windows that closed
+    // together come back in front of each other as they were.
+    pub order: u64,
 }
 
 pub(crate) struct Model {
     prefix: String,
     next_tab: u64,
     next_win: u64,
+    focus_seq: u64,
     pub tabs: HashMap<u64, Tab>,
     // Most recently focused window last.
     pub wins: Vec<Win>,
@@ -152,6 +155,7 @@ impl Model {
             prefix: prefix.to_string(),
             next_tab: 0,
             next_win: 0,
+            focus_seq: 0,
             tabs: HashMap::new(),
             wins: Vec::new(),
             drag: None,
@@ -188,6 +192,7 @@ impl Model {
         self.next_win += 1;
         let label = format!("{}{}", self.prefix, self.next_win);
         let active = tabs.first().copied();
+        let focused = self.next_focus();
         self.wins.push(Win {
             label: label.clone(),
             tabs,
@@ -201,6 +206,7 @@ impl Model {
             close_seen: false,
             opening: true,
             leaving: false,
+            focused,
         });
         self.changed();
         label
@@ -228,7 +234,8 @@ impl Model {
         let Some(pos) = self.wins.iter().position(|w| w.label == label) else { return };
         let win = self.wins.remove(pos);
         let tabs = win.tabs.iter().filter_map(|id| self.tabs.remove(id)).collect();
-        self.closing.push(Closed { win, tabs, at: Instant::now(), order: pos });
+        let order = win.focused;
+        self.closing.push(Closed { win, tabs, at: Instant::now(), order });
         self.changed();
     }
 
@@ -286,6 +293,12 @@ impl Model {
             .rev()
             .find(|w| !w.opening && !w.leaving && Some(w.label.as_str()) != dragged)
             .map(|w| w.label.clone())
+    }
+
+    // The next focus stamp.
+    pub fn next_focus(&mut self) -> u64 {
+        self.focus_seq += 1;
+        self.focus_seq
     }
 
     // Whether new tabs may go in this window now: it is open, not about to

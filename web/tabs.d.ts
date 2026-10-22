@@ -84,7 +84,8 @@ declare global {
     open(spec?: { title?: string } & Partial<F>): Promise<number>;
     /** Sends a tab's title and fields to Rust after you changed them, and redraws the strip. */
     update(tab: TaurisTab<F> | number, patch?: Partial<Omit<TaurisTab<F>, "id">>): void;
-    reload(): Promise<void>;
+    /** Asks Rust again; resolves to true once the strip shows its newest tabs. */
+    reload(): Promise<boolean>;
     reportStrip(): void;
     /** Returns a function that stops listening. */
     on<K extends keyof TaurisTabsEvents<F>>(event: K, fn: (payload: TaurisTabsEvents<F>[K]) => void): () => void;

@@ -81,8 +81,11 @@ jobs:
 
   page:
     runs-on: ubuntu-latest
+    # A page that hangs the browser fails the job, not after six hours.
+    timeout-minutes: 20
     env:
       TAURIS_TEST_CHROMIUM: "1"
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

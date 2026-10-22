@@ -37,6 +37,7 @@ them.
    (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
    rm -f Cargo.lock && export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback && cargo +1.90 build && cargo +1.90 build --features files   # the oldest Rust it builds with, as CI
    ```
+   The page suites also run in CI's browser, the Chromium of Playwright 1.48: in a virtualenv with `pip install playwright==1.48.0 pillow && python -m playwright install chromium`, run each with `TAURIS_TEST_CHROMIUM=1`. After pushing, watch CI (`gh run watch`) until every job is green.
 6. If you touched dragging between windows, try it by hand on macOS. No
    test can drive the real mouse.
 

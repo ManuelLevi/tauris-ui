@@ -106,9 +106,12 @@ fn on_change_fires_and_does_not_call_itself_again() {
     app.tabs().open(NewTab::new("X")).unwrap();
     windows::settle(app.handle(), std::time::Duration::from_secs(2));
     assert_eq!(calls.load(Ordering::SeqCst), before + 1);
-    // Page-side changes reach the hook too.
+    // Page-side changes (inside Tauri's lock) reach the hook too, on its worker.
     let id = app.tabs().windows()[0].tabs[0].id;
-    windows::update(app.handle(), id, "renamed".into(), Fields::new(), false);
+    {
+        let _locked = windows::InPlugin::enter();
+        windows::update(app.handle(), id, "renamed".into(), Fields::new(), false);
+    }
     windows::settle(app.handle(), std::time::Duration::from_secs(2));
     assert_eq!(calls.load(Ordering::SeqCst), before + 2);
 }
@@ -425,7 +428,10 @@ fn on_change_hears_about_a_window_closing() {
     let second = app.tabs().new_window().unwrap();
     windows::settle(app.handle(), std::time::Duration::from_secs(2));
     heard.lock().unwrap().clear();
-    windows::forget_window(app.handle(), &second);
+    {
+        let _locked = windows::InPlugin::enter(); // as the Destroyed event runs it
+        windows::forget_window(app.handle(), &second);
+    }
     windows::settle(app.handle(), std::time::Duration::from_secs(2));
     assert_eq!(*heard.lock().unwrap(), vec![second]);
 }
@@ -605,6 +611,9 @@ fn the_event_handler_opens_no_window_itself() {
         "create_window(",
         "open_window(",
         "move_to_new_window(",
+        "restore_saved(",
+        ".start(",
+        "drag::start(",
     ] {
         assert!(!outside.contains(call), "on_event calls {call} itself; send it through after_event");
     }
@@ -783,20 +792,15 @@ fn every_async_command_that_moves_tabs_defers_the_hook() {
     }
 }
 
-// The hook never runs twice at once, and calls keep their order: one waiting
-// on the worker (from inside Tauri's lock) and one made right after by the app.
+// Hook calls keep their order: one waiting on the worker (from inside Tauri's
+// lock) and one made right after by the app.
 #[test]
-fn the_hook_never_runs_twice_at_once() {
-    let running = Arc::new(AtomicUsize::new(0));
-    let most = Arc::new(AtomicUsize::new(0));
+fn the_hook_calls_keep_their_order() {
     let order = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let (r, m, o) = (running.clone(), most.clone(), order.clone());
+    let o = order.clone();
     let app = app(quiet().on_change(move |_, label| {
-        let now = r.fetch_add(1, Ordering::SeqCst) + 1;
-        m.fetch_max(now, Ordering::SeqCst);
         std::thread::sleep(std::time::Duration::from_millis(30));
         o.lock().unwrap().push(label.to_string());
-        r.fetch_sub(1, Ordering::SeqCst);
     }));
     app.tabs().start().unwrap();
     windows::settle(app.handle(), std::time::Duration::from_secs(2));
@@ -807,7 +811,7 @@ fn the_hook_never_runs_twice_at_once() {
     }
     windows::changed(app.handle(), "second");
     windows::settle(app.handle(), std::time::Duration::from_secs(2));
-    assert_eq!(most.load(Ordering::SeqCst), 1, "two hook calls overlapped");
+    // (Both run on the hook's worker: what this shows is their order.)
     assert_eq!(*order.lock().unwrap(), ["first", "second"]);
 }
 
@@ -1250,7 +1254,11 @@ fn no_window_opens_or_is_saved_once_quitting() {
     assert!(app.tabs().new_window().is_err());
     assert_eq!(app.tabs().window_count(), 1);
     // A window recorded but still opening is left out of the save.
-    let opening = windows::inner(app.handle()).model().create_win(vec![]);
+    let opening = {
+        let mut m = windows::inner(app.handle()).model();
+        let tab = m.create_tab(NewTab::new("Never shown"));
+        m.create_win(vec![tab])
+    };
     persist::save(app.handle(), true);
     let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(saved.as_array().map(Vec::len), Some(1), "{opening} was saved");
@@ -1328,6 +1336,63 @@ fn a_remembered_frame_comes_back() {
         frame.map(|f| (f.x, f.y, f.width, f.height, f.maximized, f.centre)),
         Some((40.0, 60.0, 900.0, 700.0, true, false))
     );
+}
+
+// A tab opened while another thread restores the windows, after the first of
+// them opened: it still waits for all of them and goes in the front one.
+#[test]
+fn a_tab_opened_midway_through_a_restore_goes_to_the_front_window() {
+    let app = app(quiet());
+    windows::inner(app.handle()).restoring.store(true, Ordering::SeqCst);
+    let handle = app.handle().clone();
+    let restorer = std::thread::spawn(move || {
+        windows::create_window(&handle, vec![NewTab::new("Behind")], None, false).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        windows::create_window(&handle, vec![NewTab::new("Front")], None, true).unwrap();
+        windows::inner(&handle).restoring.store(false, Ordering::SeqCst);
+    });
+    std::thread::sleep(std::time::Duration::from_millis(80)); // "Behind" is open
+    app.tabs().open(NewTab::new("Late")).unwrap();
+    restorer.join().unwrap();
+    assert_eq!(titles(&app), [vec!["Behind"], vec!["Front", "Late"]]);
+}
+
+// Three windows closing together, in any order: the one that was in front
+// comes back in front.
+#[test]
+fn three_windows_closed_together_keep_their_order_in_front() {
+    let file = temp_file("order3");
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    let b = app.tabs().new_window().unwrap();
+    let c = app.tabs().new_window().unwrap();
+    for (label, title) in [("tabs-1", "A"), (b.as_str(), "B"), (c.as_str(), "C")] {
+        let id = app.tabs().windows().iter().find(|w| w.label == label).unwrap().tabs[0].id;
+        app.tabs().update_tab(id, title, Fields::new());
+    }
+    for label in [b.as_str(), "tabs-1", c.as_str()] {
+        windows::forget_window(app.handle(), label);
+    }
+    let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let order: Vec<&str> = saved.as_array().unwrap().iter().map(|w| w["tabs"][0]["title"].as_str().unwrap()).collect();
+    assert_eq!(order, ["A", "B", "C"]);
+}
+
+// A layout file of any name: a write a crash left half done is found and removed.
+#[test]
+fn a_half_written_layout_of_any_name_is_removed() {
+    let file = temp_file("anyname").with_file_name("layout.state");
+    let half = file.with_file_name("layout.state.99999.tmp");
+    std::fs::write(&half, "[").unwrap();
+    let path = file.clone();
+    let app = app(quiet().layout_file(move |_| Some(path.clone())));
+    app.tabs().start().unwrap();
+    persist::save(app.handle(), true);
+    assert!(file.is_file(), "saved under its own name");
+    let only = app.tabs().windows()[0].tabs[0].id;
+    app.tabs().close_tab(only);
+    assert!(!half.exists());
 }
 
 // A close the page agreed to, which the app then refused (a window hidden to

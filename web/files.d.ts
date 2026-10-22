@@ -138,7 +138,10 @@ declare global {
     setFiles(files: F[]): void;
     /** The files as the component has them now. */
     files(): F[];
-    /** Changes options: title, place, subtitle, color, labels, columns, the on… functions, files. */
+    /**
+     * Changes options: title, place, subtitle, color, labels, columns, the on… functions, files. An option given as
+     * undefined goes back to its default (an on… function: none); `files: undefined` leaves the files as they are.
+     */
     update(changes: Partial<TaurisFilesOptions<F>>): void;
     /** Selects one file (null: none), or several: an array of ids (the first gets the focus). */
     select(id: F["id"] | F["id"][] | null): void;

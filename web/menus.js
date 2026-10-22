@@ -158,9 +158,10 @@
           row.setAttribute("aria-disabled", "true");
         }
       } else if (item.shortcut != null && item.shortcut !== "") {
-        // Shown, not read as part of the name: said as the item's shortcut instead.
-        row.append(el("span", "tmn-shortcut", { "aria-hidden": "true" }, String(item.shortcut)));
+        // Said as the item's shortcut (not read as part of its name) when it is
+        // one aria-keyshortcuts can say; otherwise it stays readable.
         const keys = keyShortcuts(String(item.shortcut));
+        row.append(el("span", "tmn-shortcut", { "aria-hidden": keys ? "true" : null }, String(item.shortcut)));
         if (keys) row.setAttribute("aria-keyshortcuts", keys);
       }
       row.__tmnItem = item;
@@ -217,19 +218,22 @@
   function keyShortcuts(text) {
     const glyphs = { "⌘": "Meta", "⇧": "Shift", "⌥": "Alt", "⌃": "Control" };
     const names = { "↩": "Enter", "⏎": "Enter", "⌫": "Backspace", "⌦": "Delete", "⎋": "Escape", "⇥": "Tab", "Del": "Delete",
-      "Ctrl": "Control", "Cmd": "Meta", "Esc": "Escape", "Space": "Space", "␣": "Space" };
+      "Ctrl": "Control", "Cmd": "Meta", "Esc": "Escape", "Space": "Space", "␣": "Space",
+      "↑": "ArrowUp", "↓": "ArrowDown", "←": "ArrowLeft", "→": "ArrowRight", "Up": "ArrowUp", "Down": "ArrowDown", "+": "Plus" };
     const parts = [];
     let rest = text.trim();
-    while (rest && glyphs[rest[0]]) {
+    while (rest.length > 1 && glyphs[rest[0]]) {
       parts.push(glyphs[rest[0]]);
       rest = rest.slice(1);
     }
-    for (const piece of rest.split("+").map(p => p.trim()).filter(Boolean)) {
-      const key = names[piece] ?? (glyphs[piece] || (/^(F\d{1,2}|[A-Za-z0-9]|Enter|Delete|Backspace|Escape|Tab|Shift|Alt|Meta|Control)$/.test(piece) ? piece : null));
+    // "Ctrl++" and "⌘+": the last + is the key; "Ctrl+Shift+N": the pieces between the +.
+    const pieces = rest.endsWith("+") ? [...rest.slice(0, -1).split("+").filter(Boolean), "+"] : rest.split("+").map(p => p.trim()).filter(Boolean);
+    for (const piece of pieces) {
+      const key = names[piece] ?? glyphs[piece] ?? (/^(F\d{1,2}|Enter|Delete|Backspace|Escape|Tab|Shift|Alt|Meta|Control)$/.test(piece) || /^[^\s]$/u.test(piece) ? piece : null);
       if (!key) return null;
       parts.push(key.length === 1 ? key.toUpperCase() : key);
     }
-    return parts.length ? parts.join("+") : null;
+    return parts.length && parts.length > pieces.length - 1 ? parts.join("+") : null;
   }
 
   // Opens a menu. `at` is { x, y, above? } in window pixels; `how` is "mouse"
@@ -247,9 +251,10 @@
     addStyles();
     const returnTo = o.returnTo || !fine(document.activeElement) ? before : document.activeElement;
     // Inside a modal <dialog> everything else is inert: the menu goes in the dialog.
-    const host = openLayer(o.owner ?? returnTo) ?? document.body;
-    // What is under a menu opened at a point: its scrolling closes the menu.
+    // What is under a menu opened at a point: its scrolling closes the menu,
+    // and the layer it is in (an app's popover) is the menu's.
     const under = at.point ? document.elementFromPoint(at.x, at.y) : null;
+    const host = openLayer(o.owner ?? under ?? returnTo) ?? document.body;
     const life = new AbortController();
     const signal = life.signal;
     const levels = []; // the open menus, the first one first
@@ -316,14 +321,18 @@
         let lv = level(next, o.label, at, "mouse");
         const top = lv;
         const chain = [lv];
-        for (const name of path) {
-          const row = enabledIn(lv.menu).find(n => labelOf(n) === name && n.__tmnSub?.length);
+        // Each level is scrolled back before its sub-menu opens again (the
+        // sub-menu is placed by its row as it then is, and the scroll does not
+        // close it).
+        scrollBack(lv, scrolls[0] ?? 0);
+        for (const [n, name] of path.entries()) {
+          const row = enabledIn(lv.menu).find(r => labelOf(r) === name && r.__tmnSub?.length);
           if (!row) break;
           openSub(lv, row, "mouse");
           lv = lv.child;
+          scrollBack(lv, scrolls[n + 1] ?? 0);
           chain.push(lv);
         }
-        chain.forEach((l, n) => { l.menu.scrollTop = scrolls[n] ?? 0; });
         if (inside) {
           const home = chain[Math.min(focusLevel, chain.length - 1)];
           // The same item; if it is gone, the first one (the keys keep a place).
@@ -375,12 +384,18 @@
       if (!row.__tmnSub?.length) return;
       const r = row.getBoundingClientRect();
       const child = level(row.__tmnSub, item.label, { x: r.right - 3, y: r.top - 5, flipX: r.left + 3, left: lv.leftward }, how, lv, row);
+      child.rowTop = r.top;
       row.setAttribute("aria-expanded", "true");
       row.setAttribute("aria-controls", child.menu.id);
       lv.child = child;
     }
 
     const enabledIn = menu => [...menu.querySelectorAll(":scope > .tmn-item:not([aria-disabled='true'])")];
+
+    // A level put back where it was scrolled (before its sub-menu opens again, so the scroll moves no row a sub-menu hangs by).
+    function scrollBack(lv, top) {
+      if (Math.abs(lv.menu.scrollTop - top) >= 1) lv.menu.scrollTop = top;
+    }
 
     // Whether the pointer, going from `from` to `to`, heads for lv's open
     // sub-menu: inside the triangle from where it was to that menu's near edge.
@@ -419,7 +434,9 @@
         const i = list.indexOf(document.activeElement);
         const focused = i >= 0 ? list[i] : null;
         // A space in the middle of typing a label is part of it, not a choice.
-        const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < 700;
+        // A space in the middle of typing a label ("Save a"), when one goes on like that; else it chooses.
+        const spelling = e.key === " " && typed !== "" && Date.now() - typedAt < 700
+          && enabledIn(menu).some(node => node.querySelector(".tmn-label").textContent.trim().toLowerCase().startsWith(typed + " "));
         // Moving with the keys leaves a sub-menu opened by the mouse behind: it closes.
         const to = n => {
           e.preventDefault();
@@ -563,11 +580,18 @@
         if (e.detail > 0) return; // a pointer's click: its release chose already
         const hit = e.target instanceof Element ? e.target.closest(".tmn-item") : null;
         if (!hit || hit.parentElement !== menu) return;
-        if (hasSub(hit.__tmnItem)) openSub(lv, hit, "mouse");
+        // A click no pointer made (a screen reader's): the sub-menu opens with the focus in it.
+        if (hasSub(hit.__tmnItem)) openSub(lv, hit, "keyboard");
         else choose(lv, hit);
       }, { signal });
       menu.addEventListener("contextmenu", e => e.preventDefault(), { signal });
-      menu.addEventListener("scroll", () => { if (lv.child) closeSub(lv); }, { passive: true, signal });
+      menu.addEventListener("scroll", () => {
+        // The row a sub-menu hangs by moved: the sub-menu goes. A scroll that moved no
+        // such row (one from an arrow key just before the sub-menu opened, one replace()
+        // put back) leaves it.
+        const child = lv.child;
+        if (child && Math.abs(child.row.getBoundingClientRect().top - child.rowTop) >= 1) closeSub(lv);
+      }, { passive: true, signal });
       // The release chooses, as in desktop menus: after a press on an item (or
       // another item, sliding over), or on the title or button that opened it
       // (press, drag, release; not a release right after the menu came up under
@@ -612,7 +636,14 @@
         });
       }
     }, { capture: true, signal });
-    document.addEventListener("pointerup", () => { pressedInside = false; }, { signal });
+    document.addEventListener("pointerup", e => {
+      // The press that opened it (on its title or button) dragged through it and was released
+      // elsewhere: closed with nothing chosen, as a desktop menu does.
+      const t = e.target;
+      const onMenu = t instanceof Node && (levels.some(lv => lv.menu.contains(t)) || handle.owner?.contains(t));
+      if (!pressedInside && movedSinceOpen && !onMenu && e.buttons === 0) handle.close(true);
+      pressedInside = false;
+    }, { signal });
     // Focus goes back where it was, so the app answers keys when the person returns.
     // (Not when the focus went into a frame of this page: it stays there.)
     window.addEventListener("blur", () => handle.close(document.activeElement?.tagName !== "IFRAME"), { signal });
