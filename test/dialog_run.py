@@ -220,6 +220,25 @@ with sync_playwright() as p:
     check("review giving { rows, note }: its note under the changes; then it saves", note == "That’s a large change." and answer(page) == {"when": "", "value": "1234"}, note)
     page.close()
 
+    # ---------- where a form starts, a press beside it ----------
+    page = fresh(browser)
+    kpi = "[{ name: 'project', label: 'Project', type: 'select', options: ['Atlas', 'Orion'] }, { name: 'name', label: 'Name', value: 'Reach' }, { name: 'unit', label: 'Unit'%s }]"
+    ask(page, "TaurisDialog.form({ title: 'New KPI', fields: " + kpi % "" + " })")
+    check("a form starts in its first text field, not a select above it", focused(page).endswith("-name"), focused(page))
+    page.evaluate("""window.__nudged = false; new MutationObserver(() => { window.__nudged ||= document.querySelector('.tdl').classList.contains('tdl-nudge'); })
+      .observe(document.querySelector('.tdl'), { attributes: true })""")
+    page.mouse.click(5, 690)
+    page.wait_for_timeout(50)
+    nudged = (page.locator(".tdl").count(), page.evaluate("window.__nudged"), focused(page).endswith("-name"), page.evaluate("window.answer"))
+    check("a press beside it: a short shake, still open, the keys where they were", nudged == (1, True, True, None), nudged)
+    page.keyboard.press("Escape")
+    answer(page)
+    ask(page, "TaurisDialog.form({ title: 'New KPI', fields: " + kpi % ", autofocus: true" + " })")
+    check("autofocus: it starts in that field", focused(page).endswith("-unit"), focused(page))
+    page.keyboard.press("Escape")
+    answer(page)
+    page.close()
+
     # ---------- the sheets ----------
     page = fresh(browser)
     ask(page, """TaurisDialog.shortcuts({ groups: [

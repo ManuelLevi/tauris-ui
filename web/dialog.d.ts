@@ -83,6 +83,8 @@ declare global {
     value?: string | number | boolean | null;
     /** An example, dimmer than typed text ("Northwind Launch"). */
     placeholder?: string;
+    /** The form starts here (by default it starts in its first text field, not a select above it). */
+    autofocus?: boolean;
     /** A dim line under it. */
     hint?: string;
     /** Left empty, refused with labels.required (or requiredText). */

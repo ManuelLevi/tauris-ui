@@ -8,6 +8,11 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.5.3 — 2026-10-22
+
+- Forms start in their first text field, its text selected, not in a select above it. `autofocus: true` on a field starts there instead.
+- A press beside a dialog no longer closes it: the dialog gives a short shake and stays open, so nothing typed is lost (a ring instead of the shake when the system asks for less motion). Esc, ⌘. and ✕ still cancel. `--tdl-nudge-time` sets the shake's length.
+
 ## 0.5.2 — 2026-10-22
 
 - Table:

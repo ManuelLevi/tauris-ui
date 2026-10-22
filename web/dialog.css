@@ -46,6 +46,7 @@
     --tdl-tip-bg: #b3261e;           /* a field's refusal balloon */
     --tdl-tip-fg: #ffffff;
     --tdl-veil: rgb(0 0 0 / 0.18);
+    --tdl-nudge-time: 0.32s;         /* the shake after a press beside a dialog */
     --tdl-shadow: 0 14px 40px rgb(0 0 0 / 0.22);
     --tdl-key-bg: var(--tauris-chrome, #f0f0f2);
     --tdl-panel-bg: var(--tauris-bg, #ffffff);   /* what is behind a panel's title (its page) */
@@ -131,6 +132,10 @@
   .tdl.tdl-wide { --tdl-w: 560px; }
   .tdl *, .tdl *::before, .tdl *::after { box-sizing: border-box; }
   @keyframes tdl-in { from { opacity: 0; transform: translateY(4px) scale(0.99); } }
+  /* A press beside it: a short shake (tdl-in stays listed, so it does not play again). */
+  .tdl.tdl-nudge { animation: tdl-in 0.14s ease-out both, tdl-nudge var(--tdl-nudge-time) ease-in-out; }
+  @keyframes tdl-nudge { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+  @keyframes tdl-nudge-ring { 50% { box-shadow: var(--tdl-shadow), 0 0 0 3px var(--tdl-focus); } }
 
   .tdl-head {
     display: flex;
@@ -381,6 +386,8 @@
 
   @media (prefers-reduced-motion: reduce) {
     .tdl, .tdl-veil { animation: none; }
+    /* No shake: a ring for a moment instead. */
+    .tdl.tdl-nudge { animation: tdl-nudge-ring var(--tdl-nudge-time) ease-out; }
   }
 
   @media (forced-colors: active) {

@@ -229,8 +229,8 @@
 
   const open = []; // the dialogs open, the last on top
 
-  // A dialog: its title bar, its body, its button row. `onCancel` is Esc, ⌘., ✕
-  // and a press on the veil; the caller closes it with the returned close().
+  // A dialog: its title bar, its body, its button row. `onCancel` is Esc, ⌘. and ✕
+  // (a press on the veil only nudges it); the caller closes it with the returned close().
   function frame({ title, role = "dialog", wide = false, width, onCancel, className = "" }) {
     addStyles();
     const id = `tdl-${++uid}`;
@@ -256,7 +256,15 @@
     open.push(state);
     const cancel = () => { if (!state.closed) onCancel?.(); };
     x.addEventListener("click", cancel, { signal });
-    veil.addEventListener("mousedown", e => { if (e.target === veil) { e.preventDefault(); cancel(); } }, { signal });
+    // A press beside it: a short shake, and it stays, what was typed kept (a sheet on a Mac does not close either).
+    veil.addEventListener("mousedown", e => {
+      if (e.target !== veil) return;
+      e.preventDefault();
+      box.classList.remove("tdl-nudge");
+      void box.offsetWidth;
+      box.classList.add("tdl-nudge");
+    }, { signal });
+    box.addEventListener("animationend", e => { if (e.target === box && e.animationName.startsWith("tdl-nudge")) box.classList.remove("tdl-nudge"); }, { signal });
     box.addEventListener("keydown", e => {
       if (e.key === "Escape" || (cmd(e) && e.key === ".")) {
         if (e.isComposing) return;
@@ -753,8 +761,11 @@
         else focusFirst();
       }
       function focusFirst() {
-        // The first text field, its text selected, ready to retype; else the default button.
-        const first = [...controls.values()].find(c => !c.control.disabled && c.f.type !== "checkbox");
+        // The field marked autofocus; else the first one typed in (a name, not a select above it), its text
+        // selected, ready to retype; else the first field; else the default button.
+        const ready = [...controls.values()].filter(c => !c.control.disabled);
+        const typed = c => !c.handle && (c.control instanceof HTMLTextAreaElement || (c.control instanceof HTMLInputElement && c.control.type !== "checkbox"));
+        const first = ready.find(c => c.f.autofocus === true) ?? ready.find(typed) ?? ready.find(c => c.f.type !== "checkbox");
         if (first) {
           focusEntry(first);
         } else {
