@@ -24,6 +24,8 @@ pub enum Component {
     Files,
     /// `TaurisMenu`, the in-window menus.
     Menus,
+    /// `TaurisSidebar`, the collapsible side bar.
+    Sidebar,
 }
 
 /// How the tabs behave. Every setting has a default; change only what you need.
@@ -58,7 +60,14 @@ impl<R: Runtime> Default for Config<R> {
             drop_slack: (10.0, 16.0),
             drag_opacity: 1.0,
             settle: Duration::from_secs(1),
-            components: vec![Component::Tabs, Component::Tree, Component::Terminal, Component::Files, Component::Menus],
+            components: vec![
+                Component::Tabs,
+                Component::Tree,
+                Component::Terminal,
+                Component::Files,
+                Component::Menus,
+                Component::Sidebar,
+            ],
         }
     }
 }
@@ -71,7 +80,7 @@ impl Config<Wry> {
 }
 
 impl<R: Runtime> Config<R> {
-    /// The page components the plugin puts in every page (default: all five).
+    /// The page components the plugin puts in every page (default: all six).
     /// An app that uses some leaves the others out, so its pages load less.
     /// The files table brings the menus with it (its row menu is one).
     /// `scripts/doctor.py` says when a page uses one left out.

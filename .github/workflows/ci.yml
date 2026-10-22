@@ -24,6 +24,7 @@ jobs:
           workspaces: |
             .
             examples/basic/src-tauri
+            examples/all/src-tauri
       - name: System libraries (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -38,9 +39,12 @@ jobs:
       - name: Example app builds, without warnings
         working-directory: examples/basic/src-tauri
         run: cargo clippy -- -D warnings && cargo build
+      - name: Example with every component builds, without warnings
+        working-directory: examples/all/src-tauri
+        run: cargo clippy -- -D warnings && cargo build
       # As a person runs it (no PYTHONUTF8: the checker sets its own output's encoding).
-      - name: Example app passes the checker
-        run: python scripts/doctor.py examples/basic
+      - name: Example apps pass the checker
+        run: python scripts/doctor.py examples/basic && python scripts/doctor.py examples/all
       - name: The checker's own tests, on every system
         run: python test/doctor_run.py
 
@@ -93,6 +97,8 @@ jobs:
       - run: python test/terminal_run.py
       - run: python test/files_run.py
       - run: python test/menus_run.py
+      - run: python test/sidebar_run.py
+      - run: python test/all_run.py
       - run: python test/doctor_run.py
 
   # WebKit: what Tauri renders with on macOS (WKWebView) and Linux (WebKitGTK).
@@ -114,3 +120,5 @@ jobs:
       - run: python test/terminal_run.py
       - run: python test/files_run.py
       - run: python test/menus_run.py
+      - run: python test/sidebar_run.py
+      - run: python test/all_run.py

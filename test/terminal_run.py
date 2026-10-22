@@ -468,6 +468,16 @@ with sync_playwright() as p:
     page.keyboard.press("ArrowDown")
     page.keyboard.press("ArrowDown")
     check("Down goes back to an empty line", page.evaluate("demo.cmd.value") == "")
+    # onKey: the app takes a key first (Up and Down through its suggestions); Enter still sends.
+    page.evaluate("""(() => { const box = document.createElement('div'); document.body.append(box); window.took = [];
+      window.line2 = TaurisTerminal.commandLine(box, { onKey: e => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { took.push(e.key); return true; } },
+        onSubmit: t => took.push('sent ' + t) }); line2.focus(); return 0; })()""")
+    page.keyboard.type("one")
+    page.keyboard.press("Enter")
+    page.keyboard.type("two")
+    page.keyboard.press("ArrowUp")
+    check("onKey takes the keys it returns true for (the history does not step), and Enter still sends",
+          page.evaluate("took") == ["sent one", "ArrowUp"] and page.evaluate("line2.value") == "two", (page.evaluate("took"), page.evaluate("line2.value")))
     page.keyboard.type("signon")
     page.keyboard.press("Escape")
     check("Escape empties the line (and the page's own Escape is not called)",

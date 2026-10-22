@@ -8,6 +8,13 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.26 — 2026-10-26
+
+- New: `examples/all`, an app that uses every component: tabs, a sidebar holding a tree, the files table, menus and the terminal look (`CLAUDE.md` says what it does). Its page is tested by `test/all_run.py`; CI builds it and runs the checker on it.
+- New: `TaurisSidebar`, a collapsible side bar of sections, as in Mail or Finder (`web/sidebar.js`, `web/sidebar.css`, `web/sidebar.d.ts`). Items with icons and counts, headings, groups to any depth; collapsed to a rail of icons (or away) by its button, ⌃⌘S (Ctrl+Shift+B elsewhere), `toggle()` or its edge dragged narrow; resized by its edge, from the mouse or the keys; one Tab stop with the arrows, type-ahead and the menu key (`onContextMenu`); `openOnSelect`; `storageKey` keeps its width and state. `Component::Sidebar` for `Config::components`; the checker knows it.
+- Terminal: `commandLine(el, { onKey })` hears each key first; returning true takes it (↑ and ↓ through an app's suggestions). A table row chosen from the keys is `aria-selected="true"` on its `<tr>`.
+- CI: the checker's tests read and write files as UTF-8 (on Windows they read the typings in its own code page and failed).
+
 ## 0.4.25 — 2026-10-26
 
 - Tabs: in Chromium on a Mac (which says "macOS"), the strip's shortcuts and their labels are the Mac's.

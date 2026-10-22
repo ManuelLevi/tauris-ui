@@ -16,7 +16,7 @@ LIBRARY = HERE.parent
 # As TOML and JSON take it on every system (a Windows path's backslashes would be escapes).
 LIB = LIBRARY.as_posix()
 # The series this library is in ("0.4" for 0.4.21): what a good app asks for.
-SERIES = ".".join(re.search(r'^version = "([^"]+)"', (LIBRARY / "Cargo.toml").read_text(), re.M).group(1).split(".")[:2])
+SERIES = ".".join(re.search(r'^version = "([^"]+)"', (LIBRARY / "Cargo.toml").read_text(encoding="utf-8"), re.M).group(1).split(".")[:2])
 DOCTOR = LIBRARY / "scripts" / "doctor.py"
 failures = []
 
@@ -52,11 +52,11 @@ def checked(root, page, rust, dependency, capability, conf_app, workspace, extra
     (tauri / "capabilities").mkdir()
     (root / "dist").mkdir()
     dep = dependency or f'{{ path = "{LIB}", version = "{SERIES}" }}'
-    (tauri / "Cargo.toml").write_text(manifest or f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauris-ui = {dep}\n')
+    (tauri / "Cargo.toml").write_text(manifest or f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauris-ui = {dep}\n', encoding="utf-8")
     if tsconfig:
-        (root / "tsconfig.json").write_text("{}")
+        (root / "tsconfig.json").write_text("{}", encoding="utf-8")
     if workspace:
-        (root / "Cargo.toml").write_text(workspace)
+        (root / "Cargo.toml").write_text(workspace, encoding="utf-8")
     conf = {"app": conf_app or {"withGlobalTauri": True}, "build": {"frontendDist": "../dist"}, **(conf or {})}
     if conf_name == "Tauri.toml":
         (tauri / conf_name).write_text("[app]\nwithGlobalTauri = " + str(conf["app"].get("withGlobalTauri", False)).lower()
@@ -65,19 +65,19 @@ def checked(root, page, rust, dependency, capability, conf_app, workspace, extra
         (tauri / conf_name).write_text("// the app's settings\n{\n  app: { withGlobalTauri: " + json.dumps(conf["app"].get("withGlobalTauri", False))
                                        + ', },\n  build: { frontendDist: "../dist", },\n}\n')
     else:
-        (tauri / conf_name).write_text(json.dumps(conf))
+        (tauri / conf_name).write_text(json.dumps(conf), encoding="utf-8")
     if capability is not None:
-        (tauri / "capabilities" / "default.json").write_text(json.dumps(capability))
-    (tauri / "src" / "main.rs").write_text(rust)
+        (tauri / "capabilities" / "default.json").write_text(json.dumps(capability), encoding="utf-8")
+    (tauri / "src" / "main.rs").write_text(rust, encoding="utf-8")
     if not no_page:
-        (root / "dist" / "index.html").write_text(page)
+        (root / "dist" / "index.html").write_text(page, encoding="utf-8")
     for name, text in extra_tauri.items():
         (tauri / "capabilities" / name).parent.mkdir(parents=True, exist_ok=True)
-        (tauri / "capabilities" / name).write_text(text)
+        (tauri / "capabilities" / name).write_text(text, encoding="utf-8")
     for name, text in root_files.items():
-        (root / name).write_text(text)
+        (root / name).write_text(text, encoding="utf-8")
     for name, text in (extra or {}).items():
-        (root / "dist" / name).write_text(text)
+        (root / "dist" / name).write_text(text, encoding="utf-8")
     run = subprocess.run([sys.executable, str(DOCTOR), str(root)], capture_output=True, text=True, encoding="utf-8")
     return run.stdout + run.stderr, run.returncode
 
@@ -152,7 +152,7 @@ out, _ = app(page="<script>const h = `${a.map(x => `[l](https://e.com/${x})`)}`;
 check("a template inside a template's ${ } ends where it should", "components in use: files" in out, out)
 out, _ = app(page="<script>const o = '<!--'; TaurisFiles.mount(el, { pick: f }); const c = '-->';</script>")
 check("<!-- inside a script's string is not a comment", "components in use: files" in out, out)
-out, _ = app(page="<script>TaurisFiles.mount(el, { pick: f })</script>", extra={"tabs.d.ts": (Path(__file__).parent.parent / "web" / "tabs.d.ts").read_text()})
+out, _ = app(page="<script>TaurisFiles.mount(el, { pick: f })</script>", extra={"tabs.d.ts": (Path(__file__).parent.parent / "web" / "tabs.d.ts").read_text(encoding="utf-8")})
 check("copied typings are not the app using a component", "tabs" not in out.split("components in use:")[1].split("\n")[0], out)
 out, _ = app(page="<script src='tabs.js'></script>", extra={"tabs.js": "TaurisTabs.mount(document.getElementById('strip'))"})
 check("an app's own tabs.js that mounts the strip is not a copy of the library's", "own copy of the library's tabs.js" not in out, out)
@@ -209,8 +209,8 @@ check("the files feature turned on by the app's default features", 'the "files" 
 root = Path(tempfile.mkdtemp(prefix="tauris-doctor-"))
 try:
     (root / "src-tauri").mkdir()
-    (root / "src-tauri" / "Cargo.toml").write_text(f'[package]\nname = "x"\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n')
-    (root / "src-tauri" / "tauri.conf.json").write_text('{ "app": { "withGlobalTauri": true, }, }')
+    (root / "src-tauri" / "Cargo.toml").write_text(f'[package]\nname = "x"\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n', encoding="utf-8")
+    (root / "src-tauri" / "tauri.conf.json").write_text('{ "app": { "withGlobalTauri": true, }, }', encoding="utf-8")
     run = subprocess.run([sys.executable, str(DOCTOR), str(root)], capture_output=True, text=True, encoding="utf-8")
     check("a tauri.conf.json that cannot be read is said so, not a crash",
           "cannot be read" in run.stdout and run.returncode == 1 and "Traceback" not in run.stdout + run.stderr, run.stdout + run.stderr)
@@ -265,7 +265,7 @@ root = Path(tempfile.mkdtemp(prefix="tauris-doctor-"))
 try:
     (root / "src-tauri" / "src").mkdir(parents=True)
     (root / "src-tauri" / "Cargo.toml").write_bytes(f'[package]\nname = "x"\nauthors = ["Jos\xe9"]\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n'.encode("latin-1"))
-    (root / "src-tauri" / "Tauri.toml").write_text('[app]\nwithGlobalTauri = true\n')
+    (root / "src-tauri" / "Tauri.toml").write_text('[app]\nwithGlobalTauri = true\n', encoding="utf-8")
     run = subprocess.run([sys.executable, str(DOCTOR), str(root)], capture_output=True, text=True, encoding="utf-8")
     check("a Tauri.toml is read; a Cargo.toml not in UTF-8 is said so, not a crash",
           "Traceback" not in run.stdout + run.stderr and "cannot be read" in run.stdout and run.returncode == 1, run.stdout + run.stderr)
@@ -311,11 +311,11 @@ def toml_app(toml, page, rust):
         (tauri / "src").mkdir(parents=True)
         (tauri / "capabilities").mkdir()
         (root / "ui").mkdir()
-        (tauri / "Cargo.toml").write_text(f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n')
-        (tauri / "Tauri.toml").write_text(toml)
-        (tauri / "capabilities" / "default.json").write_text(json.dumps(GOOD_CAP))
-        (tauri / "src" / "main.rs").write_text(rust)
-        (root / "ui" / "index.html").write_text(page)
+        (tauri / "Cargo.toml").write_text(f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n', encoding="utf-8")
+        (tauri / "Tauri.toml").write_text(toml, encoding="utf-8")
+        (tauri / "capabilities" / "default.json").write_text(json.dumps(GOOD_CAP), encoding="utf-8")
+        (tauri / "src" / "main.rs").write_text(rust, encoding="utf-8")
+        (root / "ui" / "index.html").write_text(page, encoding="utf-8")
         run = subprocess.run([sys.executable, str(DOCTOR), str(root)], capture_output=True, text=True, encoding="utf-8")
         return run.stdout + run.stderr, run.returncode
     finally:
@@ -373,7 +373,7 @@ check("macOS 11 or later asked for: no note about the engine", code == 0 and "We
 WINDOWS = {"withGlobalTauri": True, "windows": [{"title": "x"}]}
 TABS_APP = {"page": TABS, "rust": GOOD_RUST + START}
 other_copy = Path(tempfile.mkdtemp(prefix="tauris-copy-"))
-(other_copy / "Cargo.toml").write_text('[package]\nname = "tauris-ui"\nversion = "0.4.0"\n')
+(other_copy / "Cargo.toml").write_text('[package]\nname = "tauris-ui"\nversion = "0.4.0"\n', encoding="utf-8")
 for name, kwargs, says in [
     ("a lock without tauris-ui", {"root_files": {"src-tauri/Cargo.lock": "# nothing yet\n"}}, "Cargo.lock has no tauris-ui yet"),
     ("no lock", {}, "no Cargo.lock yet"),

@@ -406,7 +406,7 @@ def note(text):
 
 
 def library_version():
-    match = re.search(r'^version\s*=\s*"([^"]+)"', (LIBRARY / "Cargo.toml").read_text(), re.M)
+    match = re.search(r'^version\s*=\s*"([^"]+)"', (LIBRARY / "Cargo.toml").read_text(encoding="utf-8"), re.M)
     return match.group(1) if match else "?"
 
 
@@ -703,14 +703,15 @@ def main():
     uses_terminal = "TaurisTerminal" in text
     uses_files = "TaurisFiles" in text
     uses_menus = "TaurisMenu" in text
+    uses_sidebar = "TaurisSidebar" in text
     used = [name for name, on in (("tabs", uses_tabs), ("tree view", uses_tree), ("terminal", uses_terminal),
-                                  ("files", uses_files), ("menus", uses_menus)) if on]
+                                  ("files", uses_files), ("menus", uses_menus), ("sidebar", uses_sidebar)) if on]
     if used:
         ok("components in use: " + ", ".join(used))
     elif files:
         bad("no page mounts a tauris-ui component",
             'TaurisTabs.mount(document.getElementById("strip")), TaurisTree.mount(element, { data }), TaurisFiles.mount(element), '
-            'TaurisMenu.bar(nav, { menus }) or TaurisTerminal.mount(element)')
+            'TaurisMenu.bar(nav, { menus }), TaurisSidebar.mount(element, { items }) or TaurisTerminal.mount(element)')
     else:
         bad("found no page files (looked in frontendDist, src/ and index.html)", "check build.frontendDist in tauri.conf.json")
 
@@ -865,7 +866,7 @@ def main():
 
     # 5. the page's CSS and copies of the library's files
     for name, word in (("tabs.js", "TaurisTabs"), ("tree.js", "TaurisTree"), ("terminal.js", "TaurisTerminal"),
-                       ("files.js", "TaurisFiles"), ("menus.js", "TaurisMenu")):
+                       ("files.js", "TaurisFiles"), ("menus.js", "TaurisMenu"), ("sidebar.js", "TaurisSidebar")):
         # A copy defines the component (or still has the stylesheet's placeholder);
         # an app's own tabs.js that only mounts the strip is not one.
         if any(p.name == name and (f"window.{word} =" in read(p) or "__TAURIS_" in read(p)) for p in files):
@@ -874,14 +875,14 @@ def main():
         bad("the app's CSS declares the tauris-ui layer",
             "remove it: it can put the library under the app's reset, and values set inside it lose anyway")
     elif re.search(r"@layer\s+[\w-]", text):
-        note("the app's CSS uses layers: set the --tauris-*, --tt-*, --tv-*, --tf-*, --tmn-* and --tm-* variables outside every @layer block, "
+        note("the app's CSS uses layers: set the --tauris-*, --tt-*, --tv-*, --tf-*, --tmn-*, --tsb-* and --tm-* variables outside every @layer block, "
              "or the library's defaults win")
 
     # TypeScript: an up-to-date copy of each component's types
     if (tauri.parent / "tsconfig.json").is_file():
         for name, word, on in (("tabs.d.ts", "TaurisTabs", uses_tabs), ("tree.d.ts", "TaurisTree", uses_tree),
                                ("terminal.d.ts", "TaurisTerminal", uses_terminal), ("files.d.ts", "TaurisFiles", uses_files),
-                               ("menus.d.ts", "TaurisMenu", uses_menus)):
+                               ("menus.d.ts", "TaurisMenu", uses_menus), ("sidebar.d.ts", "TaurisSidebar", uses_sidebar)):
             if not on:
                 continue
             types = LIBRARY / "web" / name
@@ -909,7 +910,7 @@ def main():
             if "Files" in given:
                 given.add("Menus")  # the files table brings them
             for word, comp, js in (("tabs", "Tabs", "TaurisTabs"), ("tree view", "Tree", "TaurisTree"), ("terminal", "Terminal", "TaurisTerminal"),
-                                   ("files", "Files", "TaurisFiles"), ("menus", "Menus", "TaurisMenu")):
+                                   ("files", "Files", "TaurisFiles"), ("menus", "Menus", "TaurisMenu"), ("sidebar", "Sidebar", "TaurisSidebar")):
                 if word in used and comp not in given:
                     bad(f"the app uses the {word}, but Config::components leaves it out, so the pages have no {js}",
                         f"add tauris_ui::Component::{comp} to .components(&[...])")

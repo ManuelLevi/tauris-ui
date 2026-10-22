@@ -104,6 +104,7 @@
     --tm-key-shade: rgb(0 0 0 / 0.35);
     --tm-flash: rgb(255 164 36 / 0.22);
     --tm-select: rgb(255 164 36 / 0.35);
+    --tm-row-on: rgb(255 164 36 / 0.3);   /* a table row chosen from the keys */
   }
 
   /* ---------- the screen ---------- */
@@ -363,6 +364,8 @@
 
   .tm-table :where(tbody td:first-child) { color: var(--tm-amber); }
   .tm-table :where(tbody tr:hover > td) { background: var(--tm-row); }
+  /* The row chosen from the keys (a suggestion): aria-selected="true" on its <tr>. */
+  .tm-table :where(tbody tr[aria-selected="true"] > td) { background: var(--tm-row-on); }
 
   .tm-table :where(tfoot td) {
     font-weight: 600;

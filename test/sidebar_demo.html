@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar</title>
+<link rel="stylesheet" href="../web/sidebar.css">
+<style>
+  /* The page around the sidebar; the sidebar itself comes from sidebar.css. */
+  :root { color-scheme: light dark; --page: #ffffff; --text: #1e1f22; }
+  @media (prefers-color-scheme: dark) { :root { --page: #1f2123; --text: #dfe1e5; } }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; background: var(--page); color: var(--text); font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { flex: 1; min-width: 0; padding: 24px; }
+  main h1 { margin: 0 0 8px; font-size: 20px; }
+</style>
+</head>
+<body>
+<aside id="side"></aside>
+<main>
+  <h1 id="heading">Inbox</h1>
+  <p id="said"></p>
+  <input id="field" aria-label="A field of the page">
+</main>
+<script src="../web/sidebar.js"></script>
+<script>
+  const svg = d => `<svg viewBox="0 0 16 16"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  window.ITEMS = [
+    { id: "inbox", label: "Inbox", icon: svg("M2 9h3l1 2h4l1-2h3M2 9l2-6h8l2 6v4H2z"), count: 12 },
+    { id: "flagged", label: "Flagged", icon: svg("M4 14V2m0 1h8l-2 3 2 3H4") },
+    { id: "sent", label: "Sent", icon: svg("M2 8l12-5-5 12-2-5z") },
+    { heading: "Projects" },
+    { id: "atlas", label: "Atlas", icon: svg("M3 3h10v10H3z"), count: 2, expanded: true, children: [
+      { id: "atlas-docs", label: "Documents" },
+      { id: "atlas-board", label: "Board minutes", count: 1 },
+    ] },
+    { id: "northwind", label: "Northwind", children: [{ id: "nw-plan", label: "Launch plan" }] },
+    { id: "archive", label: "Archive", disabled: true },
+  ];
+  window.said = [];
+  window.side = TaurisSidebar.mount(document.getElementById("side"), {
+    items: ITEMS,
+    selected: "inbox",
+    title: "Mail",
+    onSelect: (item, info) => { said.push(["select", item.id, info.how]); document.getElementById("heading").textContent = item.label; },
+    onToggle: info => said.push(["toggle", info.collapsed, info.how]),
+    onResize: info => said.push(["resize", info.width]),
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>All Components</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header id="strip"></header>
+  <nav id="menubar"></nav>
+  <nav id="toolbar" class="tmn-toolbar" aria-label="Teams"></nav>
+  <div id="body">
+    <aside id="side"></aside>
+    <div id="work">
+      <main id="page">
+        <div id="files"></div>
+        <article id="doc" hidden>
+          <h1 id="doc-title"></h1>
+          <p id="doc-meta"></p>
+          <pre id="doc-text"></pre>
+        </article>
+      </main>
+      <section id="term" class="tm tm-screen" aria-label="Search">
+        <div id="cmd"></div>
+        <div class="tm-panes">
+          <section id="matches" class="tm-pane" aria-labelledby="matches-title">
+            <h2 class="tm-band"><span id="matches-title">SEARCH</span><span data-tm-clock></span></h2>
+            <div class="tm-scroll">
+              <table class="tm-table">
+                <thead><tr><th class="tm-num">#</th><th>NAME</th><th>IN</th><th class="tm-num">SIZE</th></tr></thead>
+                <tbody id="hits"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+        <footer class="tm-legend"><span>TYPE A NAME · ↑ ↓ CHOOSE · ENTER OPENS · “NAME 2”, OR A NUMBER ALONE, OPENS THAT ONE · ESC CLEARS</span></footer>
+      </section>
+    </div>
+  </div>
+  <p id="status" role="status"></p>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

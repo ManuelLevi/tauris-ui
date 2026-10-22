@@ -15,7 +15,7 @@ them.
 1. Keep it general. Anything one app needs becomes an option whose default
    changes nothing for others.
 2. Add or update a test:
-   - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`
+   - tabs page behaviour in `test/run.py`, tree behaviour in `test/tree_run.py`, files in `test/files_run.py`, menus in `test/menus_run.py`, the sidebar in `test/sidebar_run.py`
    - window behaviour in `src/runtime_tests.rs`
    - pure logic next to the code
 3. Update the docs to match: `README.md`, the component's `web/*.d.ts`, and `examples/basic`.
@@ -31,8 +31,12 @@ them.
    python test/terminal_run.py
    python test/files_run.py
    python test/menus_run.py
+   python test/sidebar_run.py
+   python test/all_run.py
    (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build)
+   (cd examples/all/src-tauri && cargo clippy -- -D warnings && cargo build)
    python scripts/doctor.py examples/basic
+   python scripts/doctor.py examples/all
    python test/doctor_run.py                 # the checker itself, on small apps set up right and wrong
    (cd test/freeze_check && cargo clippy -- -D warnings)   # builds it; CI runs it (it opens windows and takes the focus)
    rm -f Cargo.lock && export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback && cargo +1.90 build && cargo +1.90 build --features files   # the oldest Rust it builds with, as CI

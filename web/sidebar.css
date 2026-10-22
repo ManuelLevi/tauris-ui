@@ -1,0 +1,357 @@
+/* tauris-ui sidebar: the look of the collapsible side bar.
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --tsb-* variables outside every @layer block (on :root or on the
+ * sidebar's element), or override any .tsb-* class. The defaults follow the
+ * system's light or dark mode.
+ *
+ * The parts (sidebar.js draws them all, inside the element marked .tsb):
+ *   .tsb-head         the top: .tsb-title (the title option) and .tsb-toggle
+ *   .tsb-nav          the items: .tsb-list > .tsb-entry > .tsb-item, a group's
+ *                     items in a .tsb-sub list inside its entry; .tsb-heading
+ *                     between sections
+ *   .tsb-body         the app's own part below the items (the content option)
+ *   .tsb-item         .tsb-chevron (a group's), .tsb-icon, .tsb-label, .tsb-count;
+ *                     [aria-current="page"] is the selected one
+ *   .tsb-grip         the edge that resizes it
+ *   [data-tsb-state]  "open", "rail" (collapsed to icons) or "hidden"
+ *
+ * Put the element in a row with a height (display: flex), beside the main area.
+ */
+@layer tauris-ui {
+  :root {
+    --tsb-scheme: light;
+    --tsb-font: var(--tauris-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+    --tsb-font-size: 13px;
+    --tsb-heading-size: 11px;
+    /* sizes */
+    /* --tsb-w: the width when open; sidebar.js sets it from `width` (and the edge) */
+    --tsb-rail-w: 44px;              /* collapsed to icons */
+    --tsb-rail-slim-w: 32px;         /* collapsed, with no items (only the app's content): its button alone */
+    --tsb-pad: 8px;                  /* around the items */
+    --tsb-item-h: 28px;
+    --tsb-item-pad: 8px;
+    --tsb-indent: 14px;              /* per level of a group */
+    --tsb-icon: 16px;
+    --tsb-radius: 6px;
+    --tsb-grip-w: 6px;               /* the edge to drag */
+    --tsb-speed: 0.16s;              /* collapsing and opening (none with reduced motion) */
+    /* colours */
+    --tsb-bg: var(--tauris-chrome, #f0f0f2);
+    --tsb-fg: var(--tauris-fg, #1e1f22);
+    --tsb-dim: var(--tauris-dim, #5d616b);           /* headings, counts, icons: 4.5:1 on --tsb-bg and --tsb-hover */
+    --tsb-line: var(--tauris-line, #d3d5da);         /* the edge beside the main area */
+    --tsb-hover: var(--tauris-hover, #e2e4e9);
+    --tsb-sel-bg: var(--tauris-sel-bg, #2675bf);     /* the selected item while the sidebar has the focus */
+    --tsb-sel-fg: var(--tauris-sel-fg, #ffffff);
+    --tsb-sel-inactive: var(--tauris-sel-inactive, #d4dbe6);  /* the selected item while the focus is elsewhere */
+    /* --tsb-sel-inactive-fg: unset, the text colour */
+    --tsb-focus-line: var(--tauris-accent-ink, var(--tsb-ink-auto, #2675bf));  /* the keyboard's ring */
+    --tsb-grip-hover: var(--tauris-accent-ink, var(--tsb-ink-auto, #2675bf));  /* the edge under the mouse, and dragged */
+    --tsb-badge-bg: var(--tauris-accent, #2675bf);   /* a count's dot in the rail */
+  }
+
+  /* The system's dark mode, unless the app chose a mode with
+     data-tauris-theme on <html>; then the mode the app chose. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tauris-theme="light"]) {
+      --tsb-scheme: dark;
+      --tsb-bg: var(--tauris-chrome, #2b2d30);
+      --tsb-fg: var(--tauris-fg, #dfe1e5);
+      --tsb-dim: var(--tauris-dim, #a9adb5);
+      --tsb-line: var(--tauris-line, #45484c);
+      --tsb-hover: var(--tauris-hover, #393c40);
+      --tsb-sel-bg: var(--tauris-sel-bg, #2f65ca);
+      --tsb-sel-inactive: var(--tauris-sel-inactive, #3d4652);
+      --tsb-focus-line: var(--tauris-accent-ink, var(--tsb-ink-auto, #6aa6e0));
+      --tsb-grip-hover: var(--tauris-accent-ink, var(--tsb-ink-auto, #6aa6e0));
+      --tsb-badge-bg: var(--tauris-accent, #6aa6e0);
+    }
+  }
+
+  :root[data-tauris-theme="dark"] {
+    --tsb-scheme: dark;
+    --tsb-bg: var(--tauris-chrome, #2b2d30);
+    --tsb-fg: var(--tauris-fg, #dfe1e5);
+    --tsb-dim: var(--tauris-dim, #a9adb5);
+    --tsb-line: var(--tauris-line, #45484c);
+    --tsb-hover: var(--tauris-hover, #393c40);
+    --tsb-sel-bg: var(--tauris-sel-bg, #2f65ca);
+    --tsb-sel-inactive: var(--tauris-sel-inactive, #3d4652);
+    --tsb-focus-line: var(--tauris-accent-ink, var(--tsb-ink-auto, #6aa6e0));
+    --tsb-grip-hover: var(--tauris-accent-ink, var(--tsb-ink-auto, #6aa6e0));
+    --tsb-badge-bg: var(--tauris-accent, #6aa6e0);
+  }
+
+  /* The accent made readable, where the engine works colours out (relative colours: Safari 18,
+     Chromium 119). Elsewhere the fallbacks above stand.
+     (`l * 1`, not a bare `l`: Chromium 130, WebView2's engine for a while, hangs on a bare channel in clamp().) */
+  @supports (color: oklch(from red l c h)) {
+    :root { --tsb-ink-auto: oklch(from var(--tauris-accent) clamp(0, l * 1, 0.5) c h); }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-tauris-theme="light"]) { --tsb-ink-auto: oklch(from var(--tauris-accent) clamp(0.75, l * 1, 1) c h); }
+    }
+    :root[data-tauris-theme="dark"] { --tsb-ink-auto: oklch(from var(--tauris-accent) clamp(0.75, l * 1, 1) c h); }
+  }
+
+  /* ---------- frame ---------- */
+
+  .tsb {
+    color-scheme: var(--tsb-scheme);
+    position: relative;
+    box-sizing: border-box;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    width: var(--tsb-w, 220px);
+    min-height: 0;
+    overflow: hidden;
+    font: var(--tsb-font-size) / 1.3 var(--tsb-font);
+    color: var(--tsb-fg);
+    background: var(--tsb-bg);
+    border-right: 1px solid var(--tsb-line);
+    transition: width var(--tsb-speed) ease;
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
+
+  .tsb.tsb-right { border-right: 0; border-left: 1px solid var(--tsb-line); }
+  .tsb[data-tsb-state="rail"] { width: var(--tsb-rail-w); }
+  .tsb[data-tsb-state="rail"]:not(.tsb-has-items) { width: var(--tsb-rail-slim-w); }
+  .tsb[data-tsb-state="hidden"] { width: 0; border-width: 0; }
+  .tsb[data-tsb-state="hidden"] > * { visibility: hidden; }
+  .tsb.tsb-resizing { transition: none; }
+
+  .tsb *, .tsb *::before, .tsb *::after { box-sizing: border-box; }
+
+  .tsb-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 6px var(--tsb-pad) 2px;
+  }
+  .tsb.tsb-right .tsb-head { flex-direction: row-reverse; }
+  .tsb[data-tsb-state="rail"] .tsb-head { justify-content: center; padding-inline: 0; }
+
+  .tsb-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .tsb[data-tsb-state="rail"] .tsb-title { display: none; }
+
+  .tsb-toggle {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 24px;
+    margin-left: auto;
+    border-radius: var(--tsb-radius);
+    color: var(--tsb-dim);
+  }
+  .tsb.tsb-right .tsb-toggle { margin-left: 0; margin-right: auto; }
+  .tsb[data-tsb-state="rail"] .tsb-toggle { margin: 0; }
+  .tsb-toggle:hover { color: var(--tsb-fg); background: var(--tsb-hover); }
+  .tsb-toggle:focus { outline: none; }
+  .tsb-toggle:focus-visible { outline: 2px solid var(--tsb-focus-line); outline-offset: -2px; }
+
+  /* ---------- items ---------- */
+
+  .tsb-nav {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden auto;
+    overscroll-behavior: contain;
+    padding: 2px var(--tsb-pad) var(--tsb-pad);
+  }
+  .tsb[data-tsb-state="rail"] .tsb-nav { padding-inline: 6px; scrollbar-width: none; }
+  .tsb-nav[hidden], .tsb-body[hidden] { display: none; }
+
+  /* The app's own part (content, or what it puts in .tsb-body): the rest of the
+     height, scrolling; the items above it take what they need. */
+  .tsb.tsb-has-body .tsb-nav { flex: 0 1 auto; }
+  .tsb-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+  .tsb-body > * { flex: 1 0 auto; min-height: 0; }
+
+  .tsb-list { margin: 0; padding: 0; }
+
+  .tsb-heading {
+    padding: 12px var(--tsb-item-pad) 4px;
+    font-size: var(--tsb-heading-size);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--tsb-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tsb-heading:first-child { padding-top: 4px; }
+  /* In the rail a heading is a line between its sections. */
+  .tsb[data-tsb-state="rail"] .tsb-heading { height: 9px; margin: 4px 6px; padding: 0; border-bottom: 1px solid var(--tsb-line); }
+  .tsb[data-tsb-state="rail"] .tsb-heading:first-child { display: none; }
+  .tsb[data-tsb-state="rail"] .tsb-heading-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .tsb-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--tsb-item-h);
+    padding: 0 var(--tsb-item-pad) 0 calc(var(--tsb-item-pad) + var(--tsb-depth, 0) * var(--tsb-indent));
+    border-radius: var(--tsb-radius);
+    white-space: nowrap;
+  }
+  .tsb-item:hover { background: var(--tsb-hover); }
+  .tsb-item:focus { outline: none; }
+  .tsb-item:focus-visible { outline: 2px solid var(--tsb-focus-line); outline-offset: -2px; }
+  .tsb-item[aria-disabled="true"] { opacity: 0.5; }
+  .tsb-item[aria-disabled="true"]:hover { background: none; }
+
+  .tsb-item[aria-current="page"] { background: var(--tsb-sel-inactive); color: var(--tsb-sel-inactive-fg, var(--tsb-fg)); }
+  .tsb-nav:focus-within .tsb-item[aria-current="page"] { background: var(--tsb-sel-bg); color: var(--tsb-sel-fg); }
+  /* On the accent fill, the ring is the selection's text colour (it reads there). */
+  .tsb-nav:focus-within .tsb-item[aria-current="page"]:focus-visible { outline-color: var(--tsb-sel-fg); }
+
+  .tsb-chevron {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 14px;
+    height: 14px;
+    margin-right: -2px;
+    border-radius: 3px;
+    color: var(--tsb-dim);
+    transition: transform var(--tsb-speed) ease;
+  }
+  .tsb-chevron:empty { visibility: hidden; }
+  /* No groups: no room kept for their arrows. */
+  .tsb:not(.tsb-groups) .tsb-chevron { display: none; }
+  .tsb.tsb-groups .tsb-item { padding-left: calc(var(--tsb-item-pad) - 6px + var(--tsb-depth, 0) * var(--tsb-indent)); }
+  .tsb-item[aria-expanded="true"] > .tsb-chevron { transform: rotate(90deg); }
+  .tsb-chevron:not(:empty):hover { color: var(--tsb-fg); }
+  .tsb-nav:focus-within .tsb-item[aria-current="page"] > :is(.tsb-chevron, .tsb-icon, .tsb-count) { color: inherit; }
+
+  .tsb-icon {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: var(--tsb-icon);
+    height: var(--tsb-icon);
+    font-size: calc(var(--tsb-icon) - 2px);
+    line-height: 1;
+    color: var(--tsb-dim);
+  }
+  .tsb-icon svg { width: 100%; height: 100%; }
+  /* An item without an icon: none open; its first letter in the rail. */
+  .tsb-icon.tsb-no-icon { display: none; }
+
+  .tsb-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tsb-count {
+    flex: none;
+    margin-left: 4px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--tsb-dim);
+  }
+
+  /* ---------- the rail ---------- */
+
+  .tsb[data-tsb-state="rail"] .tsb-item {
+    position: relative;
+    justify-content: center;
+    padding: 0;
+  }
+  .tsb[data-tsb-state="rail"] :is(.tsb-label, .tsb-chevron) { display: none; }
+  .tsb[data-tsb-state="rail"] .tsb-icon { width: 20px; height: 20px; font-size: 15px; }
+  .tsb[data-tsb-state="rail"] .tsb-icon.tsb-no-icon {
+    display: inline-grid;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--tsb-fg);
+    background: var(--tsb-hover);
+  }
+  .tsb[data-tsb-state="rail"] .tsb-item:hover .tsb-no-icon { background: var(--tsb-bg); }
+  /* A count is a dot on the icon. */
+  .tsb[data-tsb-state="rail"] .tsb-count {
+    position: absolute;
+    top: 5px;
+    right: 7px;
+    width: 7px;
+    height: 7px;
+    margin: 0;
+    overflow: hidden;
+    color: transparent;
+    border-radius: 50%;
+    background: var(--tsb-badge-bg);
+    box-shadow: 0 0 0 1.5px var(--tsb-bg);
+  }
+
+  /* ---------- the edge ---------- */
+
+  .tsb-grip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: var(--tsb-grip-w);
+    z-index: 2;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .tsb.tsb-right .tsb-grip { right: auto; left: 0; }
+  .tsb-grip::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 2px;
+    background: transparent;
+    transition: background-color 0.12s;
+  }
+  .tsb.tsb-right .tsb-grip::after { right: auto; left: 0; }
+  .tsb-grip:hover::after,
+  .tsb.tsb-resizing .tsb-grip::after { background: var(--tsb-grip-hover); }
+  .tsb-grip:focus { outline: none; }
+  .tsb-grip:focus-visible::after { width: 3px; background: var(--tsb-focus-line); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tsb, .tsb-chevron { transition: none; }
+  }
+
+  /* Windows high contrast: the system's colours, the selection in Highlight. */
+  @media (forced-colors: active) {
+    .tsb { border-color: CanvasText; }
+    .tsb-item[aria-current="page"],
+    .tsb-nav:focus-within .tsb-item[aria-current="page"] { forced-color-adjust: none; color: HighlightText; background: Highlight; }
+    .tsb-item:focus-visible, .tsb-toggle:focus-visible { outline-color: Highlight; }
+    .tsb-grip:hover::after, .tsb-grip:focus-visible::after, .tsb.tsb-resizing .tsb-grip::after { background: Highlight; }
+    .tsb[data-tsb-state="rail"] .tsb-count { forced-color-adjust: none; background: Highlight; }
+  }
+}

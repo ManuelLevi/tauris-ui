@@ -8,6 +8,7 @@ UI components for Tauri 2 desktop apps. One library for every app.
 | [Tree view](#tree-view) | `TaurisTree.mount(element, { data })` | A dense tree and configuration editor: compact rows, dotted guide lines, aligned columns, in-place editing |
 | [Files](#files) | `TaurisFiles.mount(element, { files, onAdd })` | A place's shared files: a dense, sortable table with drag and drop, search, in-place renaming and the system's pickers |
 | [Menus](#menus) | `TaurisMenu.bar(nav, { menus })` | An in-window menu bar, toolbar buttons with a ▾ menu, and right-click menus, with a desktop app's keyboard |
+| [Sidebar](#sidebar) | `TaurisSidebar.mount(element, { items })` | A collapsible side bar of sections, as in Mail or Finder: icons, counts, groups, a rail of icons when collapsed, an edge to resize |
 | [Terminal](#terminal) | `TaurisTerminal.mount(element)` | An optional Bloomberg-style look: amber on black, monospace, dense tables, function keys, a command line and a message log |
 
 The plugin delivers every component's script and stylesheet to every page (or the ones `Config::components` names). A component's stylesheet is added only when a page mounts it, so a component you don't use changes nothing.
@@ -60,19 +61,19 @@ An app that is always light (or always dark) also sets `data-tauris-theme` on `<
 
 Set them on `:root` (on another element they do not reach the components). Which component follows which:
 
-| Variable | Tabs | Tree | Files | Menus |
-|---|---|---|---|---|
-| `--tauris-font` | ✓ | ✓ | ✓ | ✓ |
-| `--tauris-bg`, `--tauris-fg`, `--tauris-line`, `--tauris-hover` | ✓ | ✓ | ✓ | ✓ |
-| `--tauris-chrome`, `--tauris-dim` | ✓ | ✓ | ✓ | ✓ (chrome) |
-| `--tauris-accent` | ✓ (without `--tauris-accent-ink`: the active tab's bar and focus lines, made readable) | ✓ (the ticked boxes; without `--tauris-accent-ink`, made readable: focus lines and box edges) | ✓ (the buttons; without `--tauris-accent-ink`, made readable: the lines) | ✓ (without `--tauris-accent-ink`: focus lines, made readable) |
-| `--tauris-sel-bg`, `--tauris-sel-fg` | | ✓ | ✓ | ✓ |
-| `--tauris-sel-inactive` | | ✓ | | ✓ (an open title) |
-| `--tauris-faint` | | | | ✓ |
-| `--tauris-focus` | | | ✓ | ✓ |
-| `--tauris-accent-ink` | ✓ (the active tab's bar, focus lines) | ✓ (focus lines, box edges, the sort arrow) | ✓ (lines, the sort arrow, the drop zone) | ✓ (focus lines) |
-| `--tauris-mono` | | | ✓ | |
-| `--tauris-on-accent` | | ✓ (the checkbox tick) | ✓ (text on the buttons) | |
+| Variable | Tabs | Tree | Files | Menus | Sidebar |
+|---|---|---|---|---|---|
+| `--tauris-font` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `--tauris-bg`, `--tauris-fg`, `--tauris-line`, `--tauris-hover` | ✓ | ✓ | ✓ | ✓ | ✓ (not bg) |
+| `--tauris-chrome`, `--tauris-dim` | ✓ | ✓ | ✓ | ✓ (chrome) | ✓ (chrome: its background) |
+| `--tauris-accent` | ✓ (without `--tauris-accent-ink`: the active tab's bar and focus lines, made readable) | ✓ (the ticked boxes; without `--tauris-accent-ink`, made readable: focus lines and box edges) | ✓ (the buttons; without `--tauris-accent-ink`, made readable: the lines) | ✓ (without `--tauris-accent-ink`: focus lines, made readable) | ✓ (a count's dot in the rail; without `--tauris-accent-ink`, made readable: focus lines, the edge) |
+| `--tauris-sel-bg`, `--tauris-sel-fg` | | ✓ | ✓ | ✓ | ✓ |
+| `--tauris-sel-inactive` | | ✓ | | ✓ (an open title) | ✓ (the selected item, the focus elsewhere) |
+| `--tauris-faint` | | | | ✓ | |
+| `--tauris-focus` | | | ✓ | ✓ | |
+| `--tauris-accent-ink` | ✓ (the active tab's bar, focus lines) | ✓ (focus lines, box edges, the sort arrow) | ✓ (lines, the sort arrow, the drop zone) | ✓ (focus lines) | ✓ (focus lines, the edge) |
+| `--tauris-mono` | | | ✓ | | |
+| `--tauris-on-accent` | | ✓ (the checkbox tick) | ✓ (text on the buttons) | | |
 
 "Made readable": the accent no lighter than oklch 0.5 in light mode, no darker than 0.75 in dark, where the engine works colours out (Safari 18, Chromium 119; elsewhere the component's own default). Unset, `--tauris-on-accent` is white or black, whichever reads on the accent. Set, it is the text on every component's accent: a component given an accent of its own (`--tf-accent`, `--tv-check-on`) needs its own text colour with it (`--tf-on-accent`, `--tv-check-mark`).
 
@@ -107,6 +108,8 @@ Desktop only: macOS, Windows, Linux. Dragging a tab out of its window needs macO
 ## Start a new app
 
 The fastest way is to copy `examples/basic`, the smallest complete app, which is kept working:
+
+`examples/all` is the same app with every component in it (tabs, a sidebar holding a tree, the files table, menus, the terminal look): read it to see how they fit together.
 
 1. Copy the folder. Leave out the build output: `src-tauri/target/`, `src-tauri/gen/` and `src-tauri/Cargo.lock`.
 2. In `src-tauri/Cargo.toml`:
@@ -694,6 +697,63 @@ TaurisMenu.bar(nav, { menus, onOpen: () => sound.open(), onClose: ({ chosen }) =
 
 Types are in `web/menus.d.ts`. **The look:** `--tmn-*` variables at the top of `web/menus.css`. `.tmn-toolbar`, `.tmn-tool` (`aria-pressed="true"` for the current view: a neutral grey fill with its own edge, `--tmn-tool-on-bg` and `--tmn-tool-on-border`) and `.tmn-tool-sep` give a toolbar the same look; they are optional. The row is 34px with 26px buttons; put an `<svg>` (any `viewBox`, drawn as a 13px line icon in the text colour) before the label for an icon; `--tmn-toolbar-pad`, `--tmn-tool-pad`, `--tmn-tool-gap` and `--tmn-tool-icon` set the spacing and the icon's size.
 
+## Sidebar
+
+A side bar of sections beside the page, as in Mail or Finder. It collapses to a rail of icons (or away), and its edge resizes it.
+
+```html
+<body>
+  <aside id="side"></aside>
+  <main>…</main>
+</body>
+```
+
+```css
+body { display: flex; height: 100vh; margin: 0; }
+main { flex: 1; min-width: 0; }
+```
+
+```js
+const side = TaurisSidebar.mount(document.getElementById("side"), {
+  title: "Mail",
+  items: [
+    { id: "inbox", label: "Inbox", icon: "📥", count: 12 },
+    { id: "sent", label: "Sent", icon: "<svg viewBox='0 0 16 16'>…</svg>" },
+    { heading: "Projects" },
+    { id: "atlas", label: "Atlas", expanded: true, children: [{ id: "atlas-docs", label: "Documents" }] },
+  ],
+  selected: "inbox",
+  storageKey: "my-app-sidebar",       // keeps its width and whether it is collapsed
+  onSelect: item => show(item.id),
+  onContextMenu: (item, { x, y }) => TaurisMenu.open(itemsFor(item), { x, y }),
+});
+```
+
+Put it in a row with a height (`display: flex`): it sets its own width, and the main area takes the rest. An item is `{ id, label, icon?, count?, children?, expanded?, disabled?, title? }`, or `{ heading }` between sections. An icon is text (an emoji) or markup starting with `<` (an svg, drawn in the text colour); without one, its first letter stands for it in the rail. Groups nest to any depth.
+
+- **Collapsing:** its button, ⌃⌘S on a Mac (its Show/Hide Sidebar; Ctrl+Shift+B elsewhere; `shortcut: false` for none), `toggle()`, or its edge dragged narrow. `collapse: "rail"` (default) leaves a 44px column of icons, each named by a tooltip, with a count as a dot (with no items, only `content`, a 32px strip with its button); choosing a group there opens the sidebar. `collapse: "hide"` leaves nothing: the app shows it again with `toggle()` or the shortcut.
+- **Resizing:** drag its edge (between `minWidth` and `maxWidth`, 160 and 420 by default); dragged from the rail it opens; a double-click on the edge puts `width` back. From the keys, Tab reaches the edge: ← / → by 10px (⇧ by 50), Home and End, Enter collapses or opens.
+- **Keyboard:** the list is one Tab stop (the selected item). ↑ ↓ Home End move; → opens a group, then goes into it; ← closes it, or goes to its parent; Enter or Space chooses; a letter jumps to the next item starting with it; the menu key or ⇧F10 calls `onContextMenu`.
+- **Choosing:** a click chooses an item; a group's arrow, a double-click, or → opens it (`openOnSelect: true`: choosing it opens it too).
+
+| Option | Default | |
+|---|---|---|
+| `items`, `selected` | `[]`, `null` | |
+| `title` | none | A heading at its top; also the list's name for screen readers |
+| `collapsed`, `collapse` | `false`, `"rail"` | `storageKey`, when it has a value kept, says instead of `collapsed` |
+| `side` | `"left"` | `"right"`: the edge to drag is on its left |
+| `width`, `minWidth`, `maxWidth` | 220, 160, 420 | |
+| `storageKey` | none | Keeps the width and whether it is collapsed in the browser's storage |
+| `openOnSelect`, `shortcut`, `typeAheadMs` | `false`, `true`, 700 | |
+| `labels` | English | `{ label, hide, show, resize }` |
+| `onSelect(item, { how })` | | The person chose an item (`select()` does not call it) |
+| `onContextMenu(item, { x, y, how })` | | A right click or the menu key on an item; given, the browser's own menu does not open |
+| `onToggle({ collapsed, how })`, `onResize({ width })` | | |
+
+**Methods:** `setItems(items)` (the focus stays on the same item, open groups stay open), `select(id)` (opens the groups around it), `selected()`, `toggle(collapsed?)`, `collapsed`, `width`, `setWidth(px)`, `update(changes)`, `focus()`, `destroy()`.
+
+Types are in `web/sidebar.d.ts`. **The look:** `--tsb-*` variables at the top of `web/sidebar.css` (its background is `--tauris-chrome`; the selected item is `--tauris-sel-bg` while the sidebar has the focus, `--tauris-sel-inactive` otherwise). `[data-tsb-state]` on the element says `"open"`, `"rail"` or `"hidden"`.
+
 ## Terminal
 
 An optional look for an app or a part of one: amber on black, IBM Plex Mono at 12/18 px, square corners, 1 px gaps between panes. It changes nothing outside the element you mark as a terminal (`.tm`), and its stylesheet is added only when a page uses it. A page that brings its own passes `{ styles: false }` to `mount` (and to `commandLine`, `log` or `pane` made before it). Like the tree, it lives in the page: the plugin delivers it, and it needs no capability.
@@ -703,7 +763,7 @@ Most of it is CSS classes on your own markup. Every class is listed at the top o
 | Part | Markup | Behaviour from `TaurisTerminal` |
 |---|---|---|
 | The screen | `.tm-screen`, panes in `.tm-panes` > `.tm-pane` | `mount(el)` marks the root and keeps every `[data-tm-clock]` and `[data-tm-date]` inside it current |
-| Command line | an empty element | `commandLine(el, { prompt, onSubmit })`: prompt, block cursor, clock. Enter sends, Escape clears, Up and Down step through history |
+| Command line | an empty element | `commandLine(el, { prompt, onSubmit, onKey })`: prompt, block cursor, clock. Enter sends, Escape clears, Up and Down step through history. `onKey(event)` hears each key first: return true to take it (Up and Down through suggestions the app shows; mark the chosen `<tr>` with `aria-selected="true"`) |
 | Title band | `.tm-band` on a pane | `pane(el)` returns `ok()`, `error()` and `reset()`, turning the band green, red or amber |
 | Form | `.tm-form` > `.tm-form-line` with `.tm-label` and `input.tm-field`; `input.tm-check` draws `[X]` / `[ ]` | |
 | Function keys | `.tm-key` (`.tm-go`, `.tm-cancel`, `.tm-yellow`), as `role="button"` | Enter and Space press a focused key. `aria-keyshortcuts="F8"` makes F8 press it from anywhere, and `aria-disabled="true"` turns it off |
@@ -768,8 +828,11 @@ python test/tree_run.py [shots-dir]        # the tree view, including the pixels
 python test/terminal_run.py [shots-dir]    # the terminal, including its gaps and bars by pixel
 python test/files_run.py [shots-dir]       # the files component, with drops and the picker stood in for
 python test/menus_run.py [shots-dir]       # the menus, mouse and keyboard
+python test/sidebar_run.py [shots-dir]     # the sidebar: collapsing, the edge, the keys
+python test/all_run.py [shots-dir]         # examples/all: every component in one app
 python test/doctor_run.py                  # the checker, on small apps set up right and wrong
 (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build) && python scripts/doctor.py examples/basic
+(cd examples/all/src-tauri && cargo clippy -- -D warnings && cargo build) && python scripts/doctor.py examples/all
 (cd test/freeze_check && cargo run)        # macOS: a real app (it opens windows and takes the focus; CI runs it at every push)
 rm -f Cargo.lock && export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback && cargo +1.90 build && cargo +1.90 build --features files   # the oldest Rust, as CI
 rustup target add x86_64-pc-windows-msvc && cargo clippy --all-targets --features files --target x86_64-pc-windows-msvc -- -D warnings   # Windows's code, from a Mac

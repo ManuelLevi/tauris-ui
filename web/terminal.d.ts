@@ -24,6 +24,8 @@ declare global {
     prompt?: string;
     /** Called with the trimmed command when Enter is pressed on a line that is not empty. */
     onSubmit?: (command: string) => void;
+    /** Hears each key on the line first; return true to take it (Up and Down through the app's suggestions), and the line does nothing with it. */
+    onKey?: (event: KeyboardEvent) => boolean | void;
     /** The field's name for screen readers. Default "Command". */
     label?: string;
   }

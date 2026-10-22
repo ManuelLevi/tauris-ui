@@ -213,7 +213,9 @@
   // Draws into an empty element: the prompt, a field for the command with a
   // blinking block cursor at the caret, and the date and time on the right.
   // Enter sends the command to onSubmit and empties the line; Escape empties
-  // it; Up and Down step through the commands sent before.
+  // it; Up and Down step through the commands sent before. onKey(event) hears
+  // each key first: returning true takes it (Up and Down through a list of
+  // suggestions the app shows, say), and the line does nothing with it.
 
   // The parts take { styles: false } too, for a page that makes them before mount().
   const partStyles = options => {
@@ -227,6 +229,7 @@
     element.__taurisCommand = true;
     const prompt = options.prompt ?? ">";
     const onSubmit = typeof options.onSubmit === "function" ? options.onSubmit : () => {};
+    const onKey = typeof options.onKey === "function" ? options.onKey : () => false;
     const life = new AbortController();
     const signal = life.signal;
 
@@ -319,6 +322,11 @@
     input.addEventListener("keydown", e => {
       // Keys that end an input method's text are the input method's.
       if (e.isComposing || e.keyCode === 229) return;
+      // The app's first: a key it takes is its own.
+      if (onKey(e) === true) {
+        e.preventDefault();
+        return;
+      }
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.key === "Enter") {
         e.preventDefault();
