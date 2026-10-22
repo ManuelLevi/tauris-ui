@@ -62,6 +62,8 @@
     choose: "to choose",
     open: "to open",
     close: "to close",
+    // what ⌘↩ (or a ⌘-click) does, shown in the key strip when set ("New Tab"); onPick hears { cmd: true }
+    openAlt: "",
   };
 
   const DEFAULTS = {
@@ -78,7 +80,7 @@
     storageKey: null,
     labels: {},
     styles: true,
-    onPick: null, // (item, { how: "keyboard" | "mouse" })
+    onPick: null, // (item, { how: "keyboard" | "mouse", cmd }): cmd is ⌘↩ or a ⌘-click (Ctrl elsewhere)
     onContextMenu: null, // (item, { x, y, how }): a right click, or the menu key, on a result
     onOpen: null,
     onClose: null, // ({ picked })
@@ -195,7 +197,7 @@
       const snips = new Map();
       let ok = true;
       for (const w of words) {
-        const h = matchWord(w, e.label, e.labelF);
+        const h = matchWord(w, e.label, e.labelF, e.strict);
         // A match with its letters together anywhere beats a scattered one, whatever its weight.
         const rank = (x, weight) => x.score * weight - (x.loose ? 10000 : 0);
         let best = h ? rank(h, 1) : -Infinity;
@@ -287,7 +289,10 @@
         const label = String(item.label ?? "");
         const more = (Array.isArray(item.more) ? item.more : []).filter(t => t != null && String(t).trim())
           .map(t => { const o = String(t).replace(/\s+/g, " ").trim(); return { o, f: fold(o) }; });
-        return { item, kind: item.kind == null ? "" : String(item.kind), label, labelF: fold(label), more };
+        const kind = item.kind == null ? "" : String(item.kind);
+        // Long text (a log entry, a sentence): its letters must sit together, or "rp" finds half of it.
+        const strict = item.strict ?? kindsOf().find(k => String(k.id) === kind)?.strict ?? false;
+        return { item, kind, label, labelF: fold(label), more, strict: strict === true };
       });
     }
 
@@ -368,6 +373,7 @@
           const item = r.e.item;
           const row = el("div", "tfd-row" + (item.dim ? " tfd-dim" : ""), { id: `${id}-o${me}`, role: "option", "data-i": String(me), "aria-selected": String(me === at) });
           const name = el("span", "tfd-label", {}, ...marked(r.e.label || "—", r.ranges));
+          name.__full = r.e.label;
           const meta = el("span", "tfd-detail");
           if (item.color) {
             const chip = el("i", "tfd-chip", { "aria-hidden": "true" });
@@ -387,6 +393,10 @@
         list.append(el("div", "tfd-empty", { role: "presentation" },
           el("b", "", {}, q ? say(words.noMatch, q) : String(words.nothing)),
           q ? el("span", "", {}, String(words.noMatchHint)) : null));
+      }
+      // A label cut short ("…") is whole in its tooltip.
+      for (const label of list.querySelectorAll(".tfd-label")) {
+        if (label.scrollWidth > label.clientWidth + 1 || label.textContent !== label.__full) label.parentElement.title = label.__full;
       }
       const total = gs.reduce((sum, g) => sum + g.total, 0);
       count.textContent = query.trim() ? String(total) : "";
@@ -420,21 +430,24 @@
       return Math.max(1, Math.floor(list.clientHeight / (row?.offsetHeight || 24)) - 1);
     };
 
-    function pick(i, how) {
+    function pick(i, how, alt = false) {
       const r = flat[i];
       if (!r) return;
       keepRecent(r.e.item);
       close(true);
-      call(opt.onPick, r.e.item, { how });
+      call(opt.onPick, r.e.item, { how, cmd: alt });
     }
 
     function open(text = "") {
       if (signal.aborted) return;
       if (host) {
-        input.focus();
+        // Open already: the field takes the keys, its text selected, to type a new search at once.
         if (text) { input.value = String(text); at = 0; draw(); }
+        input.focus();
+        input.select();
         return;
       }
+      leaving?.();
       if (current && current !== api) current.close();
       current = api;
       window.TaurisMenu?.close?.();
@@ -456,6 +469,7 @@
       const keys = el("div", "tfd-keys", { "aria-hidden": "true" },
         el("span", "", {}, el("kbd", "", {}, "↑"), el("kbd", "", {}, "↓"), ` ${words.choose}`),
         el("span", "", {}, el("kbd", "", {}, "↵"), ` ${words.open}`),
+        words.openAlt ? el("span", "", {}, el("kbd", "", {}, MAC ? "⌘↵" : "Ctrl+↵"), ` ${words.openAlt}`) : null,
         el("span", "", {}, el("kbd", "", {}, "esc"), ` ${words.close}`));
       const panel = el("div", "tfd", { role: "dialog", "aria-label": String(words.find), "aria-modal": "true" }, field, list, keys);
       host = el("div", "tfd-host", {}, panel);
@@ -493,7 +507,10 @@
           move(firsts[(now + (e.shiftKey ? -1 : 1) + firsts.length) % firsts.length]);
         } else if (e.key === "Enter") {
           e.preventDefault();
-          if (!e.repeat) pick(at, "keyboard");
+          // Plain, or with ⌘ alone (the app's other way to open: a new tab); with other keys, nothing.
+          const alt = cmd(e) && !e.shiftKey && !e.altKey;
+          const plainKey = !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey;
+          if (!e.repeat && (plainKey || alt)) pick(at, "keyboard", alt);
         } else if ((e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) && typeof opt.onContextMenu === "function") {
           const row = list.querySelector(`.tfd-row[data-i="${at}"]`);
           if (!row || !flat[at]) return;
@@ -515,7 +532,7 @@
       on(list, "mousedown", e => e.preventDefault()); // the keys stay in the field
       on(list, "click", e => {
         const row = e.target instanceof Element ? e.target.closest(".tfd-row") : null;
-        if (row) pick(Number(row.dataset.i), "mouse");
+        if (row) pick(Number(row.dataset.i), "mouse", cmd(e));
       });
       on(list, "contextmenu", e => {
         const row = e.target instanceof Element ? e.target.closest(".tfd-row") : null;
@@ -541,10 +558,16 @@
       call(opt.onOpen);
     }
 
+    // A panel on its way out (a short fade), removed at once if another opens.
+    let leaving = null;
     function close(picked, refocus = true) {
       if (!host) return;
       host.__tfdLife.abort();
-      host.remove();
+      const gone = host;
+      gone.classList.add("tfd-leaving");
+      const remove = () => { gone.remove(); if (leaving === remove) leaving = null; };
+      leaving = remove;
+      setTimeout(remove, matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 90);
       host = null;
       input = list = count = null;
       flat = [];
@@ -561,8 +584,7 @@
         const k = e.key.toLowerCase();
         if (k !== "k" && k !== "l") return;
         e.preventDefault();
-        if (host) input.focus();
-        else open();
+        open();
       }, { signal });
     }
 
@@ -582,6 +604,7 @@
       destroy() {
         if (signal.aborted) return;
         close(false);
+        leaving?.();
         life.abort();
       },
     };

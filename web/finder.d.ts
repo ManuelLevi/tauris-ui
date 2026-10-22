@@ -21,6 +21,8 @@ declare global {
     dim?: boolean;
     /** When it last changed (an ISO date or time): the latest show with nothing typed, and break ties. */
     when?: string;
+    /** Long text (a log entry): its letters must sit together; no initials or scattered letters (default its kind's). */
+    strict?: boolean;
   }
 
   interface TaurisFinderKind {
@@ -32,6 +34,8 @@ declare global {
     limit?: number;
     /** A small lean towards this kind, for ties (40 for what people look for most). */
     bias?: number;
+    /** Its items' letters must sit together (long text). */
+    strict?: boolean;
   }
 
   interface TaurisFinderLabels {
@@ -47,6 +51,8 @@ declare global {
     choose: string;
     open: string;
     close: string;
+    /** What ⌘↩ (or a ⌘-click) does, shown in the key strip when set ("New Tab"). */
+    openAlt: string;
   }
 
   interface TaurisFinderOptions {
@@ -63,8 +69,8 @@ declare global {
     labels?: Partial<TaurisFinderLabels>;
     /** false: the page brings its own stylesheet. */
     styles?: boolean;
-    /** An item was picked; the panel has closed and the focus is back where it was. */
-    onPick?: (item: TaurisFinderItem, info: { how: "keyboard" | "mouse" }) => void;
+    /** An item was picked; the panel has closed and the focus is back where it was. `cmd`: by ⌘↩ or a ⌘-click (Ctrl elsewhere), the app's other way to open (a new tab). */
+    onPick?: (item: TaurisFinderItem, info: { how: "keyboard" | "mouse"; cmd: boolean }) => void;
     /** A right click on a result, or the menu key: where to open the app's own menu (the panel stays open). */
     onContextMenu?: (item: TaurisFinderItem, at: { x: number; y: number; how: "mouse" | "keyboard" }) => void;
     onOpen?: () => void;
@@ -72,7 +78,7 @@ declare global {
   }
 
   interface TaurisFinder {
-    /** Opens it (with this text in its field), or gives the keys back to it. */
+    /** Opens it (with this text in its field); open already, its field takes the keys with its text selected. */
     open(text?: string): void;
     /** Closes it; the focus goes back where it was. */
     close(): void;

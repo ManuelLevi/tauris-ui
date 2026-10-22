@@ -96,6 +96,9 @@
     transform-origin: 50% 0;
   }
   @keyframes tfd-in { from { opacity: 0; transform: translateY(-6px) scale(0.985); } }
+  /* Closing: a short fade (the page takes clicks and keys again at once). */
+  .tfd-host.tfd-leaving { pointer-events: none; background: transparent; transition: background-color 0.09s ease-in; }
+  .tfd-host.tfd-leaving .tfd { opacity: 0; transform: translateY(-3px) scale(0.99); transition: opacity 0.09s ease-in, transform 0.09s ease-in; }
 
   /* the field */
   .tfd-field {

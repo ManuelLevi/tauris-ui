@@ -28,15 +28,18 @@
     { id: "t3", kind: "task", label: "Café opening", when: "2026-10-03" },
     { id: "w1", kind: "password", label: "Stripe", more: ["finance@northwind.example", "stripe.com"], detail: "stripe.com" },
     { id: "d1", kind: "doc", label: "Q3 board deck.pdf", detail: "2.1 MB", when: "2026-10-19" },
+    { id: "l1", kind: "log", label: "Rang the plumber about the pipes", strict: true },
+    { id: "l2", kind: "log", label: "A very long log entry that goes on and on about the meeting, the people in it, what they said and what was agreed in the end", strict: true },
   ];
   // The secret never goes in: it is not in `more`, so it cannot be found.
   window.SECRET = "hunter2-very-secret";
   window.said = [];
   window.finder = TaurisFinder.mount({
     items: () => ITEMS,
-    kinds: [{ id: "project", label: "Projects", limit: 2, bias: 40 }, { id: "task", label: "Tasks" }, { id: "password", label: "Passwords" }, { id: "doc", label: "Documents" }],
+    kinds: [{ id: "project", label: "Projects", limit: 2, bias: 40 }, { id: "task", label: "Tasks" }, { id: "password", label: "Passwords" }, { id: "doc", label: "Documents" }, { id: "log", label: "Log entries" }],
+    labels: { openAlt: "New Tab" },
     storageKey: "demo-finder",
-    onPick: (item, info) => { said.push(["pick", item.id, info.how]); document.getElementById("shown").textContent = item.label; },
+    onPick: (item, info) => { said.push(["pick", item.id, info.how].concat(info.cmd ? ["cmd"] : [])); document.getElementById("shown").textContent = item.label; },
     onContextMenu: (item, at) => said.push(["menu", item.id, at.how]),
     onOpen: () => said.push(["open"]),
     onClose: info => said.push(["close", info.picked]),

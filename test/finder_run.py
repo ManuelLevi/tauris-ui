@@ -71,7 +71,8 @@ with sync_playwright() as p:
     check("a dialog with a combobox over a listbox", a11y == ["dialog", "combobox", True, "listbox"], a11y)
     check("nothing typed: the latest items (no recent ones yet)", groups(page) == ["Latest"] and rows(page)[0] == "Sign the lease", (groups(page), rows(page)))
     page.keyboard.press("Escape")
-    check("Esc closes it and the focus goes back", not page.is_visible(".tfd") and page.evaluate("document.activeElement.id") == "field"
+    page.wait_for_timeout(150)  # its fade
+    check("Esc closes it (with a short fade) and the focus goes back", not page.is_visible(".tfd") and page.evaluate("document.activeElement.id") == "field"
           and said(page) == [["close", False]])
     page.close()
 
@@ -137,6 +138,35 @@ with sync_playwright() as p:
     check("a right click on a result: onContextMenu, the panel stays", said(page)[-1] == ["menu", "w1", "mouse"] and page.evaluate("finder.isOpen"))
     page.mouse.click(10, 600)
     check("a press beside the panel closes it", page.evaluate("finder.isOpen") is False)
+    page.close()
+
+    # ---------- MLPC's: ⌘↩ for a new tab, long text, ⌘K again ----------
+    page = fresh(browser)
+    page.evaluate("finder.open(); 0")
+    said(page)
+    cmd_enter = "Meta+Enter" if page.evaluate("/mac/i.test(navigator.userAgentData?.platform || navigator.platform)") else "Control+Enter"
+    search(page, "north")
+    page.keyboard.press("Shift+Enter")
+    page.keyboard.press("Alt+Enter")
+    still = page.evaluate("finder.isOpen")
+    strip = page.inner_text(".tfd-keys")
+    page.keyboard.press(cmd_enter)
+    check("⌘↩ picks with cmd (a new tab); ⇧↩ and ⌥↩ do nothing; the key strip says what ⌘↩ does (labels.openAlt)",
+          still and "New Tab" in strip and said(page)[-1] == ["pick", "p1", "keyboard", "cmd"], (still, strip))
+    page.evaluate("finder.open(); 0")
+    search(page, "atlas")
+    page.click(".tfd-row", modifiers=["ControlOrMeta"])
+    check("a ⌘-click picks with cmd too", said(page)[-1] == ["pick", "p3", "mouse", "cmd"], page.evaluate("said"))
+    page.evaluate("finder.open(); 0")
+    search(page, "rp")
+    check("strict items match only with their letters together: “rp” finds Revenue Pipeline, not “Rang the plumber”", rows(page) == ["Revenue Pipeline"], rows(page))
+    search(page, "plumber")
+    check("and they match with them together", rows(page) == ["Rang the plumber about the pipes"], rows(page))
+    search(page, "meeting")
+    check("a label cut short is whole in its tooltip", page.evaluate("document.querySelector('.tfd-row').title").startswith("A very long log entry"))
+    page.keyboard.press(finder_key(page))
+    sel = page.evaluate("(() => { const i = document.querySelector('.tfd-input'); return [i.selectionStart, i.selectionEnd, i.value.length, document.activeElement === i]; })()")
+    check("⌘K with it open selects the field's text, to type a new search at once", sel[0] == 0 and sel[1] == sel[2] == 7 and sel[3], sel)
     page.close()
 
     # ---------- the look ----------
