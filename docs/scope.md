@@ -34,7 +34,7 @@ Agreed on 2026-10-22 between tauris-ui and the apps that use it (MLPC, MHive).
 - **Finder**: the panel, matching, groups and recents.
 - **Status bar**, **Glance** (sparkline, status, capacity), **Reorder**, **Files**, **Terminal**.
 - `native_feel`, opt-in.
-- **Releases**: every release is tagged. A change that needs app edits moves the series (0.5.0), and the release note says what to change. The checker (`scripts/doctor.py`) catches what it can.
+- **Releases**: every release is tagged. A change that needs app edits moves to the next series (0.5 to 0.6), and the release note says what to change. The checker (`scripts/doctor.py`) catches what it can.
 
 ## Later
 
