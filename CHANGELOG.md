@@ -6,6 +6,13 @@ dependency, `cargo update -p tauris-ui`).
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.4.33 — 2026-10-22
+
+- New: `TaurisReorder.attach(container, { onMove })` (from MLPC's tables): drag rows into another order, as in a macOS table. The row lifts and follows the pointer, a line shows where it lands, Esc puts it back, and the rows slide into place once the app has drawn the new order. ⌥⌘↑ ⌥⌘↓ (Ctrl+Alt elsewhere) move the current row, and `move(id, dir)` is a menu's Move Up. `group` keeps a row among its own; a drop over another group's rows is refused. `movable` says why a row cannot move, `items` moves a heading with its rows, and `onStart` gives the order to hold still while a row is dragged. `TaurisReorder.arrange(list, order)` and `TaurisReorder.keys` help. It is on only where an app attaches it, and `enabled: false` turns it off. `Component::Reorder`.
+- New: `TaurisGlance` (from MLPC's views): `sparkline(values)` (dates as x spaced by time), `status(kind, text)` (a coloured dot and a word) and `capacity({ max, items })` (the count and a segment for each place, in its holder's colour). `Component::Glance`. The checker knows both.
+- The full example has Home: its projects in an order dragged into place, each with its activity and status, and the files' capacity bar.
 - Type-ahead (the tree, the files table, the sidebar, menus) times each key by
   when it was pressed, not when the page got to it: a page busy drawing the
   last match no longer cuts short a name typed quickly.

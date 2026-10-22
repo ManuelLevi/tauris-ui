@@ -88,6 +88,10 @@ const FINDER_SCRIPT: &str = include_str!("../web/finder.js");
 const FINDER_STYLE: &str = include_str!("../web/finder.css");
 const DIALOG_SCRIPT: &str = include_str!("../web/dialog.js");
 const DIALOG_STYLE: &str = include_str!("../web/dialog.css");
+const REORDER_SCRIPT: &str = include_str!("../web/reorder.js");
+const REORDER_STYLE: &str = include_str!("../web/reorder.css");
+const GLANCE_SCRIPT: &str = include_str!("../web/glance.js");
+const GLANCE_STYLE: &str = include_str!("../web/glance.css");
 const NATIVE_SCRIPT: &str = include_str!("../web/native.js");
 
 // The page scripts carry their stylesheets and the version, so one crate
@@ -117,6 +121,10 @@ pub(crate) fn page_script<R: Runtime>(config: &Config<R>) -> String {
         FINDER_SCRIPT.replace("\"__TAURIS_FINDER_CSS__\"", &serde_json::to_string(FINDER_STYLE).unwrap_or_default());
     let dialog =
         DIALOG_SCRIPT.replace("\"__TAURIS_DIALOG_CSS__\"", &serde_json::to_string(DIALOG_STYLE).unwrap_or_default());
+    let reorder =
+        REORDER_SCRIPT.replace("\"__TAURIS_REORDER_CSS__\"", &serde_json::to_string(REORDER_STYLE).unwrap_or_default());
+    let glance =
+        GLANCE_SCRIPT.replace("\"__TAURIS_GLANCE_CSS__\"", &serde_json::to_string(GLANCE_STYLE).unwrap_or_default());
     [
         (Component::Tabs, tabs),
         (Component::Tree, tree),
@@ -126,6 +134,8 @@ pub(crate) fn page_script<R: Runtime>(config: &Config<R>) -> String {
         (Component::Sidebar, sidebar),
         (Component::Finder, finder),
         (Component::Dialog, dialog),
+        (Component::Reorder, reorder),
+        (Component::Glance, glance),
     ]
     .into_iter()
     .filter(|(c, _)| config.components.contains(c))

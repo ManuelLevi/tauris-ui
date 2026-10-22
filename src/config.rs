@@ -30,6 +30,10 @@ pub enum Component {
     Finder,
     /// `TaurisDialog`: questions, forms, reviews, sheets, titled panels.
     Dialog,
+    /// `TaurisReorder`: drag rows (and ⌥⌘↑ ⌥⌘↓) into another order.
+    Reorder,
+    /// `TaurisGlance`: a sparkline, a status, a capacity bar.
+    Glance,
 }
 
 /// How the tabs behave. Every setting has a default; change only what you need.
@@ -74,6 +78,8 @@ impl<R: Runtime> Default for Config<R> {
                 Component::Sidebar,
                 Component::Finder,
                 Component::Dialog,
+                Component::Reorder,
+                Component::Glance,
             ],
             native_feel: false,
         }
@@ -88,7 +94,7 @@ impl Config<Wry> {
 }
 
 impl<R: Runtime> Config<R> {
-    /// The page components the plugin puts in every page (default: all eight).
+    /// The page components the plugin puts in every page (default: all ten).
     /// An app that uses some leaves the others out, so its pages load less.
     /// The files table brings the menus with it (its row menu is one).
     /// `scripts/doctor.py` says when a page uses one left out.

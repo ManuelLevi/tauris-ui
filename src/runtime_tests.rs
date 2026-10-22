@@ -1651,16 +1651,18 @@ fn only_the_components_asked_for_go_in_the_pages() {
             "TaurisSidebar",
             "TaurisFinder",
             "TaurisDialog",
+            "TaurisReorder",
+            "TaurisGlance",
         ]
         .map(|name| script.contains(&format!("window.{name} = ")))
     };
-    assert_eq!(has(&crate::page_script(&quiet())), [true; 8]);
+    assert_eq!(has(&crate::page_script(&quiet())), [true; 10]);
     assert_eq!(
         has(&crate::page_script(&quiet().components(&[Component::Tabs]))),
-        [true, false, false, false, false, false, false, false]
+        [true, false, false, false, false, false, false, false, false, false]
     );
     let files = crate::page_script(&quiet().components(&[Component::Tree, Component::Files]));
-    assert_eq!(has(&files), [false, true, false, true, true, false, false, false]);
+    assert_eq!(has(&files), [false, true, false, true, true, false, false, false, false, false]);
     assert!(files.len() < crate::page_script(&quiet()).len());
 }
 

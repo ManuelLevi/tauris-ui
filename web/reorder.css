@@ -1,0 +1,152 @@
+/* tauris-ui reorder: the look of a row being dragged into another order.
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --trd-* variables outside every @layer block, or override any .trd-*
+ * class. The defaults follow the system's light or dark mode.
+ *
+ * The parts (reorder.js adds them while a row is dragged):
+ *   .trd-on           the container, while a drag runs (to quiet its rows' hover look)
+ *   .trd-src          the dragged row where it was: faint
+ *   .trd-ghost        its lifted copy, following the pointer; .trd-no over rows it cannot land among
+ *   .trd-line         where it will land
+ *   .trd-settle       a row sliding into its new place
+ */
+@layer tauris-ui {
+  :root {
+    --trd-accent: var(--tauris-accent, #2675bf);
+    --trd-bg: var(--tauris-bg, #ffffff);
+    --trd-line-color: var(--tauris-line, #d3d5da);
+    --trd-shadow: 0 0 0 1px var(--trd-line-color), 0 5px 14px rgb(0 0 0 / 0.18);
+    --trd-src-opacity: 0.35;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tauris-theme="light"]) {
+      --trd-accent: var(--tauris-accent, #6aa6e0);
+      --trd-bg: var(--tauris-bg, #2f3234);
+      --trd-line-color: var(--tauris-line, #515356);
+      --trd-shadow: 0 0 0 1px var(--trd-line-color), 0 5px 14px rgb(0 0 0 / 0.5);
+    }
+  }
+
+  :root[data-tauris-theme="dark"] {
+    --trd-accent: var(--tauris-accent, #6aa6e0);
+    --trd-bg: var(--tauris-bg, #2f3234);
+    --trd-line-color: var(--tauris-line, #515356);
+    --trd-shadow: 0 0 0 1px var(--trd-line-color), 0 5px 14px rgb(0 0 0 / 0.5);
+  }
+
+  html.trd-active,
+  html.trd-active * {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  html.trd-active.trd-no,
+  html.trd-active.trd-no * {
+    cursor: not-allowed !important;
+  }
+
+  tr.trd-src > *,
+  .trd-src:not(tr) {
+    opacity: var(--trd-src-opacity);
+  }
+
+  .trd-ghost {
+    position: fixed;
+    z-index: 2147483000;
+    margin: 0;
+    pointer-events: none;
+    background: var(--trd-bg);
+    border-radius: 2px;
+    box-shadow: var(--trd-shadow);
+    transform: scale(1.006);
+    transform-origin: center left;
+    opacity: 0.97;
+  }
+
+  .trd-ghost > table {
+    margin: 0;
+  }
+
+  .trd-ghost td,
+  .trd-ghost th {
+    border-bottom-color: transparent;
+  }
+
+  .trd-ghost.trd-back {
+    transition: top 0.16s cubic-bezier(0.3, 0.7, 0.3, 1), opacity 0.16s;
+    opacity: 0;
+  }
+
+  .trd-ghost.trd-no {
+    opacity: 0.38;
+    filter: grayscale(1);
+    transform: none;
+  }
+
+  .trd-line {
+    position: fixed;
+    z-index: 2147483001;
+    height: 2px;
+    margin-top: -1px;
+    pointer-events: none;
+    background: var(--trd-accent);
+    border-radius: 1px;
+    transition: top 0.06s linear;
+  }
+
+  .trd-line::before {
+    content: "";
+    position: absolute;
+    left: -3px;
+    top: -3px;
+    width: 4px;
+    height: 4px;
+    background: var(--trd-bg);
+    border: 2px solid var(--trd-accent);
+    border-radius: 50%;
+  }
+
+  .trd-line.trd-no {
+    visibility: hidden;
+  }
+
+  tr.trd-settle > *,
+  .trd-settle:not(tr) {
+    position: relative;
+    z-index: 1;
+    transition: transform 0.2s cubic-bezier(0.2, 0.75, 0.3, 1);
+  }
+
+  .trd-live {
+    position: fixed;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .trd-line,
+    .trd-ghost.trd-back,
+    tr.trd-settle > *,
+    .trd-settle:not(tr) {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .trd-line,
+    .trd-line::before {
+      background: Highlight;
+      border-color: Highlight;
+    }
+
+    .trd-ghost {
+      border: 1px solid CanvasText;
+    }
+  }
+}

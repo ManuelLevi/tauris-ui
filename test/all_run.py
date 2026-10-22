@@ -29,8 +29,7 @@ def scripts():
     tabs = component("tabs", "TABS").replace("__TAURIS_TABS_VERSION__", "test").replace('"__TAURIS_TABS_CAN_DRAG_OUT__"', "true")
     return [(HERE / "mock_tauri.js").read_text(), tabs, component("menus", "MENUS"), component("tree", "TREE"),
             component("files", "FILES"), component("terminal", "TERMINAL"), component("sidebar", "SIDEBAR"),
-            component("finder", "FINDER"),
-            component("dialog", "DIALOG")]
+            component("finder", "FINDER"), component("dialog", "DIALOG"), component("reorder", "REORDER"), component("glance", "GLANCE")]
 
 
 # What Rust does for the example: a new tab is a project, the picker gives one file, `inspect` sizes it.
@@ -168,9 +167,47 @@ with sync_playwright() as p:
     check("choosing one shows it, and its team's button is the pressed one",
           lambda: active_title(page) == "Megalomania" and page.get_attribute("#toolbar .tmn-tool:has-text('Team B')", "aria-pressed") == "true"
           and page.get_attribute("#toolbar .tmn-tool:has-text('Team A')", "aria-pressed") == "false")
+    # ---------- Home: the projects in the person's order ----------
     page.click("#toolbar .tmn-tool:has-text('Home')")
     page.wait_for_timeout(100)
-    check("Home shows the first project", lambda: active_title(page) == "Project A")
+    check("Home shows the projects in this tab, its button the pressed one",
+          lambda: active_title(page) == "Home" and page.is_visible("#home") and not page.is_visible("#files")
+          and page.get_attribute("#toolbar .tmn-tool:has-text('Home')", "aria-pressed") == "true",
+          lambda: active_title(page))
+    home_rows = "#home-rows tr td:first-child"
+    check("a row a project: its team, files, activity (a sparkline) and status",
+          texts(page, home_rows) == ["Project A", "Megalomania", "Vacation Mexico"]
+          and page.locator("#home-rows .tgl-spark").count() == 3
+          and texts(page, "#home-rows .tgl-status") == ["Growing", "Slowing", "Growing"], texts(page, home_rows))
+    n = page.evaluate("TEAMS.flatMap(t => t.projects).reduce((a, p) => a + p.files.length, 0)")
+    check("the files' capacity bar: how many of 12, a segment each, in its project's colour",
+          page.evaluate("document.querySelector('#home-head .tgl-cap-count').textContent") == f"{n} / 12"
+          and page.evaluate("document.querySelectorAll('#home-head .tgl-capbar > i.tgl-on').length") == n
+          and page.evaluate("document.querySelector('#home-head .tgl-capbar > i').title") == "Hello.md · Project A",
+          page.evaluate("document.querySelector('#home-head').textContent"))
+    first = page.evaluate("(() => { const r = document.querySelector('#home-rows tr').getBoundingClientRect(); return [r.left + 60, r.top + r.height / 2, r.height]; })()")
+    page.mouse.move(first[0], first[1])
+    page.mouse.down()
+    page.mouse.move(first[0], first[1] + 2.2 * first[2], steps=8)
+    check("a project row drags (TaurisReorder)", page.locator(".trd-ghost").count() == 1)
+    page.mouse.up()
+    check("dropped, the order changes, and the status line says where it went",
+          lambda: texts(page, home_rows) == ["Megalomania", "Vacation Mexico", "Project A"] and page.inner_text("#status") == "Project A is now 3 of 3.",
+          lambda: (texts(page, home_rows), page.inner_text("#status")))
+    page.wait_for_timeout(250)  # the rows' slide into place
+    page.keyboard.press("ControlOrMeta+Alt+ArrowUp")
+    check("⌥⌘↑ moves the selected project up", lambda: texts(page, home_rows) == ["Megalomania", "Project A", "Vacation Mexico"], lambda: texts(page, home_rows))
+    page.click("#home-rows tr:nth-child(1) td:first-child", button="right")
+    page.wait_for_selector(".tmn-menu")
+    check("a project's menu: Open, Open in new tab, Move Up (off at the top), Move Down",
+          menu(page) == ["Open", "Open in new tab", "-", "Move Up", "Move Down"]
+          and page.get_attribute(".tmn-item:has-text('Move Up')", "aria-disabled") == "true", menu(page))
+    page.click(".tmn-item:has-text('Move Down')")
+    check("Move Down from the menu", lambda: texts(page, home_rows) == ["Project A", "Megalomania", "Vacation Mexico"], lambda: texts(page, home_rows))
+    shot(page, "home")
+    page.dblclick("#home-rows tr:nth-child(1) td:first-child")
+    page.wait_for_timeout(100)
+    check("a double click opens the project", lambda: active_title(page) == "Project A" and page.is_visible("#files"), lambda: active_title(page))
 
     # ---------- the table's own menu and actions ----------
     page.click(".tf-file:has-text('Hello.md')", button="right")

@@ -16,7 +16,7 @@ Examples:
 
 Example app must use all components of tauris-ui, no exception.
 
-It lives in `examples/all` (`test/all_run.py` tests its page). The plugin delivers every component to the page (`Config::new()` has all eight). All data is the sample below, kept in the page: nothing is saved but the tabs.
+It lives in `examples/all` (`test/all_run.py` tests its page). The plugin delivers every component to the page (`Config::new()` has all ten). All data is the sample below, kept in the page: nothing is saved but the tabs.
 
 | Component | Where the app uses it |
 | --- | --- |
@@ -28,6 +28,8 @@ It lives in `examples/all` (`test/all_run.py` tests its page). The plugin delive
 | Terminal (`TaurisTerminal`) | The search line |
 | Finder (`TaurisFinder`) | ⌘K: find any team, project or file |
 | Dialogs (`TaurisDialog`) | Edit (a form, with a review) and Delete (a question) on a file; Help › Keyboard Shortcuts (⌘/) and About |
+| Reorder (`TaurisReorder`) | Home: the projects' rows dragged into the person's order, ⌥⌘↑ ⌥⌘↓, and Move Up / Move Down in a row's menu |
+| Glance (`TaurisGlance`) | Home: each project's activity (a sparkline) and status (Growing, Slowing), and the files' capacity bar |
 
 ## Collapsable Sidebar + Treeview (2 components)
 
@@ -68,6 +70,13 @@ User can right click any file and click "Open" "Open in new tab" "Edit" "Delete"
 * Menu bar (`TaurisMenu.bar`): File (Add files… calls the Files table's `add()`), View (Show/Hide Sidebar calls `toggle()`; Search, ⌘K), Help.
 * Right-click menus: on a tree file (`TaurisMenu.open`, above); the Files table's row menu is its own.
 * A toolbar (`.tmn-toolbar` with `.tmn-tool` buttons, an icon on each): Home, and one button per team that opens a menu of its projects (`TaurisMenu.button`); the button of the shown project's team is the pressed one.
+
+## Home
+
+* The toolbar's Home shows Home in the current tab: the projects in a table (name, team, files, activity, status), in the order the person puts them in, and above it the files' capacity bar ("Files 5 / 12", a segment each, in its project's colour).
+* `TaurisReorder.attach` on the table's scroll box: a row dragged to another place, or ⌥⌘↑ ⌥⌘↓ on the selected one, moves it; the status line says where it went. The order is kept in the page.
+* `TaurisGlance.sparkline` draws each project's edits a week (the last six, in `data.js`), `TaurisGlance.status` its trend (the last three weeks against the three before), `TaurisGlance.capacity` the files against the sample's limit (`MAX_FILES`).
+* A click selects a project, ↑ ↓ move, Enter or a double click opens it; its right-click menu is the tree's Open and Open in new tab, then Move Up and Move Down.
 
 ## Terminal/Search
 

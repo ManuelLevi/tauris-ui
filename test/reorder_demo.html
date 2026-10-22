@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reorder</title>
+<link rel="stylesheet" href="../web/reorder.css">
+<style>
+  /* The page around the rows; the drag's look comes from reorder.css. */
+  :root { color-scheme: light dark; --page: #ffffff; --text: #1e1f22; --line: #d3d5da; --sel: #2675bf; }
+  @media (prefers-color-scheme: dark) { :root { --page: #1f2123; --text: #dfe1e5; --line: #515356; --sel: #2f65ca; } }
+  html, body { margin: 0; }
+  body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; background: var(--page); color: var(--text); font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .wrap { height: 240px; overflow: auto; border: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { position: sticky; top: 0; height: 22px; text-align: left; background: var(--page); border-bottom: 1px solid var(--line); }
+  td { height: 24px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+  tr:focus { outline: 2px solid var(--sel); outline-offset: -2px; }
+  tr[aria-selected="true"] td { color: #fff; background: var(--sel); }
+  tr.done td { color: #888; text-decoration: line-through; }
+  tr.project td { font-weight: 600; }
+  tr.kpi td:first-child { padding-left: 24px; }
+  ul { margin: 0; padding: 0; list-style: none; }
+  li { height: 26px; line-height: 26px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+  #said { grid-column: 1 / -1; min-height: 18px; margin: 0; }
+</style>
+</head>
+<body>
+<div class="wrap" id="tasks-wrap">
+  <table id="tasks"><thead><tr><th>Task</th><th>Due</th><th></th></tr></thead><tbody></tbody></table>
+</div>
+<div class="wrap" id="projects-wrap">
+  <table id="projects"><thead><tr><th>Project</th><th>Value</th></tr></thead><tbody></tbody></table>
+</div>
+<div class="wrap" id="list-wrap"><ul id="list"></ul></div>
+<p id="said"></p>
+<script src="../web/reorder.js"></script>
+<script>
+  // The app's own data and drawing: the component only says what moved.
+  window.said = [];
+  window.clicks = [];
+  const tell = (...x) => { said.push(x); document.getElementById("said").textContent = x.join(" "); };
+
+  window.TASKS = [
+    ...["Write the brief", "Call the printer", "Book the venue", "Send invitations", "Order the cake", "Pick the music",
+        "Print the badges", "Hire a photographer", "Test the projector", "Plan the seating"].map((name, i) => ({ id: `t${i + 1}`, name, done: false })),
+    { id: "d1", name: "Choose a date", done: true },
+    { id: "d2", name: "Set the budget", done: true },
+  ];
+  let held = null; // the order held still while a row is dragged
+  let picked = null;
+  function drawTasks() {
+    const body = document.querySelector("#tasks tbody");
+    body.replaceChildren(...TaurisReorder.arrange(TASKS, held).map(t => {
+      const tr = document.createElement("tr");
+      tr.dataset.id = t.id;
+      tr.dataset.grp = t.done ? "done" : "open";
+      tr.tabIndex = -1;
+      if (t.done) tr.className = "done";
+      if (t.id === picked) tr.setAttribute("aria-selected", "true");
+      tr.innerHTML = `<td>${t.name}</td><td>Fri</td><td><button type="button">Edit</button></td>`;
+      tr.addEventListener("click", () => { clicks.push(t.id); picked = t.id; drawTasks(); });
+      return tr;
+    }));
+  }
+  drawTasks();
+  window.tasks = TaurisReorder.attach(document.getElementById("tasks-wrap"), {
+    rows: "tbody tr",
+    group: row => row.dataset.grp,
+    movable: id => (TASKS.find(t => t.id === id)?.done ? "Done tasks sort by the day they were done." : true),
+    onStart: (id, ids) => { held = ids; tell("start", id, ids.join(",")); },
+    onMove: (ids, m) => {
+      // The app keeps the group's new order in its whole list, then draws it.
+      const set = new Set(ids);
+      const byId = new Map(TASKS.map(t => [t.id, t]));
+      let i = 0;
+      const next = TASKS.map(t => (set.has(t.id) ? byId.get(ids[i++]) : t));
+      TASKS.splice(0, TASKS.length, ...next);
+      held = null;
+      tell("move", m.id, m.from, m.to, m.how, ids.join(","));
+      drawTasks();
+    },
+    onCancel: id => { held = null; tell("cancel", id); drawTasks(); },
+    onRefuse: text => tell("refuse", text),
+  });
+
+  // A project is its heading row and its KPIs: they move together.
+  window.PROJECTS = [
+    { id: "p1", name: "Atlas", kpis: [{ id: "k1", name: "Revenue" }, { id: "k2", name: "Churn" }] },
+    { id: "p2", name: "Northwind", kpis: [{ id: "k3", name: "Signups" }, { id: "k4", name: "Uptime" }, { id: "k5", name: "NPS" }] },
+    { id: "p3", name: "Orion", kpis: [{ id: "k6", name: "Leads" }] },
+  ];
+  function drawProjects() {
+    const row = (cls, id, project, html) => {
+      const tr = document.createElement("tr");
+      tr.className = cls;
+      tr.dataset.id = id;
+      tr.dataset.project = project;
+      tr.innerHTML = html;
+      return tr;
+    };
+    document.querySelector("#projects tbody").replaceChildren(...PROJECTS.flatMap(p => [
+      row("project", p.id, p.id, `<td>${p.name}</td><td></td>`),
+      ...p.kpis.map(k => row("kpi", k.id, p.id, `<td>${k.name}</td><td>42</td>`)),
+    ]));
+  }
+  drawProjects();
+  const body = () => document.querySelector("#projects tbody");
+  window.projects = TaurisReorder.attach(document.getElementById("projects-wrap"), {
+    rows: "tbody tr",
+    items: row => (row.classList.contains("project")
+      ? PROJECTS.map(p => ({ id: p.id, els: [...body().querySelectorAll(`tr[data-project="${p.id}"]`)] }))
+      : [...body().querySelectorAll(`tr.kpi[data-project="${row.dataset.project}"]`)].map(tr => ({ id: tr.dataset.id, els: [tr] }))),
+    indent: row => (row.classList.contains("kpi") ? 16 : 0),
+    onMove: (ids, m) => {
+      if (PROJECTS.some(p => p.id === m.id)) {
+        PROJECTS.splice(0, PROJECTS.length, ...TaurisReorder.arrange(PROJECTS, ids));
+      } else {
+        const p = PROJECTS.find(x => x.kpis.some(k => k.id === m.id));
+        p.kpis = TaurisReorder.arrange(p.kpis, ids);
+      }
+      tell("move", m.id, m.from, m.to, m.how, ids.join(","));
+      drawProjects();
+    },
+    onCancel: id => tell("cancel", id),
+    onRefuse: text => tell("refuse", text),
+  });
+
+  // Not a table: list items.
+  window.ITEMS = ["Red", "Green", "Blue", "Yellow"];
+  function drawList() {
+    document.getElementById("list").replaceChildren(...ITEMS.map(name => {
+      const li = document.createElement("li");
+      li.textContent = name;
+      li.dataset.id = name;
+      return li;
+    }));
+  }
+  drawList();
+  window.list = TaurisReorder.attach(document.getElementById("list-wrap"), {
+    rows: "li",
+    onMove: (ids, m) => { ITEMS.splice(0, ITEMS.length, ...ids); tell("move", m.id, m.from, m.to, m.how, ids.join(",")); drawList(); },
+  });
+</script>
+</body>
+</html>

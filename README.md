@@ -11,6 +11,8 @@ UI components for Tauri 2 desktop apps. One library for every app.
 | [Dialogs](#dialogs) | `await TaurisDialog.confirm({ title })`, `.form({ title, fields })` | Questions, forms in the Swing layout, a review of the changes before saving, Keyboard Shortcuts and About sheets, titled border panels |
 | [Finder](#finder) | `TaurisFinder.mount({ items, onPick })` | Find anything with ⌘K: a panel at the top of the window, as Spotlight or Xcode's Open Quickly, finding as you type |
 | [Sidebar](#sidebar) | `TaurisSidebar.mount(element, { items })` | A collapsible side bar of sections, as in Mail or Finder: a logo or avatar with its title, icons, counts, groups, a rail of icons when collapsed, an edge to resize |
+| [Reorder](#reorder) | `TaurisReorder.attach(container, { onMove })` | Drag rows into another order, as in a macOS table (and ⌥⌘↑ ⌥⌘↓); on only where an app attaches it |
+| [Glance](#glance) | `TaurisGlance.sparkline(values)`, `.status(kind, text)`, `.capacity({ max, items })` | Small figures read at a glance: a sparkline, a status (a coloured dot and a word), a capacity bar |
 | [Terminal](#terminal) | `TaurisTerminal.mount(element)` | An optional Bloomberg-style look: amber on black, monospace, dense tables, function keys, a command line and a message log |
 
 The plugin delivers every component's script and stylesheet to every page (or the ones `Config::components` names). A component's stylesheet is added only when a page mounts it, so a component you don't use changes nothing.
@@ -815,6 +817,46 @@ const finder = TaurisFinder.mount({
 
 Types are in `web/finder.d.ts`. **The look:** `--tfd-*` variables at the top of `web/finder.css`.
 
+## Reorder
+
+Drag rows into another order, as in a macOS table: the row lifts and follows the pointer, a line shows where it will land, Esc puts it back, and the rows slide into their new places. Nothing moves until an app attaches it to its rows, and `enabled: false` turns it off again.
+
+```js
+const reorder = TaurisReorder.attach(document.querySelector("#tasks-wrap"), {   // the element that scrolls the rows
+  rows: "tbody tr",                              // each row's data-id is its id (or give id: row => …)
+  group: row => row.dataset.state,               // a row moves among its own group only (open, done)
+  movable: id => (done(id) ? "Done tasks sort by the day they were done." : true),
+  onStart: (id, ids) => hold(ids),               // hold this order still: a change arriving meanwhile must not move rows under the pointer
+  onMove: (ids, { id, from, to, how }) => { save(ids); hold(null); draw(); },
+  onCancel: () => { hold(null); draw(); },
+  onRefuse: text => status(text),                // "It is first already.", "It can only move among its own group."
+});
+```
+
+- **The app owns its rows.** `onMove` gives the moved row's group in its new order; the app keeps it and draws its rows in it. `TaurisReorder.arrange(list, order)` puts a list in an order (the ones not in it after, in theirs), for the order held during a drag too. The rows slide into place once the app has drawn them (not with reduced motion).
+- **The keys:** ⌥⌘↑ and ⌥⌘↓ (Ctrl+Alt elsewhere) move the row with the focus, or the selected one (`aria-selected="true"`), or the one `current()` names; the focus stays on it. `TaurisReorder.keys` is how a menu shows them, and `reorder.move(id, -1)` is a menu's Move Up.
+- **What starts a drag:** the left button on a row, 4px of movement; never a press on the row's controls (a button, a field, a link, `.tauris-no-drag`), nor with a modifier held. `handle: ".grip"` limits it to a grip. Near the top or bottom edge the rows scroll. Over another group's rows a drop is refused (the not-allowed pointer, no line). The release's click never lands on what is under it.
+- **Items of several rows** (a heading and the rows under it move together): `items: row => [{ id, els }]` is what the row's item moves among, in the order shown; `indent` starts the line further in, for rows under a heading.
+- **Methods:** `update(changes)`, `move(id, dir)`, `dragging`, `destroy()`. Said to a screen reader: where the row went ("Moved to 3 of 10.").
+
+Types are in `web/reorder.d.ts`. **The look:** `--trd-*` variables at the top of `web/reorder.css`.
+
+## Glance
+
+Small figures read at a glance, for a table's cells and a view's header. Each call makes a new element; to change one, make it again and put it in the old one's place.
+
+```js
+cell.replaceChildren(TaurisGlance.sparkline(kpi.values, { label: "Revenue, last 8 weeks" }));   // numbers, [x, y] or { x, y }; x may be a date
+cell.replaceChildren(TaurisGlance.status("warn", "Behind"));                                   // ok, warn, bad, done, new, none
+header.append(TaurisGlance.capacity({ label: "Open tasks", max: 20, items: open.map(t => ({ title: t.name, color: t.color })) }));
+```
+
+- **A sparkline** is 64 by 18 (`width`, `height`): the line, the area under it, a dot on the last value; dates as x are spaced by time. `min` and `max` fix its range; `color` its colour (the accent by default; in a selected row, the row's text colour). With `label` it is an image a screen reader names, and the tooltip; without, it is hidden from them.
+- **A status** is a coloured dot and a word, something to read, never to press: `ok` green, `warn` amber, `bad` red, `done` the accent, `new` a ring, `none` a faint ring and a dim word.
+- **A capacity bar** is the count ("7 / 20") and a segment for each place, each held one in its item's colour with its title as the tooltip ("Free" for the others, `labels.free`). Past the limit the count and the bar turn red; over 40 places it is one filled track. A meter for a screen reader.
+
+Types are in `web/glance.d.ts`. **The look:** `--tgl-*` variables at the top of `web/glance.css`.
+
 ## Terminal
 
 An optional look for an app or a part of one: amber on black, IBM Plex Mono at 12/18 px, square corners, 1 px gaps between panes. It changes nothing outside the element you mark as a terminal (`.tm`), and its stylesheet is added only when a page uses it. A page that brings its own passes `{ styles: false }` to `mount` (and to `commandLine`, `log` or `pane` made before it). Like the tree, it lives in the page: the plugin delivers it, and it needs no capability.
@@ -892,6 +934,8 @@ python test/menus_run.py [shots-dir]       # the menus, mouse and keyboard
 python test/sidebar_run.py [shots-dir]     # the sidebar: collapsing, the edge, the keys
 python test/finder_run.py                  # the finder: matching, groups, the keys
 python test/dialog_run.py                  # the dialogs: questions, forms, reviews, sheets, panels
+python test/reorder_run.py [shots-dir]     # drag to reorder: the drag, the keys, groups, items of several rows
+python test/glance_run.py [shots-dir]      # the sparkline, the status and the capacity bar
 python test/all_run.py [shots-dir]         # examples/all: every component in one app
 python test/doctor_run.py                  # the checker, on small apps set up right and wrong
 (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build) && python scripts/doctor.py examples/basic

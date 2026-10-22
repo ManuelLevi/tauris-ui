@@ -355,6 +355,10 @@ check("Config::components without the tree, a page mounting it: said", "leaves i
 out, code = app(page="<script>TaurisFiles.mount(el, { pick: f }); TaurisMenu.bar(nav, { menus })</script>",
                 rust=COMPONENTS.replace("ARG", "Component::Files"))
 check("Config::components with the files: the menus come with them", "leaves it out" not in out and code == 0, out[-400:])
+out, code = app(page="<script>TaurisFiles.mount(el, { pick: f }); TaurisReorder.attach(list, { onMove }); row.append(TaurisGlance.status('ok', 'On track'))</script>",
+                rust=COMPONENTS.replace("ARG", "Component::Files, Component::Reorder"))
+check("Config::components without the glance, a page using it: said (and the reorder, given, is not)",
+      "leaves it out, so the pages have no TaurisGlance" in out and "no TaurisReorder" not in out and "reorder, glance" in out and code == 1, out[-400:])
 out, code = app(rust="fn main() { tauri::Builder::default().plugin(tauris_ui::init(tauris_ui::Config::new().components(&ALL))); }\n")
 check("Config::components given a list it cannot read: noted", "cannot read" in out and code == 0, out[-400:])
 

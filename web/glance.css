@@ -1,0 +1,207 @@
+/* tauris-ui glance: the look of the sparkline, the status and the capacity bar.
+ *
+ * Everything sits in a cascade layer, so any rule in your own (unlayered)
+ * stylesheet wins without a stronger selector. Change the look by setting
+ * the --tgl-* variables outside every @layer block, or override any .tgl-*
+ * class. The defaults follow the system's light or dark mode.
+ *
+ * The parts (glance.js makes them):
+ *   .tgl-spark        the sparkline (svg): .tgl-line, .tgl-area, .tgl-dot; its colour is --tgl-c
+ *   .tgl-status       a dot (i) and a word; .tgl-ok .tgl-warn .tgl-bad .tgl-done .tgl-new .tgl-none
+ *   .tgl-cap          .tgl-cap-label, .tgl-cap-count, .tgl-capbar (a segment i each, .tgl-on when held); .tgl-over past the limit
+ */
+@layer tauris-ui {
+  :root {
+    --tgl-accent: var(--tauris-accent, #2675bf);
+    --tgl-fg: var(--tauris-fg, #1e1f22);
+    --tgl-dim: var(--tauris-dim, #5d616b);
+    --tgl-ok: #1f8a4c;
+    --tgl-warn: #c98a00;
+    --tgl-bad: #c4372d;
+    --tgl-track: #e1e3e7;
+    --tgl-ring: rgb(0 0 0 / 0.22);     /* round a light dot, on a light page */
+    --tgl-font-size: 12px;
+    --tgl-cap-w: 140px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tauris-theme="light"]) {
+      --tgl-accent: var(--tauris-accent, #6aa6e0);
+      --tgl-fg: var(--tauris-fg, #dfe1e5);
+      --tgl-dim: var(--tauris-dim, #adb0b8);
+      --tgl-ok: #45c27a;
+      --tgl-warn: #e3ae2f;
+      --tgl-bad: #f07a70;
+      --tgl-track: #45484c;
+      --tgl-ring: transparent;
+    }
+  }
+
+  :root[data-tauris-theme="dark"] {
+    --tgl-accent: var(--tauris-accent, #6aa6e0);
+    --tgl-fg: var(--tauris-fg, #dfe1e5);
+    --tgl-dim: var(--tauris-dim, #adb0b8);
+    --tgl-ok: #45c27a;
+    --tgl-warn: #e3ae2f;
+    --tgl-bad: #f07a70;
+    --tgl-track: #45484c;
+    --tgl-ring: transparent;
+  }
+
+  /* ---------- the sparkline ---------- */
+
+  .tgl-spark {
+    --tgl-c: var(--tgl-accent);
+    display: block;
+    overflow: visible;
+  }
+
+  .tgl-spark .tgl-line {
+    fill: none;
+    stroke: var(--tgl-c);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+
+  .tgl-spark .tgl-area {
+    fill: var(--tgl-c);
+    opacity: 0.13;
+  }
+
+  .tgl-spark .tgl-dot {
+    fill: var(--tgl-c);
+  }
+
+  [aria-selected="true"] .tgl-spark {
+    --tgl-c: currentColor;
+  }
+
+  /* ---------- the status ---------- */
+
+  .tgl-status {
+    --tgl-sc: var(--tgl-dim);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--tgl-font-size);
+    line-height: 16px;
+    white-space: nowrap;
+    color: inherit;
+    cursor: default;
+  }
+
+  .tgl-status > i {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    background: var(--tgl-sc);
+    border-radius: 50%;
+  }
+
+  .tgl-ok { --tgl-sc: var(--tgl-ok); }
+  .tgl-warn { --tgl-sc: var(--tgl-warn); }
+  .tgl-bad { --tgl-sc: var(--tgl-bad); }
+  .tgl-done { --tgl-sc: var(--tgl-accent); }
+
+  .tgl-warn > i {
+    box-shadow: inset 0 0 0 1px var(--tgl-ring);
+  }
+
+  .tgl-new > i {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--tgl-accent);
+  }
+
+  .tgl-none {
+    color: var(--tgl-dim);
+  }
+
+  .tgl-none > i {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.25px var(--tgl-dim);
+  }
+
+  [aria-selected="true"] .tgl-status,
+  [aria-selected="true"] .tgl-none {
+    color: inherit;
+  }
+
+  [aria-selected="true"] .tgl-status > i {
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.75);
+  }
+
+  /* ---------- the capacity bar ---------- */
+
+  .tgl-cap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--tgl-font-size);
+    white-space: nowrap;
+    color: var(--tgl-dim);
+  }
+
+  .tgl-cap-count {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--tgl-fg);
+  }
+
+  .tgl-over .tgl-cap-count {
+    color: var(--tgl-bad);
+  }
+
+  .tgl-capbar {
+    display: grid;
+    grid-template-columns: repeat(var(--tgl-cap-n, 20), 1fr);
+    gap: 2px;
+    width: var(--tgl-cap-w);
+    height: 7px;
+  }
+
+  .tgl-capbar > i {
+    --tgl-c: var(--tgl-accent);
+    background: var(--tgl-track);
+  }
+
+  .tgl-capbar > i.tgl-on {
+    background: var(--tgl-c);
+  }
+
+  .tgl-over .tgl-capbar > i.tgl-on {
+    background: var(--tgl-bad);
+  }
+
+  .tgl-capbar.tgl-capbar-track {
+    display: block;
+    background: var(--tgl-track);
+  }
+
+  .tgl-capbar.tgl-capbar-track > i {
+    display: block;
+    height: 100%;
+  }
+
+  @media (forced-colors: active) {
+    .tgl-status > i,
+    .tgl-capbar > i {
+      forced-color-adjust: none;
+      border: 1px solid CanvasText;
+    }
+
+    .tgl-capbar > i.tgl-on {
+      background: Highlight;
+    }
+
+    .tgl-spark .tgl-line,
+    .tgl-spark .tgl-dot {
+      stroke: CanvasText;
+      fill: CanvasText;
+    }
+
+    .tgl-spark .tgl-line {
+      fill: none;
+    }
+  }
+}

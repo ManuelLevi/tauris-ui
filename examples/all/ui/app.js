@@ -1,8 +1,10 @@
-// All eight components in one window: the tab strip (TaurisTabs), the menu
+// All ten components in one window: the tab strip (TaurisTabs), the menu
 // bar and toolbar (TaurisMenu), a sidebar (TaurisSidebar) holding a tree
 // (TaurisTree), the table of a project's files (TaurisFiles), a search line
-// (TaurisTerminal), find-anything with ⌘K (TaurisFinder) and the dialogs
-// (TaurisDialog: Edit, Delete, Keyboard Shortcuts, About). The data is
+// (TaurisTerminal), find-anything with ⌘K (TaurisFinder), the dialogs
+// (TaurisDialog: Edit, Delete, Keyboard Shortcuts, About), and Home: the
+// projects in an order dragged into place (TaurisReorder), with their
+// activity, status and the files' capacity bar (TaurisGlance). The data is
 // data.js; nothing is saved but the tabs.
 
 "use strict";
@@ -39,10 +41,10 @@ for (const team of TEAMS) {
 
 const tabs = TaurisTabs.mount($("strip"), { panelId: "work" });
 
-// Shows `node` in this tab, or in a new one.
+// Shows `node` in this tab, or in a new one (Home: { kind: "home" }).
 function open(node, { newTab = false } = {}) {
   if (node.kind === "team") return;
-  const spec = { title: node.name, kind: node.kind, ref: node.id };
+  const spec = node.kind === "home" ? { title: "Home", kind: "home", ref: "home" } : { title: node.name, kind: node.kind, ref: node.id };
   const tab = tabs.activeTab();
   if (newTab || !tab) tabs.open(spec);
   else tabs.update(tab, spec);
@@ -164,6 +166,17 @@ const teamButtons = new Map();
 
 function render() {
   const tab = tabs.activeTab();
+  const atHome = tab?.kind === "home";
+  $("home").hidden = !atHome;
+  if (atHome) {
+    $("files").hidden = true;
+    $("doc").hidden = true;
+    drawHome();
+    for (const button of teamButtons.values()) button.setAttribute("aria-pressed", "false");
+    home.setAttribute("aria-pressed", "true");
+    return;
+  }
+  home.setAttribute("aria-pressed", "false");
   const node = tab && nodes.get(String(tab.ref));
   if (!node || node.kind === "team") return;
   const isFile = node.kind === "file";
@@ -199,7 +212,7 @@ function tool(label, icon) {
 }
 
 const home = tool("Home", ICONS.home);
-home.addEventListener("click", () => open(nodes.get(TEAMS[0].projects[0].id)));
+home.addEventListener("click", () => open({ kind: "home" }));
 const separator = document.createElement("span");
 separator.className = "tmn-tool-sep";
 $("toolbar").append(separator);
@@ -229,6 +242,107 @@ TaurisMenu.bar($("menubar"), {
         rows: [["tauris-ui", window.TaurisTabs?.version ?? "?"], ["Teams", String(TEAMS.length)]] }) },
     ] },
   ],
+});
+
+// ---------- Home: the projects, in the person's order ----------
+
+const PROJECTS = TEAMS.flatMap(team => team.projects.map(project => ({ project, team })));
+let homeOrder = PROJECTS.map(p => p.project.id); // put in place by dragging, or ⌥⌘↑ ⌥⌘↓
+let held = null; // the order held still while a row is dragged
+let homeSelected = PROJECTS[0].project.id;
+
+// Growing or slowing, by the last three weeks against the three before.
+function trend(activity) {
+  const sum = list => list.reduce((a, b) => a + b, 0);
+  const recent = sum(activity.slice(-3));
+  const before = sum(activity.slice(-6, -3));
+  return recent >= before ? TaurisGlance.status("ok", "Growing") : TaurisGlance.status("warn", "Slowing");
+}
+
+function drawHome() {
+  const files = PROJECTS.flatMap(({ project }) => project.files.map(file => ({ title: `${file.name} · ${project.name}`, color: project.color })));
+  $("home-head").replaceChildren($("home-title"), TaurisGlance.capacity({ label: "Files", max: MAX_FILES, items: files }));
+  const shown = TaurisReorder.arrange(PROJECTS, held ?? homeOrder, p => p.project.id);
+  $("home-rows").replaceChildren(...shown.map(({ project, team }) => {
+    const tr = document.createElement("tr");
+    tr.dataset.id = project.id;
+    const on = project.id === homeSelected;
+    tr.setAttribute("aria-selected", String(on));
+    tr.tabIndex = on ? 0 : -1;
+    const name = document.createElement("td");
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = project.color;
+    name.append(dot, project.name);
+    const activity = document.createElement("td");
+    activity.append(TaurisGlance.sparkline(project.activity, { label: `${project.name}: edits a week, the last six weeks`, color: project.color }));
+    const state = document.createElement("td");
+    state.append(trend(project.activity));
+    tr.append(name);
+    cell(tr, team.name);
+    cell(tr, String(project.files.length), "num");
+    tr.append(activity, state);
+    return tr;
+  }));
+}
+
+// Marks the row chosen without drawing the rows again (a double click's second click lands on the same row).
+function selectHome(id, focus = true) {
+  homeSelected = id;
+  for (const tr of $("home-rows").rows) {
+    const on = tr.dataset.id === id;
+    tr.setAttribute("aria-selected", String(on));
+    tr.tabIndex = on ? 0 : -1;
+    if (on && focus) tr.focus();
+  }
+}
+
+const homeRow = e => (e.target instanceof Element ? e.target.closest("#home-rows tr") : null);
+$("home-rows").addEventListener("click", e => {
+  const row = homeRow(e);
+  if (row) selectHome(row.dataset.id);
+});
+$("home-rows").addEventListener("dblclick", e => {
+  const row = homeRow(e);
+  if (row) open(nodes.get(row.dataset.id));
+});
+$("home-rows").addEventListener("keydown", e => {
+  const row = homeRow(e);
+  if (!row || e.altKey || e.metaKey || e.ctrlKey) return;
+  if (e.key === "Enter") open(nodes.get(row.dataset.id));
+  else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const next = e.key === "ArrowDown" ? row.nextElementSibling : row.previousElementSibling;
+    if (next) selectHome(next.dataset.id);
+  }
+});
+$("home-rows").addEventListener("contextmenu", e => {
+  const row = homeRow(e);
+  if (!row) return;
+  e.preventDefault();
+  const id = row.dataset.id;
+  selectHome(id);
+  const at = homeOrder.indexOf(id);
+  TaurisMenu.open([
+    ...menuFor(nodes.get(id)),
+    "-",
+    { label: "Move Up", shortcut: TaurisReorder.keys.up, disabled: at === 0, action: () => homeReorder.move(id, -1) },
+    { label: "Move Down", shortcut: TaurisReorder.keys.down, disabled: at === homeOrder.length - 1, action: () => homeReorder.move(id, 1) },
+  ], { x: e.clientX, y: e.clientY }, { label: nodes.get(id).name });
+});
+
+const homeReorder = TaurisReorder.attach($("home-wrap"), {
+  rows: "#home-rows tr",
+  onStart: (id, ids) => { held = ids; },
+  onMove: (ids, { id, to }) => {
+    homeOrder = ids;
+    held = null;
+    homeSelected = id;
+    drawHome();
+    say(`${nodes.get(id).name} is now ${to + 1} of ${ids.length}.`);
+  },
+  onCancel: () => { held = null; drawHome(); },
+  onRefuse: say,
 });
 
 // ---------- the search line ----------
@@ -312,7 +426,8 @@ function showShortcuts() {
   TaurisDialog.shortcuts({ groups: [
     { title: "Everywhere", items: [{ label: "Find anything", keys: ["⌘K"] }, { label: "Show or hide the sidebar", keys: ["⌃⌘S"] }, { label: "Keyboard Shortcuts", keys: ["⌘/"] }] },
     { title: "Tabs", items: [{ label: "New tab", keys: ["⌘T"] }, { label: "Close tab", keys: ["⌘W"] }, { label: "Next or previous tab", keys: ["⌃Tab", "⌃⇧Tab"], either: true }] },
-    { title: "Lists", items: [{ label: "Open", keys: ["↩"] }, { label: "Rename", keys: ["F2"] }, { label: "Its menu", keys: ["⇧F10"] }] },
+    { title: "Lists", items: [{ label: "Open", keys: ["↩"] }, { label: "Rename", keys: ["F2"] }, { label: "Its menu", keys: ["⇧F10"] },
+      { label: "Move a project up or down (Home)", keys: [TaurisReorder.keys.up, TaurisReorder.keys.down], either: true }] },
   ] });
 }
 document.addEventListener("keydown", e => {
