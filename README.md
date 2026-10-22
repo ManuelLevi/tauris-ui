@@ -815,7 +815,10 @@ const values = await TaurisDialog.form({
   - `{ type: "row", label, fields: [...] }` puts several inputs on one line;
   - `refusal` and `okDisabled` open it refused;
   - `{ field, part, text }` points a refusal at a part of an app field;
-  - a `TaurisDialog.confirm` asked while a form in its own window saves shows in that window.
+  - a `TaurisDialog.confirm` asked while a form in its own window saves shows in that window;
+  - `validate` or `review` giving `false` keeps the form as it is and says nothing (the person said No to that question);
+  - `review` can give `{ rows, note }`, for a note that depends on the values;
+  - `maxLength` on a field stops typing there and says so under it.
 - **`TaurisDialog.close()`** closes whatever dialog is open (a session that ends).
 - **A button on the left:** `left: { label: "Delete…", danger: true, run: async () => (await TaurisDialog.confirm({ ... })) && remove() }`; true closes the dialog. It works in a window of its own too.
 - **Titled panels:** `TaurisDialog.panel(element, { title, count, actions: [{ label, action }] })` frames a part of a page in a box with its title, a dim count and its buttons on its top line (Swing's TitledBorder); `update()` and `destroy()`. Set `--tdl-panel-bg` to what is behind the box.
@@ -892,6 +895,7 @@ table.flash(added.id);                            // a row just added: selected,
   - a ⌘-click opens with `cmd`;
   - `groupActions` puts buttons on a group's row;
   - `selectableGroups` lets groups be selected without opening and closing;
+  - `emptyInline: true` says an empty group's text on its own row, not on a row under it;
   - `last(row)` keeps rows last either way;
   - a column's `maxLength` limits an edit.
 - **Redraws keep cells:** after `setRows` or `update`, a cell that looks the same keeps its element. A listener your `render(row, cell)` adds can then belong to an older draw. Listen on the table's element instead (delegate), and read the row from `tr.dataset.id`.

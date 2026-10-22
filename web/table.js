@@ -95,6 +95,8 @@
     collapsible: false,
     // groups can be selected (the keys go through them), even when they do not close
     selectableGroups: false,
+    // an empty group says its `empty` text on its own row, in place of its detail, with no row under it
+    emptyInline: false,
     // buttons on a group's row, shown on hover and selection: [{ id, icon, title, onClick(group), danger? }]
     groupActions: null,
     // (row) => true: the row stays after the others, whichever way the table is sorted (locked, no website)
@@ -532,19 +534,23 @@
       tr.dataset.group = key;
       const td = el("td", "", { role: "gridcell", colspan: String(Math.max(1, columns().length)) });
       if (groupsSelectable()) tr.setAttribute("aria-selected", String(selGroup === key));
-      // A group with no rows has nothing to open: no box.
+      // Everything on one line, centred: the box, the colour, the name, the detail, the buttons.
+      const line = el("span", "ttb-group-line");
+      // A group with no rows has nothing to open: no box, only its space, so the colours line up.
       if (collapsible() && part.rows.length) {
         const open = isOpen(g);
         tr.setAttribute("aria-expanded", String(open));
         const box = el("span", "ttb-box", { "aria-hidden": "true", title: say(open ? L().collapse : L().expand) });
         box.textContent = open ? "−" : "+";
-        td.append(box);
-      }
+        line.append(box);
+      } else if (collapsible()) line.append(el("span", "ttb-box-gap", { "aria-hidden": "true" }));
       const chip = el("span", "ttb-chip", { "aria-hidden": "true" });
       if (g.color) tr.style.setProperty("--ttb-c", String(g.color));
       const name = el("span", "ttb-group-label", {}, g.label ?? "");
-      const detail = el("span", "ttb-group-detail", {}, g.detail != null ? g.detail : say(L().count, part.rows.length));
-      td.append(chip, name, detail);
+      const detail = !part.rows.length && opt.emptyInline === true
+        ? el("span", "ttb-group-detail ttb-group-empty", {}, g.empty ?? say(L().emptyGroup))
+        : el("span", "ttb-group-detail", {}, g.detail != null ? g.detail : say(L().count, part.rows.length));
+      line.append(chip, name, detail);
       if (Array.isArray(opt.groupActions) && opt.groupActions.length) {
         const acts = el("span", "ttb-group-acts");
         opt.groupActions.forEach((a, ai) => {
@@ -561,8 +567,9 @@
           btn.addEventListener("dblclick", e => e.stopPropagation(), { signal });
           acts.append(btn);
         });
-        td.append(acts);
+        line.append(acts);
       }
+      td.append(line);
       tr.append(td);
       return tr;
     }
@@ -597,7 +604,7 @@
           }
           const open = !part.group || isOpen(part.group);
           if (!open) continue;
-          if (!part.rows.length && part.group) {
+          if (!part.rows.length && part.group && opt.emptyInline !== true) {
             const none = el("tr", "ttb-none", { role: "row" });
             none.append(el("td", "", { role: "gridcell", colspan: String(Math.max(1, columns().length)) }, part.group.empty ?? say(L().emptyGroup)));
             out.push(none);

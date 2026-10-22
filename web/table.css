@@ -11,12 +11,13 @@
  *   .ttb-headrow      the column headers, staying at the top; .ttb-sort sorts, .ttb-arrow is ▲ / ▼
  *   .ttb-row          a row; [aria-selected="true"] is the selected one (grey while the
  *                     keys are elsewhere), .ttb-flash once after it was added, .ttb-dim
- *   .ttb-group        a group's row: .ttb-chip (its colour, --ttb-c), .ttb-group-label, .ttb-group-detail
- *   .ttb-none         a group with no rows
+ *   .ttb-group        a group's row: .ttb-group-line holds .ttb-chip (its colour, --ttb-c),
+ *                     .ttb-group-label, .ttb-group-detail (.ttb-group-empty with emptyInline), .ttb-group-acts
+ *   .ttb-none         the row under a group with no rows
  *   .ttb-acts         a row's buttons (.ttb-ib), shown on hover and selection;
  *                     [aria-pressed="true"] is a toggle that is on, .ttb-copied the tick after a copy,
  *                     [aria-disabled="true"] one that is off
- *   .ttb-box          a group's +/- box (collapsible); .ttb-grip a column's edge; .ttb-check the
+ *   .ttb-box          a group's +/- box (collapsible), .ttb-box-gap its space on an empty group; .ttb-grip a column's edge; .ttb-check the
  *                     checkbox column; .ttb-edit a cell edited in place; .ttb-empty.ttb-error a state's error
  *   .ttb-left .ttb-right .ttb-center   a column's alignment
  *
@@ -247,21 +248,37 @@
     background: var(--ttb-group-bg);
   }
 
+  /* One line in the cell, centred, as tall as a row: the name shortens before the buttons go. */
+  .ttb-group-line {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
   .ttb-chip {
-    display: inline-block;
+    flex: none;
     width: 9px;
     height: 9px;
     margin-right: 8px;
-    vertical-align: 0;
     background: var(--ttb-c, var(--ttb-dim));
     border-radius: 2px;
   }
 
+  .ttb-group-label,
   .ttb-group-detail {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ttb-group-detail {
+    flex-shrink: 100;
     margin-left: 8px;
     font-weight: 400;
     color: var(--ttb-dim);
   }
+
+  .ttb-group-empty { font-style: italic; }
 
   .ttb-none > td {
     font-style: italic;
@@ -367,11 +384,11 @@
   /* Groups that open and close: a +/- box, as the tree's; a group selected. */
   .ttb-box {
     display: inline-grid;
+    flex: none;
     place-items: center;
     width: 11px;
     height: 11px;
     margin-right: 7px;
-    vertical-align: -1px;
     font: 600 10px / 1 var(--ttb-font);
     color: var(--ttb-dim);
     background: var(--ttb-bg);
@@ -379,6 +396,8 @@
     border-radius: 2px;
     cursor: default;
   }
+  /* An empty group's place for the box, sized as the box is, so its colour lines up with the others'. */
+  .ttb-box-gap { flex: none; width: 11px; height: 11px; margin-right: 7px; border: 1px solid transparent; }
   .ttb-group[aria-selected="true"] > td { color: var(--ttb-sel-inactive-fg); background: var(--ttb-sel-inactive-bg); }
   .ttb-list:focus .ttb-group[aria-selected="true"] > td { color: var(--ttb-sel-fg); background: var(--ttb-sel-bg); }
   .ttb-list:focus .ttb-group[aria-selected="true"] .ttb-group-detail { color: inherit; }
@@ -390,7 +409,7 @@
   .ttb-check[aria-disabled="true"] { opacity: 0.45; }
 
   /* A group's own buttons (groupActions), on its right, shown on hover and selection. */
-  .ttb-group-acts { float: right; margin-right: -4px; font-weight: 400; }
+  .ttb-group-acts { display: flex; flex: none; align-items: center; margin: 0 -4px 0 auto; padding-left: 6px; font-weight: 400; }
   .ttb-group:hover .ttb-ib, .ttb-group[aria-selected="true"] .ttb-ib { opacity: 1; }
   .ttb-list:focus .ttb-group[aria-selected="true"] .ttb-ib { color: var(--ttb-sel-fg); }
 

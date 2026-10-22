@@ -13,6 +13,8 @@ declare global {
     review: string;
     /** A needed field left empty. */
     required: string | ((label: string) => string);
+    /** A field at its maxLength. */
+    maxLength: string | ((n: number) => string);
     /** A secret's change, when its old value is not shown. */
     changed: string;
     /** Between two keys that both do it ("⌘[ or ⌘]"). */
@@ -86,6 +88,8 @@ declare global {
     /** Left empty, refused with labels.required (or requiredText). */
     required?: boolean;
     requiredText?: string | ((label: string) => string);
+    /** Text, password, url, textarea…: the longest it may be. Typing stops there, and labels.maxLength says so under it. */
+    maxLength?: number;
     disabled?: boolean;
     /** A select's choices: values, or { value, label }. */
     options?: (string | number | { value: string | number; label?: string })[];
@@ -111,6 +115,8 @@ declare global {
    *  `part`: a part of the app's own field (its handle's refuse(part, text) and focus(part)). */
   type TaurisDialogRefusal = string | { field?: string; part?: string | number; text: string };
 
+  type TaurisDialogReview = TaurisDialogChange[] | { rows: TaurisDialogChange[]; note?: string | null };
+
   interface TaurisDialogFormOptions<V = Record<string, unknown>> {
     title: string;
     fields: TaurisDialogField[];
@@ -122,10 +128,12 @@ declare global {
     width?: number;
     /** The kept line's dim text under the fields, until a refusal takes its place. */
     hint?: string;
-    /** The app's own checks, before saving: a refusal, or null (or a promise of one). */
-    validate?: (values: V) => TaurisDialogRefusal | null | undefined | Promise<TaurisDialogRefusal | null | undefined>;
-    /** The changes to show before saving ("Save Changes"); none or [] saves at once. */
-    review?: (values: V) => TaurisDialogChange[] | null | undefined | Promise<TaurisDialogChange[] | null | undefined>;
+    /** The app's own checks, before saving: a refusal, or null to go on (or a promise of one). false: stay as it is and say nothing
+     *  (the person said No to a TaurisDialog.confirm asked here); the keys go back to the field they were in. */
+    validate?: (values: V) => TaurisDialogRefusal | null | undefined | false | Promise<TaurisDialogRefusal | null | undefined | false>;
+    /** The changes to show before saving ("Save Changes"), or { rows, note } for a note that depends on the values
+     *  (in place of reviewNote); none or [] saves at once; false stays, as validate's. */
+    review?: (values: V) => TaurisDialogReview | null | undefined | false | Promise<TaurisDialogReview | null | undefined | false>;
     reviewTitle?: string;
     reviewNote?: string;
     saveLabel?: string;

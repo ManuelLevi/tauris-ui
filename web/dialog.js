@@ -60,6 +60,7 @@
     done: "Done",
     review: "Save Changes",
     required: label => `${label} is needed.`,
+    maxLength: n => `At most ${n} characters.`,
     changed: "changed",
     either: "or",
     shortcuts: "Keyboard Shortcuts",
@@ -461,6 +462,8 @@
     }
     if (f.disabled) control.disabled = true;
     if (f.required) control.setAttribute("aria-required", "true");
+    // The longest it may be: typing stops there (said under it, see the form).
+    if ((control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) && Number.isFinite(f.maxLength) && f.maxLength > 0) control.maxLength = f.maxLength;
     // A password: Show to read it, Generate to make one.
     if (type === "password" && (f.reveal || f.generate)) {
       wrap = el("span", "tdl-pw", {}, control);
@@ -556,6 +559,7 @@
       let state = null;
       let busy = false;
       let reviewing = null; // the values waiting for "Save Changes"
+      let lastField = null; // the field that had the keys, for a check that says to stay
       const handles = [];
       const end = values => {
         for (const h of handles) {
@@ -624,6 +628,7 @@
       const page = el("div", "tdl-page", {}, grid, line);
       const review = el("div", "tdl-review", { role: "group", hidden: true });
       state.body.append(page, review);
+      page.addEventListener("focusin", e => { if (e.target instanceof HTMLElement && e.target.closest(".tdl-cell")) lastField = e.target; }, { signal: state.life.signal });
 
       const left = el("span", "tdl-left");
       const no = button(String(options.cancel ?? w.cancel), { onPress: cancel });
@@ -688,10 +693,11 @@
         no.textContent = String(options.cancel ?? w.cancel);
         focusFirst();
       }
-      function showReview(rows, v) {
+      function showReview(rows, v, note) {
         reviewing = v;
+        const said = note ?? options.reviewNote;
         review.replaceChildren(el("p", "tdl-review-title", {}, String(options.reviewTitle ?? w.review)), reviewRows(rows, w),
-          options.reviewNote ? el("p", "tdl-review-note", {}, String(options.reviewNote)) : null);
+          said ? el("p", "tdl-review-note", {}, String(said)) : null);
         // The fields' height is kept for a short review: the dialog does not jump.
         review.style.minHeight = `${Math.min(page.offsetHeight, 240)}px`;
         page.hidden = true;
@@ -716,13 +722,18 @@
           let rows = null;
           try {
             refused = typeof options.validate === "function" ? await options.validate(v) : null;
-            if (!refused) rows = typeof options.review === "function" ? await options.review(v) : null;
+            if (!refused && refused !== false) rows = typeof options.review === "function" ? await options.review(v) : null;
           } catch (e) {
             refused = refusalOf(e);
           }
           setBusy(false);
+          // false: stay as it is, nothing said (the person said No to the check's own question).
+          if (refused === false || rows === false) return stay();
           if (refused) return refuse(refused);
-          if (Array.isArray(rows) && rows.length) return showReview(rows, v);
+          // The rows, or { rows, note }: a note that depends on the values ("That's a large change.").
+          let note = null;
+          if (rows && typeof rows === "object" && !Array.isArray(rows)) ({ rows, note = null } = rows);
+          if (Array.isArray(rows) && rows.length) return showReview(rows, v, note);
         }
         if (typeof options.submit === "function") {
           setBusy(true);
@@ -736,6 +747,10 @@
           setBusy(false);
         }
         end(v);
+      }
+      function stay() {
+        if (lastField && lastField.isConnected && !lastField.disabled) lastField.focus({ preventScroll: true });
+        else focusFirst();
       }
       function focusFirst() {
         // The first text field, its text selected, ready to retype; else the default button.
@@ -759,7 +774,18 @@
         e.preventDefault();
         go();
       }, { signal: state.life.signal });
-      state.box.addEventListener("input", () => { if (refusal.textContent || state.box.querySelector(".tdl-tip:not([hidden])")) clear(); }, { signal: state.life.signal });
+      state.box.addEventListener("input", e => {
+        if (refusal.textContent || state.box.querySelector(".tdl-tip:not([hidden])")) clear();
+        // A field at its maxLength: said under it, until the next change.
+        const t = e.target;
+        if ((t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) && t.maxLength > 0 && t.value.length >= t.maxLength) {
+          const tip = t.closest(".tdl-cell")?.querySelector(".tdl-tip");
+          if (tip) {
+            tip.textContent = say(w.maxLength, t.maxLength);
+            tip.hidden = false;
+          }
+        }
+      }, { signal: state.life.signal });
       if (typeof options.left === "function") {
         try {
           options.left(left);

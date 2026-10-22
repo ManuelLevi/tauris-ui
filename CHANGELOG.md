@@ -8,6 +8,17 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.5.2 — 2026-10-22
+
+- Table:
+  - a group's row with buttons is as tall as any row, and its name and buttons are centred;
+  - in a table whose groups open and close, an empty group keeps the box's space, so every colour square lines up;
+  - `emptyInline: true` says an empty group's text on its own row, with no row under it.
+- Forms:
+  - `validate` or `review` giving `false` keeps the form as it is and says nothing: for a question inside the check that got No. The keys go back to their field;
+  - `review` can give `{ rows, note }`, for a note that depends on the values;
+  - `maxLength` on a text, password, url or text area field stops typing there and says so under it.
+
 ## 0.5.1 — 2026-10-22
 
 - Table:

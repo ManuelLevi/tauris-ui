@@ -116,6 +116,8 @@ declare global {
     collapsible?: boolean;
     /** Groups can be selected (the keys go through them) without opening and closing (default false). */
     selectableGroups?: boolean;
+    /** An empty group says its `empty` text on its own row, in place of its detail, with no row under it (default false). */
+    emptyInline?: boolean;
     /** Buttons on a group's row, shown on hover and selection: "+" (a new item in it), "✎". */
     groupActions?: { id?: string; icon?: string; title: string; danger?: boolean; onClick: (group: TaurisTableGroup, info: { how: "mouse" | "keyboard" }) => void }[] | null;
     /** Rows that stay after the others, whichever way the table is sorted (locked, no website). */

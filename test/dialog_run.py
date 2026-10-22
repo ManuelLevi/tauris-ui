@@ -194,6 +194,32 @@ with sync_playwright() as p:
     check("a review on its own: a secret says only that it changed", rows == ["Password:changed", "Name:A → B"] and answer(page) is True, rows)
     page.close()
 
+    # ---------- a check that asks first, a review's own note, a field's limit ----------
+    page = fresh(browser)
+    ask(page, """TaurisDialog.form({ title: 'Edit Value', fields: [{ name: 'when', label: 'Date' }, { name: 'value', label: 'Value', value: '10', maxLength: 4 }],
+      validate: v => TaurisDialog.confirm({ title: 'Future Date', message: 'Save it?', ok: 'Save', cancel: 'No' }).then(yes => (yes ? null : false)),
+      review: v => ({ rows: [{ field: 'Value', before: '10', after: v.value }], note: Number(v.value) > 100 ? 'That’s a large change.' : null }) })""")
+    page.focus("[id$='-value']")
+    page.keyboard.press("ControlOrMeta+a")
+    page.keyboard.type("12345")
+    limit = (page.input_value("[id$='-value']"), page.evaluate("document.querySelector('.tdl-tip:not([hidden])')?.textContent"))
+    check("maxLength: typing stops there, and it says so under the field", limit == ("1234", "At most 4 characters."), limit)
+    page.keyboard.press("Enter")
+    page.wait_for_function("document.querySelectorAll('.tdl').length === 2", timeout=3000)
+    page.keyboard.press("Escape")
+    page.wait_for_function("document.querySelectorAll('.tdl').length === 1", timeout=3000)
+    stayed = (page.is_visible(".tdl-page"), page.inner_text(".tdl-line-error"), focused(page).endswith("-value"), page.evaluate("window.answer"))
+    check("validate giving false (No to its question): the form stays as it is, nothing said, the keys back in their field",
+          stayed == (True, "", True, None), stayed)
+    page.keyboard.press("Enter")
+    page.wait_for_function("document.querySelectorAll('.tdl').length === 2", timeout=3000)
+    page.keyboard.press("Enter")
+    page.wait_for_selector(".tdl-review:not([hidden])")
+    note = page.evaluate("document.querySelector('.tdl-review-note')?.textContent")
+    page.keyboard.press("Enter")
+    check("review giving { rows, note }: its note under the changes; then it saves", note == "That’s a large change." and answer(page) == {"when": "", "value": "1234"}, note)
+    page.close()
+
     # ---------- the sheets ----------
     page = fresh(browser)
     ask(page, """TaurisDialog.shortcuts({ groups: [

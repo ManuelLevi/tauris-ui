@@ -87,6 +87,19 @@ with sync_playwright() as p:
     check("an empty table says so", page.evaluate("document.querySelector('#plain .ttb-empty').textContent") == "No people yet."
           and page.is_visible("#plain .ttb-empty"))
     check("a column that does not sort has no sort button", page.locator("#plain th:nth-child(2) .ttb-sort").count() == 0)
+    page.evaluate("tasks.update({ collapsible: true, groupActions: [{ id: 'add', icon: '+', title: 'New Task', onClick: () => {} }] })")
+    check("a group's row with buttons is as tall as a row, its name and buttons centred",
+          page.evaluate("""(() => { const tr = document.querySelector('#tasks tr.ttb-group[data-group="atlas"]');
+            const mid = el => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; };
+            return [Math.round(tr.getBoundingClientRect().height), Math.abs(mid(tr.querySelector('.ttb-group-label')) - mid(tr)) <= 1.5,
+                    Math.abs(mid(tr.querySelector('.ttb-ib')) - mid(tr)) <= 1.5]; })()""") == [25, True, True])
+    check("an empty group has no box but keeps its space: every colour square lines up",
+          len(set(page.evaluate("[...document.querySelectorAll('#tasks .ttb-chip')].map(c => Math.round(c.getBoundingClientRect().left))"))) == 1
+          and page.locator('#tasks tr.ttb-group[data-group="vega"] .ttb-box').count() == 0)
+    page.evaluate("tasks.update({ emptyInline: true })")
+    check("emptyInline: an empty group says so on its own row, with no row under it",
+          lines(page)[-2:] == ["# Vega Nothing here.", "t7"], lines(page))
+    page.evaluate("tasks.update({ collapsible: false, groupActions: null, emptyInline: false })")
     page.evaluate("document.querySelector('#tasks .ttb-list').scrollTop = 120")
     check("the header stays at the top", lambda: abs(page.evaluate("document.querySelector('#tasks .ttb-th').getBoundingClientRect().top - document.querySelector('#tasks .ttb-list').getBoundingClientRect().top")) <= 1.5)
     page.evaluate("document.querySelector('#tasks .ttb-list').scrollTop = 0")
