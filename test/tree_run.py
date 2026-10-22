@@ -641,6 +641,20 @@ with sync_playwright() as p:
     w1 = page.evaluate("getComputedStyle(document.getElementById('settings')).getPropertyValue('--tv-c0')").strip()
     check("a tree that does not sort: → on a column's edge makes it wider, and says its width",
           int(w1[:-2]) == int(w0[:-2]) + 10 and page.get_attribute("#settings .tv-hcell", "aria-valuenow") == w1[:-2], (w0, w1))
+    page.evaluate("window.resizes = []; demo.settings.on('resize', e => resizes.push([e.index, e.width])); 0")
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("ArrowLeft")
+    g = page.locator("#settings .tv-grip").first.bounding_box()
+    page.mouse.move(g["x"] + g["width"] / 2, g["y"] + g["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(g["x"] + 40, g["y"] + 5, steps=4)
+    page.mouse.up()
+    got = page.evaluate("resizes")
+    check("the resize event tells the app each new width (keys and a drag), to keep it",
+          len(got) == 3 and got[0][0] == 0 and got[2][1] == page.evaluate("demo.settings.widths()[0]"), got)
+    page.evaluate("demo.settings.setWidths([180, null])")
+    check("setWidths gives the widths back", page.evaluate("demo.settings.widths()[0]") == 180
+          and page.evaluate("getComputedStyle(document.getElementById('settings')).getPropertyValue('--tv-c0')").strip() == "180px")
     page.evaluate("demo.settings.select('general.name'); document.body.focus()")
     inactive = page.evaluate("""(() => { const r = document.querySelector('#settings .tv-row[aria-selected="true"]');
       const probe = document.createElement('span'); probe.style.color = 'var(--tv-muted)'; r.append(probe);

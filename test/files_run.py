@@ -655,6 +655,20 @@ with sync_playwright() as p:
     check("Windows high contrast: the focused row's ring shows on a selection, and the badge takes the selection's text colour", hc == [False, True], hc)
     page.close()
 
+    # ---------- the sort headers from the keyboard ----------
+    page = fresh(browser)
+    check("the sort headers are not Tab stops", page.evaluate("[...document.querySelectorAll('.tf-sort')].every(b => b.tabIndex === -1)"))
+    page.click(".tf-file:nth-child(1) .tf-c-name")
+    page.keyboard.press("ArrowUp")
+    on_header = page.evaluate("document.activeElement.classList.contains('tf-sort') && document.activeElement.closest('.tf-th').dataset.col")
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("Enter")
+    sorted_by = page.evaluate("document.querySelector('.tf-th[aria-sort=\"ascending\"], .tf-th[aria-sort=\"descending\"]').dataset.col")
+    page.keyboard.press("ArrowDown")
+    check("↑ from the first file reaches the headers; → and Enter sort by the next one; ↓ goes back to the files",
+          on_header == "name" and sorted_by == "size" and page.evaluate("document.activeElement.classList.contains('tf-list')"), (on_header, sorted_by))
+    page.close()
+
     # ---------- the row's buttons, double-click, the row menu ----------
     page = fresh(browser)
     page.dblclick(".tf-file:nth-child(2) .tf-c-name")

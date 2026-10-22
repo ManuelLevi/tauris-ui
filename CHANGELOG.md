@@ -8,6 +8,12 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.16 — 2026-10-22
+
+- Tree: the `resize` event gives a column's new width (and all of them) when the person drags its edge or uses the keys, `widths()` reads them and `setWidths()` gives them back, so an app can keep them when it draws the tree again or opens next time. The edge between two headers shows a line under the mouse.
+- Files: the sort headers are no longer Tab stops, so Tab leaves the list at once. ↑ from the first file reaches them: ← / → go from header to header, Enter or Space sorts, ↓ or Escape goes back.
+- A window still opening is never where a new tab goes, so a tab opened meanwhile is not lost if the window fails. A tab handed back from a window that failed, with no window left to take it, is forgotten rather than kept unseen. Windows closed long ago are let go at every save, also with no layout file. The app's `on_change` hook hears of a window a dragged tab opens, and of the dragged window when it is dropped onto another. A drag that ends in a window the app put tabs into shows that window again.
+
 ## 0.4.15 — 2026-10-22
 
 Fixes from the first of the stronger reviewers (tabs, saving, dragging):

@@ -415,7 +415,8 @@
         } else {
           const on = sort.key === col;
           cell.setAttribute("aria-sort", on ? (sort.up ? "ascending" : "descending") : "none");
-          const btn = pressable(el("span", "tf-sort", { role: "button", tabindex: "0" }, String(words[col])), () => sortBy(col));
+          // Not a Tab stop (Tab leaves the list at once); ↑ from the first file reaches the headers.
+          const btn = pressable(el("span", "tf-sort", { role: "button", tabindex: "-1" }, String(words[col])), () => sortBy(col));
           if (on) btn.append(el("span", "tf-arrow", { "aria-hidden": "true" }, sort.up ? "▲" : "▼"));
           cell.append(btn);
         }
@@ -1086,6 +1087,22 @@
       else if (!emptyAdd.hidden) emptyAdd.focus({ preventScroll: true });
     }
 
+    // In the header row: ← / → go from header to header, ↓ or Escape back to the
+    // files; Enter or Space sorts.
+    headRow.addEventListener("keydown", e => {
+      const all = [...headRow.querySelectorAll(".tf-sort")];
+      const at = all.indexOf(document.activeElement);
+      if (at < 0 || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        all[Math.max(0, Math.min(all.length - 1, at + (e.key === "ArrowLeft" ? -1 : 1)))].focus({ preventScroll: true });
+      } else if (e.key === "ArrowDown" || e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        focusList();
+      }
+    }, { signal });
+
     const rowAt = target => {
       const row = target instanceof Element ? target.closest(".tf-file") : null;
       return row && tbody.contains(row) ? row : null;
@@ -1177,7 +1194,11 @@
         anchor = selId;
         setSelection(next, selId);
       } else if (e.key === "ArrowDown") to(i < 0 ? 0 : i + 1);
-      else if (e.key === "ArrowUp") to(i < 0 ? shown.length - 1 : i - 1);
+      else if (e.key === "ArrowUp" && i === 0 && !e.shiftKey && !toggleKey && headRow.querySelector(".tf-sort")) {
+        // Above the first file: the column headers, to sort from the keyboard.
+        e.preventDefault();
+        (headRow.querySelector(`[data-col="${sort.key}"] .tf-sort`) ?? headRow.querySelector(".tf-sort"))?.focus({ preventScroll: true });
+      } else if (e.key === "ArrowUp") to(i < 0 ? shown.length - 1 : i - 1);
       else if (e.key === "Home") to(0);
       else if (e.key === "End") to(shown.length - 1);
       else if (e.key === "PageDown") to(i < 0 ? page : i + page);

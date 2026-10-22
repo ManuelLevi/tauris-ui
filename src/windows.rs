@@ -350,13 +350,16 @@ pub(crate) fn open_window<R: Runtime>(
         !IN_PLUGIN.with(|p| p.get()),
         "tauris-ui: window {label} opened inside Tauri's plugin lock; it would freeze the app (use after_event)"
     );
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_window(app, label, frame, focused))).unwrap_or_else(
-        |_| {
+    let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_window(app, label, frame, focused)))
+        .unwrap_or_else(|_| {
             Err(tauri::Error::Io(std::io::Error::other(format!(
                 "window {label} did not open: the app's window hook panicked"
             ))))
-        },
-    )
+        });
+    if opened.is_ok() {
+        inner(app).model().opened(label);
+    }
+    opened
 }
 
 fn build_window<R: Runtime>(
@@ -674,9 +677,10 @@ pub(crate) fn move_to_new_window<R: Runtime>(app: &AppHandle<R>, tab: u64) -> ta
             // Anything opened in the new window meanwhile goes back with the tab.
             let others = m.take_win(&label, tab);
             let back = m.put_back(&source, tab, at.0, at.1, at.2);
-            if let Some(back) = &back {
-                for other in others {
-                    m.attach(back, other, usize::MAX);
+            for other in others {
+                match &back {
+                    Some(back) => m.attach(back, other, usize::MAX),
+                    None => drop(m.tabs.remove(&other)),
                 }
             }
             back

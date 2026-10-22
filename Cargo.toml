@@ -1,6 +1,6 @@
 [package]
 name = "tauris-ui"
-version = "0.4.15"
+version = "0.4.16"
 edition = "2021"
 rust-version = "1.90"
 description = "UI components for Tauri 2 desktop apps: browser-style tabs (reorder, drag out into windows, remembered layout), a dense tree view / configuration editor, a shared-files table, in-window menus, and an optional terminal look."

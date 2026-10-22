@@ -1122,8 +1122,10 @@
         cell.addEventListener("keydown", e => {
           if (e.ctrlKey || e.metaKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight") || !(e.altKey || edge)) return;
           e.preventDefault();
+          const was = widths[i];
           widths[i] = Math.max(cols[i].minWidth, widths[i] + (e.key === "ArrowLeft" ? -10 : 10));
           applyWidths();
+          if (widths[i] !== was) widthChanged(i);
         }, { signal });
       }
       return cell;
@@ -1142,6 +1144,11 @@
       });
     }
 
+    // The person made a column wider or narrower: the app hears it, to keep it.
+    function widthChanged(i) {
+      emit("resize", { column: cols[i].key ?? null, index: i, width: widths[i], widths: widths.slice() });
+    }
+
     // Dragging a column's right edge: one variable changes, header and rows follow.
     function startResize(e, i, grip) {
       if (e.button !== 0) return;
@@ -1150,10 +1157,13 @@
       const startW = widths[i];
       grip.setPointerCapture(e.pointerId);
       root.classList.add("tv-resizing");
+      grip.classList.add("tv-grip-on");
       const drag = new AbortController();
       const stop = () => {
         drag.abort();
         root.classList.remove("tv-resizing");
+        grip.classList.remove("tv-grip-on");
+        if (widths[i] !== startW) widthChanged(i);
       };
       const both = AbortSignal.any ? AbortSignal.any([signal, drag.signal]) : drag.signal;
       grip.addEventListener("pointermove", ev => {
@@ -1257,6 +1267,16 @@
       },
       /** Moves keyboard focus into the tree. */
       focus() { focusRow(); },
+      /** Every column's width in pixels, as the person left them. */
+      widths() { return widths.slice(); },
+      /** Sets the columns' widths (pixels, in column order; null keeps one as it is). */
+      setWidths(list) {
+        if (!cols || !Array.isArray(list)) return;
+        list.forEach((w, i) => {
+          if (i < widths.length && Number.isFinite(w)) widths[i] = Math.max(cols[i].minWidth, Math.round(w));
+        });
+        applyWidths();
+      },
       /** Sorts by a column's key ("label": the first column), up: true for A to Z. null: the data's
        * own order. Fires "sort". Returns false for a column that cannot sort. */
       sort(key, up = true) {

@@ -377,7 +377,7 @@ The library's rules sit in a cascade layer named `tauris-ui`, so plain CSS alway
 The classic Qt / Windows tree, for the information density and precision it had, without the old look:
 - rows 18 px high, indented 16 px per level, small system type
 - tiny +/- boxes and dotted guide lines that join without a seam and stop at the last child
-- aligned columns you can resize, by dragging an edge or from the keyboard (Tab to a column's header: ← / → on one that does not sort, Alt+← / Alt+→ on one that does)
+- aligned columns you can resize: drag the line between two headers (it shows under the mouse), or from the keyboard (Tab to a column's header: ← / → on one that does not sort, Alt+← / Alt+→ on one that does). The `resize` event gives the new widths, to keep them (`columns[i].width` at mount, or `setWidths`); `widths()` reads them.
 - values you can edit in place: text, numbers, checkboxes, choices and colours
 - light and dark mode
 
@@ -609,7 +609,7 @@ The page can open the system's picker and save dialog (`TaurisFiles.pick`, `Taur
 
 **Methods:** `setFiles(files)`, `update(options)`, `select(id)` (an array selects several), `selected()`, `selection()`, `selectAll()`, `add()` (as Add files…, for a File menu), `addPaths(paths)`, `open(id)`, `rename(id)`, `remove(id)`, `search(text)`, `dragDrop(event)` (to feed drag-and-drop events yourself), `busy(text)`, `message(text, kind)`, `focus()`, `focusSearch()`, `destroy()`. Helpers: `TaurisFiles.kindOf(file)`, `TaurisFiles.formatSize(bytes)`.
 
-**Keyboard:** Up, Down, Home, End, PageUp and PageDown move (with `multiple: true`, Shift selects along the way, ⌘A selects every file, ⌘ (Ctrl) with the arrows moves the focus alone, and Space adds or takes out the file with the focus); a letter jumps to the next name starting with it. Enter opens the selected files, F2 renames the selected file (Enter saves, Escape cancels), Delete or ⌘⌫ deletes the selected files after the question (it starts on Cancel; Tab reaches Delete); they never act on a file that only has the focus. Shift+F10 opens the row's menu. In the search field, Down goes to the list and Escape empties it.
+**Keyboard:** Up, Down, Home, End, PageUp and PageDown move (with `multiple: true`, Shift selects along the way, ⌘A selects every file, ⌘ (Ctrl) with the arrows moves the focus alone, and Space adds or takes out the file with the focus); a letter jumps to the next name starting with it. Enter opens the selected files, F2 renames the selected file (Enter saves, Escape cancels), Delete or ⌘⌫ deletes the selected files after the question (it starts on Cancel; Tab reaches Delete); they never act on a file that only has the focus. Shift+F10 opens the row's menu. Up from the first file reaches the column headers (they are not Tab stops, so Tab leaves the list at once): Left and Right go from header to header, Enter or Space sorts, Down or Escape goes back. In the search field, Down goes to the list and Escape empties it.
 
 Types are in `web/files.d.ts`: copy it into a TypeScript app.
 

@@ -83,6 +83,8 @@ declare global {
     activate: { node: TaurisTreeNode<V> };
     /** The order changed (a header, or sort()); null is the data's own order. */
     sort: TaurisTreeSort | null;
+    /** The person made a column wider or narrower (its edge dragged, or the keys). Keep `widths` to give them back. */
+    resize: { column: string | null; index: number; width: number; widths: number[] };
   }
 
   interface TaurisTreeView<V extends object = Record<string, unknown>> {
@@ -106,6 +108,10 @@ declare global {
     /** Opens a cell's editor (the first editable column by default); false if it cannot. */
     edit(id: string | number, column?: keyof V & string): boolean;
     focus(): void;
+    /** Every column's width in pixels, as the person left them. */
+    widths(): number[];
+    /** Sets the columns' widths (pixels, in column order; null keeps one as it is). */
+    setWidths(widths: (number | null)[]): void;
     /** Sorts by a column (up: true for A to Z); null goes back to the data's own order. False for a column that cannot sort. */
     sort(key: string | null, up?: boolean): boolean;
     /** The order now, or null for the data's own order. */

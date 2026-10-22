@@ -94,6 +94,8 @@ pub(crate) struct Win {
     // crashed) cannot keep its window open.
     pub close_asked_at: Option<Instant>,
     pub close_seen: bool,
+    // Recorded, but its window is not open yet: nothing else is put in it.
+    pub opening: bool,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -189,9 +191,17 @@ impl Model {
             may_close: false,
             close_asked_at: None,
             close_seen: false,
+            opening: true,
         });
         self.changed();
         label
+    }
+
+    // Its window is open: from now on tabs can be opened in it.
+    pub fn opened(&mut self, label: &str) {
+        if let Some(w) = self.win(label) {
+            w.opening = false;
+        }
     }
 
     // Forgets a window and the tabs in it.
@@ -253,10 +263,11 @@ impl Model {
     }
 
     // The most recently focused window, leaving out the one a tab is being
-    // dragged in: what opens meanwhile must not ride away with the drag.
+    // dragged in (what opens meanwhile must not ride away with the drag) and
+    // one still opening (it may fail, and take what was put in it along).
     pub fn frontmost(&self) -> Option<String> {
         let dragged = self.drag.as_ref().map(|d| d.window.as_str());
-        self.wins.iter().rev().find(|w| Some(w.label.as_str()) != dragged).map(|w| w.label.clone())
+        self.wins.iter().rev().find(|w| !w.opening && Some(w.label.as_str()) != dragged).map(|w| w.label.clone())
     }
 
     // Takes a window out of the open windows (it is going away), returning the
@@ -391,6 +402,7 @@ mod tests {
         let mut m = model();
         let (a, b) = (m.create_tab(NewTab::new("a")), m.create_tab(NewTab::new("b")));
         let first = m.create_win(vec![a]);
+        m.opened(&first);
         let gone = m.create_win(vec![]);
         m.remove_win(&gone);
         assert_eq!(m.put_back(&gone, b, 0, None, None), Some(first.clone()));
@@ -409,6 +421,10 @@ mod tests {
         let (a, b) = (m.create_tab(NewTab::new("a")), m.create_tab(NewTab::new("b")));
         let first = m.create_win(vec![a]);
         let moving = m.create_win(vec![b]);
+        // A window still opening is not the frontmost either.
+        assert_eq!(m.frontmost(), None);
+        m.opened(&first);
+        m.opened(&moving);
         assert_eq!(m.frontmost(), Some(moving.clone()));
         m.drag = Some(Drag { tab: b, window: moving.clone(), grab: (0.0, 0.0), hover: None });
         assert_eq!(m.frontmost(), Some(first));

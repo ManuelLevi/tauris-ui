@@ -171,6 +171,8 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
     let _writing = state.save_lock();
     let saved: Vec<SavedWin> = {
         let mut m = state.model();
+        // Windows closed longer ago than a quit takes are of no use to any save.
+        m.closing.retain(|c| c.at.elapsed() < QUIT_BURST);
         let due = match (m.changed_at, m.unsaved_since) {
             (Some(last), Some(first)) => now || last.elapsed() >= state.config.settle || first.elapsed() >= MAX_WAIT,
             _ => false,
@@ -182,7 +184,7 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
         m.saved();
         // Windows closed a moment ago are kept only by a save at once (the app
         // quitting closes them one by one); a save after a pause leaves them out.
-        let just_closed = m.closing.iter().filter(|c| now && c.at.elapsed() < QUIT_BURST).map(|c| SavedWin {
+        let just_closed = m.closing.iter().filter(|_| now).map(|c| SavedWin {
             active: c.win.active.and_then(|a| c.win.tabs.iter().position(|t| *t == a)).unwrap_or(0),
             tabs: c.tabs.clone(),
             frame: c.win.frame,
@@ -220,8 +222,6 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>, now: bool) {
     // with the windows that closed a moment ago still in it.
     if written.is_err() || fs::rename(&tmp, &file).is_err() {
         state.model().changed();
-    } else {
-        state.model().closing.retain(|c| c.at.elapsed() < QUIT_BURST);
     }
 }
 

@@ -71,9 +71,10 @@ pub(crate) fn start<R: Runtime>(
                 // Anything opened in the new window meanwhile goes back with the tab.
                 let others = m.take_win(&moving, tab);
                 let back = m.put_back(&source, tab, at, active, chosen);
-                if let Some(back) = &back {
-                    for other in others {
-                        m.attach(back, other, usize::MAX);
+                for other in others {
+                    match &back {
+                        Some(back) => m.attach(back, other, usize::MAX),
+                        None => drop(m.tabs.remove(&other)),
                     }
                 }
                 back
@@ -83,6 +84,8 @@ pub(crate) fn start<R: Runtime>(
             }
             return Err(e.to_string());
         }
+        // The app hears of the new window, as for a tab moved to a new window.
+        crate::windows::changed(app, &moving);
     }
     let handle = app.clone();
     thread::spawn(move || follow_mouse(handle));
@@ -192,7 +195,12 @@ fn finish<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>, tab: u64, h
     m.drag = None;
     // The dragged window closed meanwhile (⌘W mid-drag): its tab went with it.
     if !(m.tabs.contains_key(&tab) && m.win(window.label()).is_some_and(|w| w.tabs.contains(&tab))) {
+        // A window still there (the app put other tabs in it) is shown again.
+        let still = m.win(window.label()).is_some();
         drop(m);
+        if still {
+            set_alpha(window, 1.0);
+        }
         if let Some((target, _)) = hover {
             send_hover(app, &target, None, "");
         }
@@ -220,6 +228,10 @@ fn finish<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>, tab: u64, h
     drop(m);
     send_hover(app, &target, None, "");
     notify(app, &target);
+    // The dragged window is gone from the layout: the app hears of it too.
+    if window.label() != target {
+        crate::windows::changed(app, window.label());
+    }
     let _ = window.destroy();
     if let Some(w) = app.get_webview_window(&target) {
         let _ = w.set_focus();
