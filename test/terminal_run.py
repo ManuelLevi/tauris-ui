@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PIL import Image
 from playwright.sync_api import sync_playwright
-from engine import WEBKIT, launch
+from engine import WEBKIT, launch, settled
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -97,6 +97,7 @@ SIGNATURE = """() => {
 
 
 def check(name, ok, detail=""):
+    ok, detail = settled(ok, detail)
     print(("PASS " if ok else "FAIL ") + name + (f"  {detail}" if detail != "" and not ok else ""))
     if not ok:
         failures.append(name)
@@ -328,33 +329,33 @@ with sync_playwright() as p:
     bg = lambda s: css(page, s, "background-color")
     page.evaluate("demo.signon.ok()")
     page.wait_for_timeout(300)
-    check("ok(): the band turns green, text stays black", bg("#signon .tm-band") == GREEN and css(page, "#signon .tm-band", "color") == BLACK)
-    check("ok(): other panes keep amber", bg("#monitor .tm-band") == AMBER)
+    check("ok(): the band turns green, text stays black", lambda: bg("#signon .tm-band") == GREEN and css(page, "#signon .tm-band", "color") == BLACK)
+    check("ok(): other panes keep amber", lambda: bg("#monitor .tm-band") == AMBER)
     if SHOTS:
         shot(page, "band_ok", {"x": 0, "y": 0, "width": 470, "height": 300})
     page.evaluate("demo.signon.error()")
     page.wait_for_timeout(300)
-    check("error(): the band turns red with black text (it reads: 6:1)", bg("#signon .tm-band") == RED and css(page, "#signon .tm-band", "color") == BLACK)
+    check("error(): the band turns red with black text (it reads: 6:1)", lambda: bg("#signon .tm-band") == RED and css(page, "#signon .tm-band", "color") == BLACK)
     page.evaluate("demo.signon.reset()")
     page.wait_for_timeout(300)
-    check("reset(): back to amber", bg("#signon .tm-band") == AMBER and page.get_attribute("#signon", "data-tm-state") is None)
+    check("reset(): back to amber", lambda: bg("#signon .tm-band") == AMBER and page.get_attribute("#signon", "data-tm-state") is None)
     page.evaluate("window.msgBand = TaurisTerminal.pane(document.querySelectorAll('#monitor .tm-band')[1]); msgBand.ok()")
     page.wait_for_timeout(300)
     check("pane() on one band colours only that band",
-          page.evaluate("[...document.querySelectorAll('#monitor .tm-band')].map(b => getComputedStyle(b).backgroundColor)") == [AMBER, GREEN])
-    check("the band changes colour with a short fade", css(page, ".tm-band", "transition-duration") == "0.2s")
+          lambda: page.evaluate("[...document.querySelectorAll('#monitor .tm-band')].map(b => getComputedStyle(b).backgroundColor)") == [AMBER, GREEN])
+    check("the band changes colour with a short fade", lambda: css(page, ".tm-band", "transition-duration") == "0.2s")
     page.evaluate("msgBand.reset(); document.getElementById('user').value = ''")
     page.click("#go")
     page.wait_for_timeout(300)
     check("the demo: GO with no username turns the band red and says why",
-          bg("#signon .tm-band") == RED and page.inner_text("#status").startswith("ERR 01") and css(page, "#status", "color") == RED
+          lambda: bg("#signon .tm-band") == RED and page.inner_text("#status").startswith("ERR 01") and css(page, "#status", "color") == RED
           and page.evaluate("document.activeElement.id") == "user")
     shot(page, "band_error", {"x": 0, "y": 0, "width": 470, "height": 300})
     page.fill("#user", "j.okafor")
     page.keyboard.press("Enter")
     page.wait_for_timeout(1000)
     check("the demo: Enter in a field signs on, and the band turns green",
-          bg("#signon .tm-band") == GREEN and page.inner_text("#status") == "AUTHENTICATED" and page.inner_text("#session-state") == "OPEN")
+          lambda: bg("#signon .tm-band") == GREEN and page.inner_text("#status") == "AUTHENTICATED" and page.inner_text("#session-state") == "OPEN")
     page.close()
 
     # ---------- message log ----------
@@ -366,7 +367,7 @@ with sync_playwright() as p:
     check("add(): the new row flashes amber", flash[0] == "tm-new tm-ok" and flash[1] == "tm-flash" and flash[2] not in ("rgba(0, 0, 0, 0)", BLACK), flash)
     page.wait_for_timeout(1400)
     check("add(): the flash ends and leaves no trace",
-          page.evaluate("[row.className, getComputedStyle(row).backgroundColor]") == ["tm-ok", "rgba(0, 0, 0, 0)"])
+          lambda: page.evaluate("[row.className, getComputedStyle(row).backgroundColor]") == ["tm-ok", "rgba(0, 0, 0, 0)"])
     page.evaluate("""demo.messages.add('FEED LATENCY 380 MS', 'warn'); demo.messages.add('ERR 07  LINK TO LDN-2 LOST', 'error');
       demo.messages.add('RECONNECTING'); demo.messages.add('<b>14 ORDERS</b> QUEUED')""")
     colours = page.evaluate("[...document.querySelectorAll('#log li')].map(li => getComputedStyle(li).color)")

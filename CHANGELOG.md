@@ -6,7 +6,10 @@ dependency, `cargo update -p tauris-ui`).
 
 ## Unreleased
 
-Nothing yet.
+- Tests: a check that follows a pause asks again for up to 3 s before it fails
+  (`engine.settled`), so CI's slow Mac no longer fails a different pair of
+  WebKit checks each run. A check that something did not happen still answers
+  at once.
 
 ## 0.4.32 — 2026-10-22
 

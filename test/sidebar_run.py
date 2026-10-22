@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from engine import WEBKIT, launch
+from engine import WEBKIT, launch, settled
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -21,6 +21,7 @@ failures = []
 
 
 def check(name, ok, detail=""):
+    ok, detail = settled(ok, detail)
     print(("PASS " if ok else "FAIL ") + name + ("" if ok else f"  {detail}"))
     if not ok:
         failures.append(name)
@@ -52,6 +53,11 @@ def focused(page):
 
 def said(page):
     return page.evaluate("said.splice(0)")
+
+
+def heard(page):
+    """What the page has said so far, left in its log (a check may ask again)."""
+    return page.evaluate("said.slice()")
 
 
 def shortcut(page):
@@ -145,7 +151,7 @@ with sync_playwright() as p:
     page.evaluate("side.update({ title: '', image: %s }); side.toggle(true); 0" % json.dumps(LOGO))
     page.wait_for_timeout(300)
     check("an image with no title: it shows alone, open and in the rail; the list keeps its own name",
-          page.is_visible("#side .tsb-image svg") and page.get_attribute("#side .tsb-nav", "aria-label") == "Sidebar")
+          lambda: page.is_visible("#side .tsb-image svg") and page.get_attribute("#side .tsb-nav", "aria-label") == "Sidebar")
     page.close()
 
     # ---------- the keys ----------
@@ -201,8 +207,9 @@ with sync_playwright() as p:
     check("in the rail the keys go through the first level", focused(page) == "northwind", focused(page))
     page.click("[data-key=atlas]")
     page.wait_for_timeout(300)
-    check("a group chosen in the rail opens the sidebar, the group open", page.get_attribute("#side", "data-tsb-state") == "open"
-          and page.locator("[data-key=atlas-docs]").count() == 1 and said(page) == [["toggle", False, "button"], ["select", "atlas", "mouse"]], said(page))
+    check("a group chosen in the rail opens the sidebar, the group open", lambda: page.get_attribute("#side", "data-tsb-state") == "open"
+          and page.locator("[data-key=atlas-docs]").count() == 1 and heard(page) == [["toggle", False, "button"], ["select", "atlas", "mouse"]], lambda: heard(page))
+    said(page)
     page.focus("#field")
     page.keyboard.press(shortcut(page))
     page.wait_for_timeout(50)
@@ -226,7 +233,7 @@ with sync_playwright() as p:
           gone == (0, True, True, False), gone)
     page.keyboard.press(shortcut(page))
     page.wait_for_timeout(300)
-    check("and the shortcut brings it back", width(page) == 220 and focused(page) == "inbox", (width(page), focused(page)))
+    check("and the shortcut brings it back", lambda: width(page) == 220 and focused(page) == "inbox", lambda: (width(page), focused(page)))
     page.close()
 
     # ---------- the edge ----------
@@ -251,8 +258,9 @@ with sync_playwright() as p:
     page.mouse.move(40, y, steps=6)
     page.mouse.up()
     page.wait_for_timeout(300)
-    check("dragged narrow, it collapses (and keeps its width for later)", page.get_attribute("#side", "data-tsb-state") == "rail"
-          and page.evaluate("side.width") == 420 and said(page) == [["toggle", True, "edge"]], (page.get_attribute("#side", "data-tsb-state"), said(page)))
+    check("dragged narrow, it collapses (and keeps its width for later)", lambda: page.get_attribute("#side", "data-tsb-state") == "rail"
+          and page.evaluate("side.width") == 420 and heard(page) == [["toggle", True, "edge"]], lambda: (page.get_attribute("#side", "data-tsb-state"), heard(page)))
+    said(page)
     box = page.locator("#side .tsb-grip").bounding_box()
     x = box["x"] + box["width"] / 2
     page.mouse.move(x, y)
@@ -260,11 +268,12 @@ with sync_playwright() as p:
     page.mouse.move(x + 200, y, steps=6)
     page.mouse.up()
     page.wait_for_timeout(300)
-    check("from the rail, dragged out, it opens at the width dragged to", page.get_attribute("#side", "data-tsb-state") == "open"
-          and 230 <= width(page) <= 250 and said(page)[0] == ["toggle", False, "edge"], width(page))
+    check("from the rail, dragged out, it opens at the width dragged to", lambda: page.get_attribute("#side", "data-tsb-state") == "open"
+          and 230 <= width(page) <= 250 and heard(page)[:1] == [["toggle", False, "edge"]], lambda: (width(page), heard(page)))
+    said(page)
     page.dblclick("#side .tsb-grip")
     page.wait_for_timeout(300)  # the width eases
-    check("a double-click on the edge puts its width back", width(page) == 220, width(page))
+    check("a double-click on the edge puts its width back", lambda: width(page) == 220, lambda: width(page))
     page.focus("#side .tsb-grip")
     now = lambda: page.evaluate("side.width")
     page.keyboard.press("ArrowRight")
@@ -277,10 +286,10 @@ with sync_playwright() as p:
     w4 = now()
     page.wait_for_timeout(300)
     check("the edge from the keys: Right and Shift+Right widen, Home and End go to the narrowest and widest",
-          (w1, w2, w3, w4) == (230, 280, 160, 420) and page.get_attribute("#side .tsb-grip", "aria-valuenow") == "420" and width(page) == 420, (w1, w2, w3, w4, width(page)))
+          lambda: (w1, w2, w3, w4) == (230, 280, 160, 420) and page.get_attribute("#side .tsb-grip", "aria-valuenow") == "420" and width(page) == 420, lambda: (w1, w2, w3, w4, width(page)))
     page.keyboard.press("Enter")
     page.wait_for_timeout(300)
-    check("Enter on the edge collapses it", page.get_attribute("#side", "data-tsb-state") == "rail")
+    check("Enter on the edge collapses it", lambda: page.get_attribute("#side", "data-tsb-state") == "rail")
     page.close()
 
     page = fresh(browser)
@@ -328,7 +337,7 @@ with sync_playwright() as p:
     page.evaluate("side.toggle(false); 0")
     page.wait_for_timeout(300)
     check("it shows only while the sidebar is open (not in the rail), and collapsed with no items it is a slim 32px strip, its button alone",
-          not in_rail and page.is_visible("#mine") and slim == 32, slim)
+          lambda: not in_rail and page.is_visible("#mine") and slim == 32, lambda: slim)
     page.evaluate("""(() => { side.destroy(); window.side = TaurisSidebar.mount(document.getElementById('side'), { items: ITEMS.slice(0, 3) });
       const p = document.createElement('p'); p.id = 'later'; p.textContent = 'Later'; side.body.append(p); side.refresh(); return 0; })()""")
     order = page.evaluate("""(() => { const n = document.querySelector('#side [data-key=sent]').getBoundingClientRect(), l = document.getElementById('later').getBoundingClientRect();

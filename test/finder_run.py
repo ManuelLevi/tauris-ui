@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from engine import launch
+from engine import launch, settled
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -19,6 +19,7 @@ failures = []
 
 
 def check(name, ok, detail=""):
+    ok, detail = settled(ok, detail)
     print(("PASS " if ok else "FAIL ") + name + ("" if ok else f"  {detail}"))
     if not ok:
         failures.append(name)
@@ -52,6 +53,11 @@ def said(page):
     return page.evaluate("said.splice(0)")
 
 
+def heard(page):
+    """What the page has said so far, left in its log (a check may ask again)."""
+    return page.evaluate("said.slice()")
+
+
 def search(page, text):
     page.fill(".tfd-input", text)
     page.wait_for_timeout(20)
@@ -72,8 +78,9 @@ with sync_playwright() as p:
     check("nothing typed: the latest items (no recent ones yet)", groups(page) == ["Latest"] and rows(page)[0] == "Sign the lease", (groups(page), rows(page)))
     page.keyboard.press("Escape")
     page.wait_for_timeout(150)  # its fade
-    check("Esc closes it (with a short fade) and the focus goes back", not page.is_visible(".tfd") and page.evaluate("document.activeElement.id") == "field"
-          and said(page) == [["close", False]])
+    check("Esc closes it (with a short fade) and the focus goes back", lambda: not page.is_visible(".tfd") and page.evaluate("document.activeElement.id") == "field"
+          and heard(page) == [["close", False]], lambda: heard(page))
+    said(page)
     page.close()
 
     # ---------- finding ----------

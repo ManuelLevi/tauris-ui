@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 from playwright.sync_api import sync_playwright
-from engine import WEBKIT, launch
+from engine import WEBKIT, launch, settled
 
 HERE = Path(__file__).parent
 DEMO = HERE / "tree_demo.html"
@@ -26,6 +26,7 @@ failures = []
 
 
 def check(name, ok, detail=""):
+    ok, detail = settled(ok, detail)
     print(("PASS " if ok else "FAIL ") + name + (f"  {detail}" if detail != "" and not ok else ""))
     if not ok:
         failures.append(name)
@@ -398,8 +399,8 @@ with sync_playwright() as p:
     check("End reaches the last of thousands", page.evaluate("big.selected().id") == "2026-08-29/scan-0100.png")
     page.evaluate("bigHost.querySelector('.tv-scroll').scrollTop = 0")
     page.wait_for_timeout(100)
-    check("scrolled away, the focused row stays focused", active_key(page) == "2026-08-29/scan-0100.png")
-    check("and the rows at the top are drawn", page.locator('.tv-row[data-key="scans"]').count() == 1)
+    check("scrolled away, the focused row stays focused", lambda: active_key(page) == "2026-08-29/scan-0100.png")
+    check("and the rows at the top are drawn", lambda: page.locator('.tv-row[data-key="scans"]').count() == 1)
     page.evaluate("big.collapseAll()")
     check("collapse all leaves one row", page.evaluate("bigHost.querySelectorAll('.tv-row').length") == 1)
     page.close()
@@ -921,9 +922,9 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(50)
     check("setData while an editor is open but untouched: it shows the new data, which stands, and nothing is said changed",
-          shows == "Atlas 2 (from the server)" and
+          lambda: shows == "Atlas 2 (from the server)" and
           page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']").strip() == "Atlas 2 (from the server)" and page.evaluate("got") == [],
-          (page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']"), page.evaluate("got")))
+          lambda: (page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']"), page.evaluate("got")))
     page.close()
 
     page = fresh(browser)
@@ -943,7 +944,7 @@ with sync_playwright() as p:
     page.mouse.move(*[v + 5 for v in (lambda r: (r['x'], r['y']))(page.locator('#mine .tv-editor').bounding_box())])
     page.mouse.wheel(0, 120)
     page.wait_for_timeout(50)
-    check("the wheel over a number being edited does not change it", page.input_value("#mine .tv-editor") == "12", page.input_value("#mine .tv-editor"))
+    check("the wheel over a number being edited does not change it", lambda: page.input_value("#mine .tv-editor") == "12", lambda: page.input_value("#mine .tv-editor"))
     page.keyboard.press("Escape")
     cells = page.evaluate("[...document.querySelectorAll('#mine .tv-row[data-key=r] .tv-cell')].slice(1).map(c => [c.textContent, !!c.querySelector('.tv-check'), !!c.querySelector('.tv-swatch'), c.getAttribute('role')])")
     check("a read-only node shows its values as an editable one does (a choice's label, a box, a swatch), and none can be changed",
@@ -997,9 +998,9 @@ with sync_playwright() as p:
     page.evaluate("""(() => { const flat = document.createElement('div'); document.body.append(flat);
       TaurisTree.mount(flat, { data: Array.from({ length: 300 }, (_, i) => ({ id: 'z' + i, label: 'Z ' + i })) }); return 0; })()""")
     page.wait_for_timeout(200)
-    check("icons: an app's own icon is drawn from its markup", page.locator("#mine .tv-icon .my-star").count() == 1)
+    check("icons: an app's own icon is drawn from its markup", lambda: page.locator("#mine .tv-icon .my-star").count() == 1)
     check("the console says when ids repeat, and when the tree's element has no height",
-          any("own id" in w for w in warnings) and any("height" in w for w in warnings), warnings)
+          lambda: any("own id" in w for w in warnings) and any("height" in w for w in warnings), lambda: warnings)
     page.close()
 
     page = fresh(browser, "light")
@@ -1100,8 +1101,8 @@ with sync_playwright() as p:
     page.evaluate("t.setData([{ id: 'g', label: 'Group', children: [{ id: 'r', label: 'R', values: { n: 15 } }] }]); 0")
     page.wait_for_timeout(50)
     check("new data putting the row being edited in a closed folder: the edit ends without an error, its value said for the new node",
-          not errors and page.locator("#mine .tv-editor").count() == 0 and page.evaluate("got")[-1] == ["r", "n", 10],  # 2, kept to min 10
-          (errors, page.evaluate("got")))
+          lambda: not errors and page.locator("#mine .tv-editor").count() == 0 and page.evaluate("got")[-1] == ["r", "n", 10],  # 2, kept to min 10
+          lambda: (errors, page.evaluate("got")))
     page.close()
 
     page = fresh(browser)

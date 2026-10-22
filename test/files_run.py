@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from engine import WEBKIT, launch
+from engine import WEBKIT, launch, settled
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -64,6 +64,7 @@ SIGNATURE = """() => {
 
 
 def check(name, ok, detail=""):
+    ok, detail = settled(ok, detail)
     print(("PASS " if ok else "FAIL ") + name + (f"  {detail}" if detail != "" and not ok else ""))
     if not ok:
         failures.append(name)
@@ -133,14 +134,6 @@ def idle(page):
     page.wait_for_function("document.querySelector('.tf-busy').hidden")
 
 
-def settle(page, condition):
-    """Waits up to 2s for a state behind a transition or a menu opening (a slow machine takes longer)."""
-    for _ in range(40):
-        if page.evaluate(f"!!({condition})"):
-            return
-        page.wait_for_timeout(50)
-
-
 def shot(page, name):
     if SHOTS:
         page.screenshot(path=str(SHOTS / f"files_{name}.png"), animations="disabled")
@@ -198,22 +191,21 @@ with sync_playwright() as p:
           css(page, ".tf-cell.tf-c-size", "text-align") == "right" and css(page, ".tf-cell.tf-c-size", "font-variant-numeric") == "tabular-nums")
     check("the row's buttons are hidden until the row is pointed at", css(page, ".tf-file:nth-child(2) .tf-acts", "opacity") == "0")
     page.hover(".tf-file:nth-child(2) .tf-c-name")
-    settle(page, "getComputedStyle(document.querySelector('.tf-file:nth-child(2) .tf-acts')).opacity === '1'"
-                 " && getComputedStyle(document.querySelector('.tf-file:nth-child(2) .tf-cell')).backgroundColor === 'rgb(241, 245, 251)'")
+    page.wait_for_timeout(150)
     check("pointing at a row tints it and shows Open, Save a copy…, Rename, Delete",
-          css(page, ".tf-file:nth-child(2) .tf-acts", "opacity") == "1"
+          lambda: css(page, ".tf-file:nth-child(2) .tf-acts", "opacity") == "1"
           and css(page, ".tf-file:nth-child(2) .tf-cell", "background-color") == "rgb(241, 245, 251)"
           and page.evaluate("[...document.querySelectorAll('.tf-file:nth-child(2) .tf-ib')].map(b => b.title)") == ["Open", "Save a copy…", "Rename", "Delete"],
-          (css(page, ".tf-file:nth-child(2) .tf-acts", "opacity"), css(page, ".tf-file:nth-child(2) .tf-cell", "background-color")))
+          lambda: (css(page, ".tf-file:nth-child(2) .tf-acts", "opacity"), css(page, ".tf-file:nth-child(2) .tf-cell", "background-color")))
     page.click(".tf-file:nth-child(3) .tf-c-name")
     page.wait_for_timeout(150)
     sel = ".tf-file:nth-child(3)"
     check("a click selects: the row in the accent colour, white text, buttons shown",
-          css(page, sel + " .tf-cell", "background-color") == ACCENT and css(page, sel + " .tf-cell", "color") == WHITE
+          lambda: css(page, sel + " .tf-cell", "background-color") == ACCENT and css(page, sel + " .tf-cell", "color") == WHITE
           and css(page, sel + " .tf-kind", "color") == WHITE and css(page, sel + " .tf-acts", "opacity") == "1"
           and page.get_attribute(sel, "aria-selected") == "true" and selected(page) == "Contract — signed.pdf")
     check("the list is a grid that names the selected row",
-          page.get_attribute(".tf-list", "role") == "grid" and page.get_attribute(".tf-list", "aria-activedescendant") == page.get_attribute(sel, "id")
+          lambda: page.get_attribute(".tf-list", "role") == "grid" and page.get_attribute(".tf-list", "aria-activedescendant") == page.get_attribute(sel, "id")
           and page.evaluate("document.activeElement.classList.contains('tf-list')"))
     page.close()
 
@@ -334,8 +326,8 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(150)
     check("the row's menu tells onMenuOpen and onMenuClose, as the bar does",
-          page.evaluate("ev") == [["open", "Budget 2027.xlsx", "mouse"], ["close", "Budget 2027.xlsx", False],
-                                  ["open", "Budget 2027.xlsx", "keyboard"], ["close", "Budget 2027.xlsx", True]], page.evaluate("ev"))
+          lambda: page.evaluate("ev") == [["open", "Budget 2027.xlsx", "mouse"], ["close", "Budget 2027.xlsx", False],
+                                          ["open", "Budget 2027.xlsx", "keyboard"], ["close", "Budget 2027.xlsx", True]], lambda: page.evaluate("ev"))
     page.close()
 
     # ---------- keyboard ----------
@@ -356,7 +348,7 @@ with sync_playwright() as p:
     check("typing a letter jumps to the next name starting with it", selected(page) == "Kickoff notes.md")
     page.keyboard.press("Enter")
     page.wait_for_timeout(200)
-    check("Enter opens, and the app's status line says so", page.evaluate("window.opened") == "Kickoff notes.md" and message(page) == "Opened Kickoff notes.md.")
+    check("Enter opens, and the app's status line says so", lambda: page.evaluate("window.opened") == "Kickoff notes.md" and message(page) == "Opened Kickoff notes.md.")
     page.keyboard.press("Delete")
     check("Delete asks first, with the file's name, the safe answer (Cancel) focused",
           page.is_visible(".tf-ask") and page.inner_text(".tf-ask-text") == "Delete “Kickoff notes.md”? This cannot be undone."
@@ -380,9 +372,9 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(200)
     check("⌘⌫ (Delete off a Mac) asks too; Tab and Enter delete; the next file is selected",
-          "Kickoff notes.md" not in names(page) and selected(page) == "Launch plan.pptx" and message(page) == "Deleted Kickoff notes.md."
+          lambda: "Kickoff notes.md" not in names(page) and selected(page) == "Launch plan.pptx" and message(page) == "Deleted Kickoff notes.md."
           and page.inner_text(".tf-sub").startswith("Documents · 7 files"))
-    check("after deleting, the list keeps the focus", page.evaluate("document.activeElement.classList.contains('tf-list')"))
+    check("after deleting, the list keeps the focus", lambda: page.evaluate("document.activeElement.classList.contains('tf-list')"))
     page.keyboard.press("PageDown")
     check("PageDown moves a page (to the end of a short list)", selected(page) == "Site visit.mov")
     page.close()
@@ -428,8 +420,8 @@ with sync_playwright() as p:
     page.click(".tf-ask .tf-danger")
     page.wait_for_timeout(400)
     check("the red button deletes all three; the file after them is selected",
-          names(page) == ["Customer interview — Maria Okafor, Lisbon office, recorded with consent.m4a", "Kickoff notes.md", "Launch plan.pptx", "Moodboard.heic", "Site visit.mov"]
-          and sel_names() == [names(page)[0]] and message(page) == "Deleted 3 files.", (names(page), sel_names()))
+          lambda: names(page) == ["Customer interview — Maria Okafor, Lisbon office, recorded with consent.m4a", "Kickoff notes.md", "Launch plan.pptx", "Moodboard.heic", "Site visit.mov"]
+          and sel_names() == [names(page)[0]] and message(page) == "Deleted 3 files.", lambda: (names(page), sel_names()))
     page.evaluate("window.__pick = ['/x/One.pdf', '/x/Two.pdf']; window.uploadMs = 50")
     page.click(".tf-add")
     page.wait_for_function("demo.files.selection().length === 2")
@@ -498,7 +490,7 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(200)
     check("new objects with the same look: every callback gets the new ones",
-          page.evaluate("got") == ["v2", "v2"] and page.evaluate("demo.files.selection().every(f => f.url === 'v2')"), page.evaluate("got"))
+          lambda: page.evaluate("got") == ["v2", "v2"] and page.evaluate("demo.files.selection().every(f => f.url === 'v2')"), lambda: page.evaluate("got"))
     page.click(".tf-file:nth-child(1) .tf-c-name")
     page.keyboard.press("ControlOrMeta+ArrowDown")
     page.keyboard.press("ControlOrMeta+ArrowDown")
@@ -535,7 +527,7 @@ with sync_playwright() as p:
     page.click(".tmn-item:has-text('Open')")
     page.wait_for_timeout(200)
     check("a new list while the question or the menu is open: the action gets the newest objects",
-          page.evaluate("got") == [["delete", "v2"], ["open", "v3"]], page.evaluate("got"))
+          lambda: page.evaluate("got") == [["delete", "v2"], ["open", "v3"]], lambda: page.evaluate("got"))
     page.click(".tf-file:nth-child(1) .tf-c-name")
     page.keyboard.press("ControlOrMeta+ArrowDown")
     page.keyboard.press("Delete")
@@ -561,14 +553,14 @@ with sync_playwright() as p:
     page.evaluate("""window.picks = 0; demo.files.update({ pick: async () => { picks++; await new Promise(r => setTimeout(r, 150)); return []; } });
       demo.files.add(); demo.files.add(); 0""")
     page.wait_for_timeout(250)
-    check("add() twice while the picker is open: one picker", page.evaluate("picks") == 1, page.evaluate("picks"))
+    check("add() twice while the picker is open: one picker", lambda: page.evaluate("picks") == 1, lambda: page.evaluate("picks"))
     page.evaluate("""window.got = []; demo.files.update({ confirmDelete: false, onDelete: async f => { got.push(f.url ?? 'v1');
       if (got.length === 1) demo.files.setFiles(demo.files.files().filter(x => x.id !== f.id).map(x => ({ ...x, url: 'v2' }))); } }); 0""")
     page.evaluate("demo.files.select([demo.files.files()[0].id, demo.files.files()[1].id])")
     page.focus(".tf-list")
     page.keyboard.press("Delete")
     page.wait_for_timeout(200)
-    check("deleting several: each file is the app's newest object when its turn comes", page.evaluate("got") == ["v1", "v2"], page.evaluate("got"))
+    check("deleting several: each file is the app's newest object when its turn comes", lambda: page.evaluate("got") == ["v1", "v2"], lambda: page.evaluate("got"))
     page.evaluate("demo.files.select(null)")
     page.focus(".tf-list")
     page.keyboard.press("c")
@@ -588,7 +580,7 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.keyboard.press("Escape")
     page.wait_for_timeout(350)
-    check("Escape while the app is renaming: its answer is waited for, and the new name shows", "Zed.pdf" in names(page), names(page))
+    check("Escape while the app is renaming: its answer is waited for, and the new name shows", lambda: "Zed.pdf" in names(page), lambda: names(page))
     page.evaluate("window.heard = []; demo.files.update({ onSelect: f => heard.push(f && f.name) }); 0")
     page.click(".tf-file:nth-child(2) .tf-c-name")
     page.evaluate("const id = demo.files.selected().id; demo.files.setFiles(demo.files.files().map(x => x.id === id ? { ...x, name: 'Renamed.pdf' } : x))")
@@ -620,13 +612,13 @@ with sync_playwright() as p:
     page.evaluate("p => __emit('tauri://drag-drop', { paths: ['/x/Over.pdf'], position: p })", {"x": (r["x"] + 20) * 2, "y": (r["y"] + 20) * 2})
     page.wait_for_timeout(500)
     check("two components that take the window's drops: a drop over the second is the second's only",
-          page.evaluate("second") == ["/x/Over.pdf"] and len(page.evaluate("demo.files.files()")) == count, page.evaluate("second"))
+          lambda: page.evaluate("second") == ["/x/Over.pdf"] and len(page.evaluate("demo.files.files()")) == count, lambda: page.evaluate("second"))
     page.evaluate("__emit('tauri://drag-drop', { paths: ['/x/Else.pdf'], position: { x: 10, y: 10 } })")
     page.wait_for_timeout(500)
-    check("a drop over neither is the first mounted one's", "Else.pdf" in names(page) and page.evaluate("second") == ["/x/Over.pdf"])
+    check("a drop over neither is the first mounted one's", lambda: "Else.pdf" in names(page) and page.evaluate("second") == ["/x/Over.pdf"])
     page.evaluate("window.picks = 0; demo.files.update({ pick: async () => { picks++; return []; } }); demo.files.destroy(); demo.files.add(); 0")
     page.wait_for_timeout(50)
-    check("after destroy(), add() opens no picker", page.evaluate("picks") == 0)
+    check("after destroy(), add() opens no picker", lambda: page.evaluate("picks") == 0)
     page.close()
 
     # ---------- a sixth review ----------
@@ -659,7 +651,7 @@ with sync_playwright() as p:
     page.keyboard.type("gone")
     page.evaluate("demo.files.destroy()")
     page.wait_for_timeout(100)
-    check("destroy() while a name is being edited renames nothing", not any("gone" in n for n in page.evaluate("renamed")), page.evaluate("renamed"))
+    check("destroy() while a name is being edited renames nothing", lambda: not any("gone" in n for n in page.evaluate("renamed")), lambda: page.evaluate("renamed"))
     page.evaluate("demo.files.dragDrop({ type: 'enter', paths: ['/x.pdf'] })")
     check("after destroy() a fed drag event changes nothing", not page.evaluate("document.getElementById('files').classList.contains('tf-dropping')"))
     page.close()
@@ -707,13 +699,13 @@ with sync_playwright() as p:
     check("onSelect is not called while mount() runs (nothing changed yet)", seen == 0, seen)
     page.evaluate("demo.files.update({ multiple: false }); demo.files.addPaths(['/x/One.pdf', '/x/Two.pdf']); 0")
     page.wait_for_timeout(500)
-    check("without multiple, adding several files selects one", len(page.evaluate("demo.files.selection()")) == 1, page.evaluate("demo.files.selection().map(f => f.name)"))
+    check("without multiple, adding several files selects one", lambda: len(page.evaluate("demo.files.selection()")) == 1, lambda: page.evaluate("demo.files.selection().map(f => f.name)"))
     page.evaluate("window.opens = 0; demo.files.update({ onOpen: async () => { opens++; } }); 0")
     page.focus(".tf-list")
     page.evaluate("""() => { const g = document.querySelector('.tf-list');
       for (let n = 0; n < 4; n++) g.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: n > 0, bubbles: true })); return 0; }""")
     page.wait_for_timeout(100)
-    check("holding Enter opens once", page.evaluate("opens") == 1, page.evaluate("opens"))
+    check("holding Enter opens once", lambda: page.evaluate("opens") == 1, lambda: page.evaluate("opens"))
     page.keyboard.press("Alt+Delete")
     page.keyboard.press("Shift+Delete")
     check("Delete with ⌥ or ⇧ held asks nothing", page.is_hidden(".tf-veil"))
@@ -785,10 +777,10 @@ with sync_playwright() as p:
     page.focus(".tf-list")
     page.keyboard.press("Delete")
     page.wait_for_timeout(150)
-    check("a delete that fails among several: that file takes the selection, to try again", selected(page) == "File 2.pdf", selected(page))
+    check("a delete that fails among several: that file takes the selection, to try again", lambda: selected(page) == "File 2.pdf", lambda: selected(page))
     page.evaluate("demo.files.update({ onOpen: () => Promise.reject() }); demo.files.open('2'); 0")
     page.wait_for_timeout(100)
-    check("an empty refusal says nothing (no \"undefined\")", "undefined" not in message(page), message(page))
+    check("an empty refusal says nothing (no \"undefined\")", lambda: "undefined" not in message(page), lambda: message(page))
     page.close()
 
     page = fresh(browser)
@@ -799,14 +791,14 @@ with sync_playwright() as p:
     page.evaluate("""() => { const i = document.querySelector('.tf-rename');
       for (let n = 0; n < 5; n++) i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: n > 0, bubbles: true })); return 0; }""")
     page.wait_for_timeout(100)
-    check("holding Enter in the rename field asks the app once", page.evaluate("tries") == 1, page.evaluate("tries"))
+    check("holding Enter in the rename field asks the app once", lambda: page.evaluate("tries") == 1, lambda: page.evaluate("tries"))
     page.keyboard.press("Escape")
     page.fill(".tf-q", "plan")
     page.evaluate("demo.files.update({ multiple: true }); demo.files.addPaths(['/x/b.txt', '/x/plan2.pdf']); 0")
     page.wait_for_timeout(700)
     check("files added while a search is on: the focus is on one that is shown",
-          page.evaluate("document.querySelector('.tf-file.tf-focused .tf-c-name')?.textContent") == "plan2.pdf",
-          page.evaluate("document.querySelector('.tf-file.tf-focused .tf-c-name')?.textContent"))
+          lambda: page.evaluate("document.querySelector('.tf-file.tf-focused .tf-c-name')?.textContent") == "plan2.pdf",
+          lambda: page.evaluate("document.querySelector('.tf-file.tf-focused .tf-c-name')?.textContent"))
     page.close()
 
     page = fresh(browser)
@@ -820,8 +812,8 @@ with sync_playwright() as p:
       window.otherGot = []; window.other = TaurisFiles.mount(a, { dropArea: 'element', onAdd: async p => { otherGot.push(...p); return []; } }); return 0; }""")
     page.evaluate("demo.files.update({ dropArea: 'element' }); demo.files.dragDrop({ type: 'drop', paths: ['/x/Fed.pdf'] }); other.dragDrop({ type: 'drop', paths: ['/x/Fed.pdf'] }); 0")
     page.wait_for_timeout(500)
-    check("a drop fed with no position goes to one component, not to each", (("Fed.pdf" in names(page)) + (len(page.evaluate("otherGot")) == 1)) == 1,
-          (names(page), page.evaluate("otherGot")))
+    check("a drop fed with no position goes to one component, not to each", lambda: (("Fed.pdf" in names(page)) + (len(page.evaluate("otherGot")) == 1)) == 1,
+          lambda: (names(page), page.evaluate("otherGot")))
     page.close()
 
     # ---------- a Mac's keys, on any machine (the page is told it runs on a Mac) ----------
@@ -889,12 +881,12 @@ with sync_playwright() as p:
     page.click(".tf-file:nth-child(1) .tf-ib[data-act='saveAs']")
     page.wait_for_timeout(150)
     check("Save a copy…: the save dialog with the name filled in",
-          page.evaluate("window.savedTo") == "/Users/m/Downloads/Brand assets.zip" and message(page) == "Saved a copy of Brand assets.zip."
+          lambda: page.evaluate("window.savedTo") == "/Users/m/Downloads/Brand assets.zip" and message(page) == "Saved a copy of Brand assets.zip."
           and page.evaluate("__calls.at(-1)") == ["plugin:tauris-ui|save_dialog", {"title": "Save a copy of Brand assets.zip", "name": "Brand assets.zip"}])
     page.evaluate("window.__cancelSave = true; document.getElementById('msg').textContent = ''")
     page.click(".tf-file:nth-child(1) .tf-ib[data-act='saveAs']")
     page.wait_for_timeout(150)
-    check("Save a copy…: cancelling says nothing", message(page) == "")
+    check("Save a copy…: cancelling says nothing", lambda: message(page) == "")
     page.click(".tf-file:nth-child(5) .tf-c-name", button="right")
     page.wait_for_selector(".tmn-menu")
     items = page.evaluate("[...document.querySelectorAll('.tmn-menu .tmn-item, .tmn-menu .tmn-sep')].map(i => i.classList.contains('tmn-sep') ? '-' : i.querySelector('.tmn-label').textContent)")
@@ -904,10 +896,9 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.focus(".tf-list")
     page.keyboard.press("Shift+F10")
-    settle(page, "document.querySelector('.tmn-menu') && (document.activeElement.textContent || '').startsWith('Open')")
     check("Shift+F10 opens the row menu from the keyboard, its first item chosen",
-          page.is_visible(".tmn-menu") and page.evaluate("document.activeElement.textContent").startswith("Open"),
-          (page.locator(".tmn-menu").count(), page.evaluate("document.activeElement.className"), page.evaluate("(document.activeElement.textContent || '').slice(0, 40)")))
+          lambda: page.is_visible(".tmn-menu") and page.evaluate("document.activeElement.textContent").startswith("Open"),
+          lambda: (page.locator(".tmn-menu").count(), page.evaluate("document.activeElement.className"), page.evaluate("(document.activeElement.textContent || '').slice(0, 40)")))
     page.keyboard.press("Escape")
     check("Escape closes it, and the focus is back on the list",
           page.locator(".tmn-menu").count() == 0 and page.evaluate("document.activeElement.classList.contains('tf-list')"))
@@ -923,9 +914,9 @@ with sync_playwright() as p:
     page.keyboard.type("Budget 2028")
     page.keyboard.press("Enter")
     page.wait_for_timeout(200)
-    check("Enter renames", "Budget 2028.xlsx" in names(page) and page.locator(".tf-rename").count() == 0
+    check("Enter renames", lambda: "Budget 2028.xlsx" in names(page) and page.locator(".tf-rename").count() == 0
           and selected(page) == "Budget 2028.xlsx" and message(page) == "Renamed Budget 2027.xlsx to Budget 2028.xlsx.")
-    check("and gives the focus back to the list", page.evaluate("document.activeElement.classList.contains('tf-list')"))
+    check("and gives the focus back to the list", lambda: page.evaluate("document.activeElement.classList.contains('tf-list')"))
     page.keyboard.press("F2")
     page.keyboard.press("Escape")
     check("Escape leaves the name as it was", "Budget 2028.xlsx" in names(page) and page.locator(".tf-rename").count() == 0)
@@ -937,7 +928,7 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(200)
     check("a name the app refuses: its sentence, and the field stays",
-          message(page) == "There is already a file called Brand assets.zip." and page.locator(".tf-rename").count() == 1
+          lambda: message(page) == "There is already a file called Brand assets.zip." and page.locator(".tf-rename").count() == 1
           and page.evaluate("document.activeElement.classList.contains('tf-rename')"))
     page.fill(".tf-rename", "Forecast.xlsx")
     page.evaluate("demo.store.push({ id: 99, name: 'Arrived meanwhile.txt', size: 10 }); demo.files.setFiles(demo.store.slice())")
@@ -945,7 +936,7 @@ with sync_playwright() as p:
     page.click(".tf-title")
     page.wait_for_timeout(200)
     check("clicking away renames, then the waiting list shows",
-          "Forecast.xlsx" in names(page) and "Arrived meanwhile.txt" in names(page) and page.locator(".tf-rename").count() == 0)
+          lambda: "Forecast.xlsx" in names(page) and "Arrived meanwhile.txt" in names(page) and page.locator(".tf-rename").count() == 0)
     page.close()
 
     # ---------- adding ----------
@@ -968,11 +959,11 @@ with sync_playwright() as p:
     check("the flash is a short tint; on a selected row a darker one, so its text stays readable",
           css(page, ".tf-file.tf-fresh .tf-cell", "animation-name") == "tf-flash-selected")
     page.wait_for_timeout(1500)
-    check("the flash ends", page.locator(".tf-fresh").count() == 0)
+    check("the flash ends", lambda: page.locator(".tf-fresh").count() == 0)
     page.evaluate("window.__pick = []")
     page.click(".tf-add")
     page.wait_for_timeout(200)
-    check("cancelling the picker adds nothing", page.locator(".tf-file").count() == 10 and page.is_hidden(".tf-busy"))
+    check("cancelling the picker adds nothing", lambda: page.locator(".tf-file").count() == 10 and page.is_hidden(".tf-busy"))
     page.close()
 
     # ---------- dropping ----------
@@ -999,20 +990,20 @@ with sync_playwright() as p:
     page.evaluate("__emit('tauri://drag-drop', { paths: ['/Users/m/Contracts'], position: { x: 300, y: 300 } })")
     idle(page)
     page.wait_for_timeout(100)
-    check("a folder: refused with the app's sentence", message(page) == "Contracts is a folder. Add files, not folders."
+    check("a folder: refused with the app's sentence", lambda: message(page) == "Contracts is a folder. Add files, not folders."
           and page.evaluate("document.getElementById('status').dataset.kind") == "error")
     page.evaluate("""__emit('tauri://drag-drop', { paths: ['/Users/m/One.pdf'], position: { x: 300, y: 300 } });
       __emit('tauri://drag-drop', { paths: ['/Users/m/Two.pdf'], position: { x: 300, y: 300 } })""")
     page.wait_for_timeout(450)
     one_only = row(page, "One.pdf").count() == 1 and row(page, "Two.pdf").count() == 0
     page.wait_for_timeout(500)
-    check("two drops: one after the other", one_only and row(page, "Two.pdf").count() == 1)
+    check("two drops: one after the other", lambda: one_only and row(page, "Two.pdf").count() == 1)
     page.evaluate("demo.files.update({ dropArea: 'element' })")
     page.evaluate("__emit('tauri://drag-drop', { paths: ['/Users/m/Outside.pdf'], position: { x: 40, y: 20 } })")
     page.evaluate("__emit('tauri://drag-drop', { paths: ['/Users/m/Inside.pdf'], position: { x: 800, y: 600 } })")
     page.wait_for_timeout(500)
     check("dropArea element: only a drop over the component adds (positions in physical pixels)",
-          row(page, "Outside.pdf").count() == 0 and row(page, "Inside.pdf").count() == 1)
+          lambda: row(page, "Outside.pdf").count() == 0 and row(page, "Inside.pdf").count() == 1)
     page.evaluate("document.getElementById('work').style.display = 'none'")
     page.evaluate("demo.files.update({ dropArea: 'window' }); __emit('tauri://drag-enter', { paths: ['/a.pdf'] })")
     check("a hidden component (another tab's) ignores drops", page.evaluate("document.querySelector('.tf-drop').hidden"))
@@ -1055,10 +1046,10 @@ with sync_playwright() as p:
     page.evaluate("small.remove('a')")
     page.wait_for_timeout(100)
     check("without onMessage: the component's own line shows the app's refusal, in red",
-          page.evaluate("document.querySelectorAll('.tf-status')[1].textContent") == "Not allowed."
+          lambda: page.evaluate("document.querySelectorAll('.tf-status')[1].textContent") == "Not allowed."
           and page.evaluate("getComputedStyle(document.querySelectorAll('.tf-status')[1]).color") == DANGER
           and page.evaluate("document.querySelectorAll('.tf-veil')[1].hidden"))
-    check("confirmDelete false: no question", page.evaluate("document.querySelectorAll('.tf-veil')[1].hidden"))
+    check("confirmDelete false: no question", lambda: page.evaluate("document.querySelectorAll('.tf-veil')[1].hidden"))
     page.evaluate("small.update({ confirmDelete: f => `Remove ${f.name} from the inbox?` }); void small.remove('a')")
     check("confirmDelete as a function: its own question", page.evaluate("document.querySelectorAll('.tf-ask-text')[1].textContent") == "Remove a.pdf from the inbox?")
     page.keyboard.press("Escape")
@@ -1084,7 +1075,7 @@ with sync_playwright() as p:
         check("a second mount on one element is refused", True)
     page.evaluate("demo.files.destroy(); __emit('tauri://drag-drop', { paths: ['/x/after.pdf'] })")
     page.wait_for_timeout(100)
-    check("after destroy() drops are not heard", page.locator("#files .tf-file").count() == 0 and "after.pdf" not in json.dumps(page.evaluate("demo.store")))
+    check("after destroy() drops are not heard", lambda: page.locator("#files .tf-file").count() == 0 and "after.pdf" not in json.dumps(page.evaluate("demo.store")))
     page.close()
 
     # ---------- edge cases: focus, races, destroy ----------
@@ -1095,7 +1086,7 @@ with sync_playwright() as p:
     page.keyboard.press("Space")
     page.wait_for_timeout(100)
     check("Space on Delete in the row menu asks first (the same Space does not answer the question)",
-          page.is_visible(".tf-ask") and len(names(page)) == 8)
+          lambda: page.is_visible(".tf-ask") and len(names(page)) == 8)
     page.click(".tf-q")
     check("going to another field answers the question with no, and the focus stays there",
           page.is_hidden(".tf-veil") and len(names(page)) == 8 and page.evaluate("document.activeElement.classList.contains('tf-q')"))
@@ -1108,13 +1099,13 @@ with sync_playwright() as p:
     page.click(".tf-q")
     page.wait_for_timeout(200)
     check("a rename saved by clicking another field leaves the focus in that field",
-          "Budget v2.xlsx" in names(page) and page.evaluate("document.activeElement.classList.contains('tf-q')"))
+          lambda: "Budget v2.xlsx" in names(page) and page.evaluate("document.activeElement.classList.contains('tf-q')"))
     page.click(".tf-file:nth-child(2) .tf-c-name")
     page.keyboard.press("F2")
     page.keyboard.type("Half")
     page.evaluate("document.hasFocus = () => false; document.querySelector('.tf-rename').blur(); delete document.hasFocus")
     page.wait_for_timeout(100)
-    check("switching to another app does not send a half-typed name", "Half.xlsx" not in names(page) and page.locator(".tf-rename").count() == 1)
+    check("switching to another app does not send a half-typed name", lambda: "Half.xlsx" not in names(page) and page.locator(".tf-rename").count() == 1)
     page.focus(".tf-rename")  # coming back to the app
     page.keyboard.press("Escape")
     calls = page.evaluate("""async () => { let n = 0; const id = demo.store[0].id;
@@ -1130,10 +1121,10 @@ with sync_playwright() as p:
     page.wait_for_timeout(450)
     page.evaluate("demo.files.update({ dropArea: 'window' }); __emit('tauri://drag-drop', { paths: ['/x/On.pdf'] })")
     page.wait_for_timeout(450)
-    check("dropArea can change after mounting", row(page, "Off.pdf").count() == 0 and row(page, "On.pdf").count() == 1)
+    check("dropArea can change after mounting", lambda: row(page, "Off.pdf").count() == 0 and row(page, "On.pdf").count() == 1)
     page.evaluate("document.getElementById('msg').textContent = 'before'; demo.files.addPaths(['/x/Late.pdf']); demo.files.destroy()")
     page.wait_for_timeout(500)
-    check("a file still being added when the component goes says nothing afterwards", message(page) == "before")
+    check("a file still being added when the component goes says nothing afterwards", lambda: message(page) == "before")
     page.close()
 
     page = fresh(browser)
@@ -1216,14 +1207,14 @@ with sync_playwright() as p:
     page.evaluate("v.update({ title: 'B', files: B }); 0")
     page.keyboard.press("Enter")
     page.wait_for_timeout(100)
-    check("a rename open when another place is shown ends, and renames nothing", page.evaluate("log") == [] and page.locator(".tf-rename").count() == 0,
-          page.evaluate("log"))
+    check("a rename open when another place is shown ends, and renames nothing", lambda: page.evaluate("log") == [] and page.locator(".tf-rename").count() == 0,
+          lambda: page.evaluate("log"))
     page.evaluate("v.update({ title: 'A', files: A, onDelete: async f => { log.push(f.where + '/' + f.name); } }); v.remove('Plan.docx'); 0")
     page.wait_for_selector(".tf-veil:not([hidden])")
     page.evaluate("v.update({ title: 'B', files: B }); 0")
     check("the delete question closes when another place is shown", page.is_hidden(".tf-veil"))
     page.wait_for_timeout(50)
-    check("and deletes nothing", page.evaluate("log") == [], page.evaluate("log"))
+    check("and deletes nothing", lambda: page.evaluate("log") == [], lambda: page.evaluate("log"))
     page.close()
 
     page = fresh(browser)
@@ -1233,11 +1224,11 @@ with sync_playwright() as p:
       setTimeout(() => v.update({ title: 'B', files: B, onAdd: async p => { log.push('B:' + p); return []; } }), 40); 0""")
     page.wait_for_timeout(700)
     check("drops wait their turn, but go where they were dropped, and do not join the next place's list",
-          page.evaluate("log") == ["A:one.pdf", "A:two.pdf"] and page.evaluate("v.files().map(f => f.where)") == ["B", "B", "B"],
-          (page.evaluate("log"), page.evaluate("v.files().map(f => f.name)")))
+          lambda: page.evaluate("log") == ["A:one.pdf", "A:two.pdf"] and page.evaluate("v.files().map(f => f.where)") == ["B", "B", "B"],
+          lambda: (page.evaluate("log"), page.evaluate("v.files().map(f => f.name)")))
     page.evaluate("v.update({ onAdd: async p => { log.push('C:' + p); await wait(100); return []; } }); log.length = 0; v.addPaths(['/x/a.pdf']); v.addPaths(['/x/b.pdf']); v.destroy(); 0")
     page.wait_for_timeout(400)
-    check("a drop still waiting when the component is removed is not sent", len(page.evaluate("log")) <= 1, page.evaluate("log"))
+    check("a drop still waiting when the component is removed is not sent", lambda: len(page.evaluate("log")) <= 1, lambda: page.evaluate("log"))
     page.close()
 
     page = fresh(browser)
@@ -1261,7 +1252,7 @@ with sync_playwright() as p:
     page.focus("#notes")
     page.wait_for_timeout(300)
     check("a delete that ends after the person went to a field of the app's leaves the focus there",
-          page.evaluate("document.activeElement.id") == "notes", page.evaluate("document.activeElement.className"))
+          lambda: page.evaluate("document.activeElement.id") == "notes", lambda: page.evaluate("document.activeElement.className"))
     page.close()
 
     page = fresh(browser)
@@ -1301,8 +1292,8 @@ with sync_playwright() as p:
     page.evaluate("v.search('zzz'); 0")
     page.wait_for_timeout(600)  # it speaks once the typing stops
     check("the region a screen reader hears is there before it speaks, then says the search found nothing",
-          live == [["status", False, ""]] and page.evaluate("document.querySelector('.tf-live').textContent") == "No files match “zzz”.",
-          (live, page.evaluate("document.querySelector('.tf-live').textContent")))
+          lambda: live == [["status", False, ""]] and page.evaluate("document.querySelector('.tf-live').textContent") == "No files match “zzz”.",
+          lambda: (live, page.evaluate("document.querySelector('.tf-live').textContent")))
     page.evaluate("v.search(''); v.select(['Plan.docx', 'Budget.xlsx', 'Notes.md']); v.focus(); 0")
     page.keyboard.press("Shift+F10")
     check("the row menu for several files is named for all of them",
@@ -1332,8 +1323,8 @@ with sync_playwright() as p:
     page.keyboard.press("Delete")
     page.wait_for_timeout(400)
     check("deleting every file (the app sending its empty list) says so, and the focus stays in the component",
-          "Deleted 3 files." in page.evaluate("document.querySelector('.tf-status').textContent")
-          and page.evaluate("document.activeElement.closest('.tf') !== null"), (page.evaluate("document.querySelector('.tf-status').textContent"),
+          lambda: "Deleted 3 files." in page.evaluate("document.querySelector('.tf-status').textContent")
+          and page.evaluate("document.activeElement.closest('.tf') !== null"), lambda: (page.evaluate("document.querySelector('.tf-status').textContent"),
                                                                               page.evaluate("document.activeElement.className")))
     page.close()
 
@@ -1345,8 +1336,8 @@ with sync_playwright() as p:
     page.wait_for_timeout(20)
     page.evaluate("v.update({ title: 'B', files: B }); 0")
     page.wait_for_timeout(300)
-    check("opening several, then another place shown: none of its files is opened", all(x.startswith("A/") for x in page.evaluate("log")), page.evaluate("log"))
-    check("and the new place has nothing selected (a file of the same id there was not chosen)", page.evaluate("v.selection().length") == 0)
+    check("opening several, then another place shown: none of its files is opened", lambda: all(x.startswith("A/") for x in page.evaluate("log")), lambda: page.evaluate("log"))
+    check("and the new place has nothing selected (a file of the same id there was not chosen)", lambda: page.evaluate("v.selection().length") == 0)
     page.close()
 
     page = fresh(browser)
@@ -1383,15 +1374,15 @@ with sync_playwright() as p:
     page.focus(".tf .tf-empty .tf-btn")
     page.evaluate("v.addPaths(['/x/one.pdf']); 0")
     page.wait_for_timeout(200)
-    check("files added while the focus is on the empty place's button: the focus goes to the list", page.evaluate("document.activeElement.classList.contains('tf-list')"),
-          page.evaluate("document.activeElement.className"))
+    check("files added while the focus is on the empty place's button: the focus goes to the list", lambda: page.evaluate("document.activeElement.classList.contains('tf-list')"),
+          lambda: page.evaluate("document.activeElement.className"))
     page.evaluate("v.setFiles([{ id: 's', name: 'Scan', type: 'application/pdf' }, { id: 'p', name: 'Plan.docx' }, { id: 'q', name: 'Plan 2.docx' }, { id: 'l', name: 'Lease.pdf' }]); 0")
     names = page.evaluate("[...document.querySelectorAll('.tf .tf-file')].map(r => r.getAttribute('aria-label'))")
     check("a row whose name does not say its kind is named with it", any(n.startswith("Scan, PDF") for n in names) and not any(n.startswith("Plan.docx, ") and "DOC" in n for n in names), names)
     page.evaluate("v.search('plan'); 0")
     page.wait_for_timeout(700)
-    check("a search: how many files show is spoken once the typing stops", "2 of 4 files" in page.evaluate("document.querySelector('.tf .tf-live').textContent"),
-          page.evaluate("document.querySelector('.tf .tf-live').textContent"))
+    check("a search: how many files show is spoken once the typing stops", lambda: "2 of 4 files" in page.evaluate("document.querySelector('.tf .tf-live').textContent"),
+          lambda: page.evaluate("document.querySelector('.tf .tf-live').textContent"))
     page.evaluate("v.search(''); v.update({ typeAheadMs: 1000 }); v.focus(); 0")
     typed = page.evaluate("""() => { const g = document.querySelector('.tf .tf-list'); const k = key => g.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
       k('x'); const said = document.querySelector('.tf .tf-status').textContent;
@@ -1417,7 +1408,7 @@ with sync_playwright() as p:
       const d = document.createElement('div'); d.style.cssText = 'position:fixed;left:0;top:0;width:400px;height:200px;background:#fff;z-index:5'; document.body.append(d); 0""")
     page.evaluate("__emit('tauri://drag-drop', { paths: ['/x/a.pdf'], position: { x: 100 * devicePixelRatio, y: 100 * devicePixelRatio } }); 0")
     page.wait_for_timeout(100)
-    check("dropArea element: a drop over something drawn on top of it is not its", page.evaluate("log") == [], page.evaluate("log"))
+    check("dropArea element: a drop over something drawn on top of it is not its", lambda: page.evaluate("log") == [], lambda: page.evaluate("log"))
     page.close()
 
     page = fresh(browser, "dark", reduced_motion="reduce")
@@ -1453,8 +1444,8 @@ with sync_playwright() as p:
     page.evaluate("v.update({ title: 'B', files: B.concat([{ id: 'Extra.pdf', name: 'Extra.pdf', where: 'B' }]) }); 0")
     page.wait_for_timeout(300)
     check("several files being deleted, another place shown between two frames: none of its files vanish",
-          sorted(page.evaluate("v.files().map(f => f.where + '/' + f.name)")) == ["B/Budget.xlsx", "B/Extra.pdf", "B/Notes.md", "B/Plan.docx"],
-          page.evaluate("v.files().map(f => f.where + '/' + f.name)"))
+          lambda: sorted(page.evaluate("v.files().map(f => f.where + '/' + f.name)")) == ["B/Budget.xlsx", "B/Extra.pdf", "B/Notes.md", "B/Plan.docx"],
+          lambda: page.evaluate("v.files().map(f => f.where + '/' + f.name)"))
     page.close()
 
     page = fresh(browser)
@@ -1467,8 +1458,8 @@ with sync_playwright() as p:
     page.evaluate("v.update({ title: 'B', files: B }); 0")
     page.wait_for_timeout(300)
     check("a rename waiting for the app when another place is shown: that place's file of the same id keeps its name",
-          "Notes.md" in page.evaluate("v.files().map(f => f.name)") and page.evaluate("v.files().every(f => f.where === 'B')"),
-          page.evaluate("v.files().map(f => f.where + '/' + f.name)"))
+          lambda: "Notes.md" in page.evaluate("v.files().map(f => f.name)") and page.evaluate("v.files().every(f => f.where === 'B')"),
+          lambda: page.evaluate("v.files().map(f => f.where + '/' + f.name)"))
     page.close()
 
     page = fresh(browser)
@@ -1476,8 +1467,8 @@ with sync_playwright() as p:
     page.evaluate("window.batches = []; v.update({ confirmDelete: false, onDelete: async (f, b) => { batches.push([f.name, b.index, b.files.length]); } }); v.selectAll(); v.focus(); 0")
     page.keyboard.press("Delete")
     page.wait_for_timeout(200)
-    check("onDelete hears which of the batch it is (to ask once, for all, at the first)", page.evaluate("batches.map(b => [b[1], b[2]])") == [[0, 3], [1, 3], [2, 3]],
-          page.evaluate("batches"))
+    check("onDelete hears which of the batch it is (to ask once, for all, at the first)", lambda: page.evaluate("batches.map(b => [b[1], b[2]])") == [[0, 3], [1, 3], [2, 3]],
+          lambda: page.evaluate("batches"))
     page.close()
 
     page = fresh(browser)
@@ -1512,7 +1503,7 @@ with sync_playwright() as p:
         shown_while = page.locator(".tf-file").count()
         cdp.send("Input.insertText", {"text": "こん"})
         page.wait_for_timeout(100)
-        check("the search waits for an input method's text (the list is not filtered by half a word)", shown_while == 8, shown_while)
+        check("the search waits for an input method's text (the list is not filtered by half a word)", lambda: shown_while == 8, lambda: shown_while)
         page.close()
 
     for accent, dark, var in (("#039250", False, "--tauris-accent"), ("#ffd400", False, "--tauris-accent"), ("#000080", True, "--tauris-accent"),
@@ -1563,7 +1554,7 @@ with sync_playwright() as p:
     page.keyboard.press("Delete")
     page.wait_for_timeout(100)
     check("update({ onDelete: undefined }) takes the handler away (as leaving it out of mount does)",
-          page.evaluate("log") == [] and len(page.evaluate("v.files()")) == 3 and page.evaluate("document.body.firstElementChild.querySelectorAll('.tf-ib[data-act=delete]').length") == 0, page.evaluate("log"))
+          lambda: page.evaluate("log") == [] and len(page.evaluate("v.files()")) == 3 and page.evaluate("document.body.firstElementChild.querySelectorAll('.tf-ib[data-act=delete]').length") == 0, lambda: page.evaluate("log"))
     page.close()
 
     page = fresh(browser)
@@ -1632,7 +1623,7 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.wait_for_timeout(50)
     check("the row menu open, the list emptied, then Escape: the focus stays in the component",
-          page.evaluate("document.activeElement.closest('.tf') !== null"), page.evaluate("document.activeElement.outerHTML.slice(0, 80)"))
+          lambda: page.evaluate("document.activeElement.closest('.tf') !== null"), lambda: page.evaluate("document.activeElement.outerHTML.slice(0, 80)"))
     page.close()
 
     page = fresh(browser)

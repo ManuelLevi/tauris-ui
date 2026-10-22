@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from engine import WEBKIT, launch
+from engine import WEBKIT, launch, settled
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -60,6 +60,7 @@ SIGNATURE = """() => {
 
 
 def check(name, ok, detail=""):
+    ok, detail = settled(ok, detail)
     print(("PASS " if ok else "FAIL ") + name + (f"  {detail}" if detail != "" and not ok else ""))
     if not ok:
         failures.append(name)
@@ -120,15 +121,15 @@ with sync_playwright() as p:
     check("a menu that is off is grey", page.get_attribute(title("Window"), "aria-disabled") == "true" and css(page, title("Window"), "color") == DISABLED)
     page.click(title("File"))
     page.wait_for_timeout(150)  # the menu eases in by 2px
-    check("a click opens the menu under its title", page.is_visible(".tmn-menu") and page.get_attribute(title("File"), "aria-expanded") == "true"
+    check("a click opens the menu under its title", lambda: page.is_visible(".tmn-menu") and page.get_attribute(title("File"), "aria-expanded") == "true"
           and abs(rect(page, ".tmn-menu")["y"] - (rect(page, title("File"))["y"] + rect(page, title("File"))["h"])) < 1 and abs(rect(page, ".tmn-menu")["x"] - rect(page, title("File"))["x"]) < 1)
     check("its items: labels, shortcuts, lines, items that are off (made when it opens)",
-          items(page) == ["Add files… ⌘O", "New folder… (off)", "-", "Open ↩ (off)", "Rename F2 (off)", "Delete ⌘⌫ (off)"], items(page))
+          lambda: items(page) == ["Add files… ⌘O", "New folder… (off)", "-", "Open ↩ (off)", "Rename F2 (off)", "Delete ⌘⌫ (off)"], lambda: items(page))
     check("the menu: at least 220px, items 24px, a shadow, the open title tinted",
-          rect(page, ".tmn-menu")["w"] >= 220 and rect(page, ".tmn-item")["h"] == 24 and css(page, ".tmn-menu", "box-shadow") != "none"
+          lambda: rect(page, ".tmn-menu")["w"] >= 220 and rect(page, ".tmn-item")["h"] == 24 and css(page, ".tmn-menu", "box-shadow") != "none"
           and css(page, title("File"), "background-color") == OPEN_BG)
     check("the menu names itself and its title points to it",
-          page.get_attribute(".tmn-menu", "role") == "menu" and page.get_attribute(".tmn-menu", "aria-label") == "File"
+          lambda: page.get_attribute(".tmn-menu", "role") == "menu" and page.get_attribute(".tmn-menu", "aria-label") == "File"
           and page.get_attribute(title("File"), "aria-controls") == page.get_attribute(".tmn-menu", "id"))
     page.hover(".tmn-item:has-text('Add files')")
     check("the item under the mouse: white on the accent",
@@ -330,7 +331,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(100)
     still = page.locator(".tmn-menu").count()
     page.wait_for_timeout(300)
-    check("moving on to another item closes the sub-menu a moment later (time to reach it)", still == 2 and page.locator(".tmn-menu").count() == 1)
+    check("moving on to another item closes the sub-menu a moment later (time to reach it)", lambda: still == 2 and page.locator(".tmn-menu").count() == 1)
     page.keyboard.press("Escape")
     page.evaluate("bar3.focus()")
     page.keyboard.press("Enter")
@@ -382,11 +383,11 @@ with sync_playwright() as p:
     page.mouse.move(item["x"] + 20, item["y"] + item["height"] / 2)
     page.mouse.move(item["x"] + 20, item["y"] + 400, steps=2)
     page.wait_for_timeout(300)
-    check("leaving the menu downwards drops a sub-menu that was about to open", page.locator(".tmn-menu").count() == 1)
+    check("leaving the menu downwards drops a sub-menu that was about to open", lambda: page.locator(".tmn-menu").count() == 1)
     page.mouse.move(item["x"] + 20, item["y"] + item["height"] / 2)
     page.mouse.move(item["x"] + item["width"] + 30, item["y"] + item["height"] / 2, steps=2)
     page.wait_for_timeout(300)
-    check("leaving it sideways, towards the sub-menu, still opens it", page.locator(".tmn-menu").count() == 2)
+    check("leaving it sideways, towards the sub-menu, still opens it", lambda: page.locator(".tmn-menu").count() == 2)
     page.keyboard.press("Escape")
     page.keyboard.press("Escape")
     page.click(title("File"))
@@ -407,19 +408,19 @@ with sync_playwright() as p:
     page.hover(".tmn-item:has-text('Open Recent')")
     page.keyboard.press("ArrowDown")
     page.wait_for_timeout(300)
-    check("a key pressed while a sub-menu is about to open stops it", page.locator(".tmn-menu").count() == 1 and focused(page) == "Print")
+    check("a key pressed while a sub-menu is about to open stops it", lambda: page.locator(".tmn-menu").count() == 1 and focused(page) == "Print")
     page.hover(".tmn-item:has-text('Open Recent')")
     page.wait_for_timeout(300)
     page.hover(".tmn-item:has-text('New')")
     box = page.locator(".tmn-menu").first.bounding_box()
     page.mouse.move(box["x"] - 30, box["y"] + 10, steps=2)
     page.wait_for_timeout(400)
-    check("a sub-menu about to close still closes when the mouse leaves the menu", page.locator(".tmn-menu").count() == 1)
+    check("a sub-menu about to close still closes when the mouse leaves the menu", lambda: page.locator(".tmn-menu").count() == 1)
     item = page.locator(".tmn-item:has-text('Open Recent')").bounding_box()
     page.mouse.move(item["x"] + 20, item["y"] + item["height"] / 2)
     page.mouse.move(box["x"] - 30, item["y"] + item["height"] / 2, steps=2)
     page.wait_for_timeout(300)
-    check("leaving beside the item but away from the sub-menu's side does not open it", page.locator(".tmn-menu").count() == 1)
+    check("leaving beside the item but away from the sub-menu's side does not open it", lambda: page.locator(".tmn-menu").count() == 1)
     page.close()
 
     # ---------- sub-menus: a third review ----------
@@ -476,7 +477,7 @@ with sync_playwright() as p:
           page.get_attribute(title("File"), "aria-controls") == page.evaluate("document.querySelector('.tmn-menu').id"))
     page.evaluate("document.body.style.minHeight = '3000px'; window.scrollBy(0, 40)")
     page.wait_for_timeout(50)
-    check("the page scrolling under an open menu closes it", page.locator(".tmn-menu").count() == 0)
+    check("the page scrolling under an open menu closes it", lambda: page.locator(".tmn-menu").count() == 0)
     page.evaluate("window.scrollTo(0, 0); document.body.style.minHeight = ''")
     page.wait_for_timeout(50)
     page.evaluate("""() => { const box = document.createElement('div'); box.id = 'log'; box.style.cssText = 'position:fixed;left:0;bottom:0;width:80px;height:40px;overflow:auto';
@@ -484,7 +485,7 @@ with sync_playwright() as p:
     page.click(title("File"))
     page.evaluate("document.getElementById('log').scrollTop = 120")
     page.wait_for_timeout(50)
-    check("a list scrolling elsewhere on the page leaves the menu open", page.locator(".tmn-menu").count() == 1)
+    check("a list scrolling elsewhere on the page leaves the menu open", lambda: page.locator(".tmn-menu").count() == 1)
     page.keyboard.press("Escape")
     page.evaluate("""() => { const nav = document.createElement('nav'); nav.id = 'other'; document.body.prepend(nav);
       window.other = TaurisMenu.bar(nav, { menus: [{ label: 'Go', items: [{ label: 'Home' }] }] }); other.destroy(); other.open(0); return 0; }""")
@@ -601,7 +602,7 @@ with sync_playwright() as p:
     page.click("#in-dialog")
     page.evaluate("document.querySelector('dialog').close()")
     page.wait_for_timeout(50)  # a dialog's close event comes a moment later
-    check("a menu inside a dialog closes with it", page.locator(".tmn-menu").count() == 0 and page.get_attribute("#in-dialog", "aria-expanded") == "false")
+    check("a menu inside a dialog closes with it", lambda: page.locator(".tmn-menu").count() == 0 and page.get_attribute("#in-dialog", "aria-expanded") == "false")
     page.evaluate("""() => { window.long = Array.from({ length: 60 }, (_, n) => ({ label: 'Item ' + n }));
       const b = document.createElement('div'); b.id = 'long'; b.textContent = 'Long'; document.body.prepend(b);
       window.lb = TaurisMenu.button(b, { items: long }); return 0; }""")
@@ -702,7 +703,7 @@ with sync_playwright() as p:
     check("a starter template's button rules do not restyle a <button class=\"tmn-tool\">", not changed, changed)
     page.hover("#tool")
     page.wait_for_timeout(150)
-    check("nor its hover", css(page, "#tool", "border-top-color") == "rgb(196, 198, 204)")
+    check("nor its hover", lambda: css(page, "#tool", "border-top-color") == "rgb(196, 198, 204)")
     page.click("#tool")
     check("a real <button> opens its menu", page.is_visible(".tmn-menu") and page.get_attribute("#tool", "aria-expanded") == "true")
     page.click(".tmn-item")
@@ -732,9 +733,9 @@ with sync_playwright() as p:
     page.click("#tool")
     page.wait_for_timeout(150)
     check("strict policy: the menus open where they should, with their chips, and run their items",
-          page.evaluate("chosen") == ["new"] and css(page, ".tmn-chip", "background-color") == "rgb(27, 175, 122)"
+          lambda: page.evaluate("chosen") == ["new"] and css(page, ".tmn-chip", "background-color") == "rgb(27, 175, 122)"
           and abs(rect(page, ".tmn-menu")["y"] - (rect(page, "#tool")["y"] + rect(page, "#tool")["h"] + 3)) <= 1)  # the pressed button sits 0.5px lower
-    check("strict policy: no console errors and nothing refused", not errors and page.evaluate("__csp") == [], (errors, page.evaluate("__csp")))
+    check("strict policy: no console errors and nothing refused", lambda: not errors and page.evaluate("__csp") == [], lambda: (errors, page.evaluate("__csp")))
     page.close()
 
     # ---------- an eighth review ----------
@@ -769,12 +770,12 @@ with sync_playwright() as p:
     page.evaluate("document.getElementById('field').focus(); 0")
     page.wait_for_timeout(50)
     check("the app moving the focus to a field closes the open menu, and the focus stays there",
-          page.locator(".tmn-menu").count() == 0 and page.evaluate("document.activeElement.id") == "field")
+          lambda: page.locator(".tmn-menu").count() == 0 and page.evaluate("document.activeElement.id") == "field")
     page.evaluate("own.open(0); 0")
     page.click("#plain")
     page.wait_for_timeout(50)
     check("a press on plain text closes the menu and puts the focus back where it was",
-          page.locator(".tmn-menu").count() == 0 and page.evaluate("document.activeElement.id") == "field", page.evaluate("document.activeElement.tagName"))
+          lambda: page.locator(".tmn-menu").count() == 0 and page.evaluate("document.activeElement.id") == "field", lambda: page.evaluate("document.activeElement.tagName"))
     box = rect(page, TITLE("File"))
     page.mouse.move(box["x"] + 8, box["y"] + 8)
     page.mouse.down()
@@ -841,7 +842,7 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.mouse.click(600, 500)
     page.wait_for_timeout(100)
-    check("new items while the pointer heads for a sub-menu leave no menu behind once closed", page.locator(".tmn-menu").count() == 0, page.locator(".tmn-menu").count())
+    check("new items while the pointer heads for a sub-menu leave no menu behind once closed", lambda: page.locator(".tmn-menu").count() == 0, lambda: page.locator(".tmn-menu").count())
     page.close()
 
     page = fresh(browser)
@@ -886,10 +887,10 @@ with sync_playwright() as p:
     page.evaluate("""(() => { const pane = document.createElement('div'); pane.id = 'pane'; pane.style.cssText = 'position:fixed;right:10px;bottom:10px;width:200px;height:100px;overflow:auto;z-index:9999';
       pane.innerHTML = '<div style="height:600px">log</div>'; document.body.append(pane); pane.scrollTop = 20; return 0; })()""")
     page.wait_for_timeout(100)
-    check("a menu opened at a point stays open when something elsewhere scrolls (a log pane)", page.locator(".tmn-menu").count() == 1)
+    check("a menu opened at a point stays open when something elsewhere scrolls (a log pane)", lambda: page.locator(".tmn-menu").count() == 1)
     page.evaluate("document.getElementById('scroller').scrollTop = 200; 0")
     page.wait_for_timeout(100)
-    check("a menu opened at a point closes when what is under it scrolls", page.locator(".tmn-menu").count() == 0)
+    check("a menu opened at a point closes when what is under it scrolls", lambda: page.locator(".tmn-menu").count() == 0)
     page.close()
 
     page = fresh(browser)
@@ -978,7 +979,7 @@ with sync_playwright() as p:
     page.keyboard.press("ArrowRight")
     page.evaluate("document.querySelector('.tmn-menu').scrollTop = 300; 0")
     page.wait_for_timeout(100)
-    check("a menu scrolled leaves no sub-menu hanging beside a row that moved", page.locator(".tmn-menu").count() == 1, page.locator(".tmn-menu").count())
+    check("a menu scrolled leaves no sub-menu hanging beside a row that moved", lambda: page.locator(".tmn-menu").count() == 1, lambda: page.locator(".tmn-menu").count())
     page.close()
 
     # ---------- an eleventh review ----------
@@ -994,14 +995,14 @@ with sync_playwright() as p:
     page.evaluate("manyMenu.setItems(itemsMany); 0")
     page.wait_for_timeout(50)
     check("new items while a scrolled menu has its sub-menu open: both stay, the focus in the sub-menu",
-          page.locator(".tmn-menu").count() == 2 and focused(page) == "Alpha", (page.locator(".tmn-menu").count(), focused(page)))
+          lambda: page.locator(".tmn-menu").count() == 2 and focused(page) == "Alpha", lambda: (page.locator(".tmn-menu").count(), focused(page)))
     page.keyboard.press("Escape")
     page.keyboard.press("ArrowRight")
     # A scroll event that moved nothing (the browser's, for the arrow key just before the sub-menu opened).
     page.evaluate("document.querySelector('.tmn-menu').dispatchEvent(new Event('scroll')); 0")
     page.wait_for_timeout(50)
-    check("a late scroll event that moved no row leaves the sub-menu open", page.locator(".tmn-menu").count() == 2 and focused(page) == "Alpha",
-          (page.locator(".tmn-menu").count(), focused(page)))
+    check("a late scroll event that moved no row leaves the sub-menu open", lambda: page.locator(".tmn-menu").count() == 2 and focused(page) == "Alpha",
+          lambda: (page.locator(".tmn-menu").count(), focused(page)))
     page.keyboard.press("Escape")
     page.keyboard.press("Escape")
     page.close()
@@ -1023,11 +1024,11 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(50)
     check("isMenuKey: the menu key and ⇧F10; openFor opens an element's menu at it, from the keys",
-          menu_key == [True, True, False] and at[0] <= 4 and at[1] and first == "Rename", (menu_key, at, first))
+          lambda: menu_key == [True, True, False] and at[0] <= 4 and at[1] and first == "Rename", lambda: (menu_key, at, first))
     check("a disabled item says why after its label and as its tooltip; a long label ends at 420px, whole in its tooltip",
-          off == ["Hide Done(no done tasks)", "No done tasks"] and long == [420, True], (off, long))
+          lambda: off == ["Hide Done(no done tasks)", "No done tasks"] and long == [420, True], lambda: (off, long))
     check("chosen from the keys, the item runs and the focus goes back to the list",
-          page.evaluate("picked") == ["rename"] and page.evaluate("document.activeElement.id") == "rows", page.evaluate("document.activeElement.id"))
+          lambda: page.evaluate("picked") == ["rename"] and page.evaluate("document.activeElement.id") == "rows", lambda: page.evaluate("document.activeElement.id"))
     page.close()
 
     page = fresh(browser)

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from engine import launch
+from engine import launch, settled
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -49,6 +49,7 @@ RUST = """
 
 
 def check(name, ok, detail=""):
+    ok, detail = settled(ok, detail)
     print(("PASS " if ok else "FAIL ") + name + (f"  {detail}" if detail != "" and not ok else ""))
     if not ok:
         failures.append(name)
@@ -118,12 +119,12 @@ with sync_playwright() as p:
     page.click(".tmn-item:has-text('Open in new tab')")
     page.wait_for_timeout(100)
     check("Open in new tab: a tab named after the file, showing it",
-          page.locator(".tt-tab").count() == 2 and active_title(page) == "Hello.md" and page.is_visible("#doc")
-          and not page.is_visible("#files") and "The first note" in page.text_content("#doc-text"), active_title(page))
+          lambda: page.locator(".tt-tab").count() == 2 and active_title(page) == "Hello.md" and page.is_visible("#doc")
+          and not page.is_visible("#files") and "The first note" in page.text_content("#doc-text"), lambda: active_title(page))
     page.click(".tv-row:has-text('Sup.txt')", button="right")
     page.click(".tmn-item:has-text('Open')", position={"x": 20, "y": 8})
     page.wait_for_timeout(100)
-    check("Open: the file replaces what this tab shows", page.locator(".tt-tab").count() == 2 and active_title(page) == "Sup.txt", active_title(page))
+    check("Open: the file replaces what this tab shows", lambda: page.locator(".tt-tab").count() == 2 and active_title(page) == "Sup.txt", lambda: active_title(page))
     page.click(".tv-row:has-text('Sup.txt')", button="right")
     page.click(".tmn-item:has-text('Edit')")
     page.wait_for_selector(".tdl")
@@ -134,8 +135,8 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(50)
     check("Edit…: a form (the name selected), the change reviewed, then it does nothing but say so",
-          form == ["Edit File", "Sup.txt"] and review == ["Name:Sup.txt → Sup 2.txt"] and page.text_content("#status") == "Edit does nothing in this example."
-          and active_title(page) == "Sup.txt", (form, review, page.text_content("#status")))
+          lambda: form == ["Edit File", "Sup.txt"] and review == ["Name:Sup.txt → Sup 2.txt"] and page.text_content("#status") == "Edit does nothing in this example."
+          and active_title(page) == "Sup.txt", lambda: (form, review, page.text_content("#status")))
     page.click(".tv-row:has-text('Sup.txt')", button="right")
     page.click(".tmn-item:has-text('Delete')")
     page.wait_for_selector(".tdl")
@@ -143,7 +144,7 @@ with sync_playwright() as p:
     page.click(".tdl-danger")
     page.wait_for_timeout(50)
     check("Delete…: a question (on Cancel at first), then it does nothing but say so",
-          asked == ["Delete “Sup.txt”?", "Cancel"] and page.text_content("#status") == "Delete does nothing in this example." and "Sup.txt" in tree_names(page), asked)
+          lambda: asked == ["Delete “Sup.txt”?", "Cancel"] and page.text_content("#status") == "Delete does nothing in this example." and "Sup.txt" in tree_names(page), lambda: asked)
     page.click(".tv-row:has-text('Team B')", button="right")
     check("a team has no menu", page.locator(".tmn-menu").count() == 0)
 
@@ -158,18 +159,18 @@ with sync_playwright() as p:
     page.dblclick(".tv-row:has-text('Vacation Mexico') .tv-label")
     page.wait_for_timeout(100)
     check("a double click shows its files in this tab",
-          active_title(page) == "Vacation Mexico" and texts(page, ".tf-file .tf-name") == ["places to visit.md"] and page.is_visible("#files"),
-          (active_title(page), texts(page, ".tf-file .tf-name")))
+          lambda: active_title(page) == "Vacation Mexico" and texts(page, ".tf-file .tf-name") == ["places to visit.md"] and page.is_visible("#files"),
+          lambda: (active_title(page), texts(page, ".tf-file .tf-name")))
     page.click("#toolbar .tmn-tool:has-text('Team B')")
     check("a team's toolbar button lists its projects", menu(page) == ["Megalomania"], menu(page))
     page.click(".tmn-item:has-text('Megalomania')")
     page.wait_for_timeout(100)
     check("choosing one shows it, and its team's button is the pressed one",
-          active_title(page) == "Megalomania" and page.get_attribute("#toolbar .tmn-tool:has-text('Team B')", "aria-pressed") == "true"
+          lambda: active_title(page) == "Megalomania" and page.get_attribute("#toolbar .tmn-tool:has-text('Team B')", "aria-pressed") == "true"
           and page.get_attribute("#toolbar .tmn-tool:has-text('Team A')", "aria-pressed") == "false")
     page.click("#toolbar .tmn-tool:has-text('Home')")
     page.wait_for_timeout(100)
-    check("Home shows the first project", active_title(page) == "Project A")
+    check("Home shows the first project", lambda: active_title(page) == "Project A")
 
     # ---------- the table's own menu and actions ----------
     page.click(".tf-file:has-text('Hello.md')", button="right")
@@ -180,8 +181,8 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Delete").last.click()
     page.wait_for_timeout(200)
     check("Delete in the table does nothing: the file stays, and it says so",
-          texts(page, ".tf-file .tf-name") == ["Hello.md", "Sup.txt"] and "does nothing" in page.text_content("#status"),
-          (texts(page, ".tf-file .tf-name"), page.text_content("#status")))
+          lambda: texts(page, ".tf-file .tf-name") == ["Hello.md", "Sup.txt"] and "does nothing" in page.text_content("#status"),
+          lambda: (texts(page, ".tf-file .tf-name"), page.text_content("#status")))
 
     # ---------- File > Add files… ----------
     page.click(".tmn-title:has-text('File')")
@@ -189,8 +190,8 @@ with sync_playwright() as p:
     page.click(".tmn-item:has-text('Add files')")
     page.wait_for_timeout(300)
     check("Add files… puts the picked file in the table and the tree",
-          "Minutes.txt" in texts(page, ".tf-file .tf-name") and "Minutes.txt" in tree_names(page),
-          (texts(page, ".tf-file .tf-name"), tree_names(page)))
+          lambda: "Minutes.txt" in texts(page, ".tf-file .tf-name") and "Minutes.txt" in tree_names(page),
+          lambda: (texts(page, ".tf-file .tf-name"), tree_names(page)))
 
     # ---------- View > Hide Sidebar ----------
     page.click(".tmn-title:has-text('View')")
@@ -203,7 +204,7 @@ with sync_playwright() as p:
     check("and the menu then says Show Sidebar", menu(page)[0] == "Show Sidebar", menu(page))
     page.click(".tmn-item:has-text('Show Sidebar')")
     page.wait_for_timeout(300)
-    check("Show Sidebar opens it again", page.get_attribute("#side", "data-tsb-state") == "open", page.get_attribute("#side", "data-tsb-state"))
+    check("Show Sidebar opens it again", lambda: page.get_attribute("#side", "data-tsb-state") == "open", lambda: page.get_attribute("#side", "data-tsb-state"))
     page.close()
 
     # ---------- the search line ----------
@@ -218,8 +219,8 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(100)
     check("Enter opens the first, and the line and the list are empty again",
-          active_title(page) == "Vacation Mexico" and page.locator("#hits tr").count() == 0 and page.input_value(".tm-cmd-input") == "",
-          (active_title(page), page.locator("#hits tr").count()))
+          lambda: active_title(page) == "Vacation Mexico" and page.locator("#hits tr").count() == 0 and page.input_value(".tm-cmd-input") == "",
+          lambda: (active_title(page), page.locator("#hits tr").count()))
     page.keyboard.type("mexico")
     first = page.evaluate("[...document.querySelectorAll('#hits tr')].map(r => r.getAttribute('aria-selected'))")
     page.keyboard.press("ArrowDown")
@@ -230,19 +231,19 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     page.wait_for_timeout(100)
     check("↑ and ↓ choose a match (the first is chosen at first, and they go round), Enter opens the one chosen",
-          first == ["true", "false"] and down == ["false", "true"] and wrapped == ["true", "false"] and active_title(page) == "places to visit.md",
-          (first, down, wrapped, active_title(page)))
+          lambda: first == ["true", "false"] and down == ["false", "true"] and wrapped == ["true", "false"] and active_title(page) == "places to visit.md",
+          lambda: (first, down, wrapped, active_title(page)))
     page.keyboard.type("mexico")
     page.click("#hits tr:nth-child(1)")
     page.wait_for_timeout(100)
-    check("a click on a match opens it", active_title(page) == "Vacation Mexico", active_title(page))
+    check("a click on a match opens it", lambda: active_title(page) == "Vacation Mexico", lambda: active_title(page))
     page.click(".tm-cmd-input")
     page.keyboard.type("mexico 2")
     check("a number after the name keeps the same list", texts(page, "#hits tr td:nth-child(2)") == ["Vacation Mexico", "places to visit.md"])
     page.keyboard.press("Enter")
     page.wait_for_timeout(100)
     check("and Enter opens that one (in this tab)",
-          active_title(page) == "places to visit.md" and page.locator(".tt-tab").count() == 1 and page.is_visible("#doc"), active_title(page))
+          lambda: active_title(page) == "places to visit.md" and page.locator(".tt-tab").count() == 1 and page.is_visible("#doc"), lambda: active_title(page))
     page.click(".tm-cmd-input")
     page.keyboard.type("mexico")
     page.evaluate("document.querySelector('.tm-cmd-input').select()")
@@ -250,7 +251,7 @@ with sync_playwright() as p:
     check("a number alone does not search again", texts(page, "#hits tr td:nth-child(2)") == ["Vacation Mexico", "places to visit.md"])
     page.keyboard.press("Enter")
     page.wait_for_timeout(100)
-    check("and Enter opens that one", active_title(page) == "Vacation Mexico", active_title(page))
+    check("and Enter opens that one", lambda: active_title(page) == "Vacation Mexico", lambda: active_title(page))
     page.click(".tm-cmd-input")
     shown = active_title(page)
     page.keyboard.type("zzz")
@@ -260,8 +261,8 @@ with sync_playwright() as p:
     check("Enter on it says so and opens nothing", "Nothing to open" in page.text_content("#status") and active_title(page) == shown)
     page.keyboard.press("Escape")
     page.wait_for_timeout(50)
-    check("Escape clears the line and the list", page.input_value(".tm-cmd-input") == "" and page.get_attribute("#matches", "data-tm-state") in (None, ""),
-          page.get_attribute("#matches", "data-tm-state"))
+    check("Escape clears the line and the list", lambda: page.input_value(".tm-cmd-input") == "" and page.get_attribute("#matches", "data-tm-state") in (None, ""),
+          lambda: page.get_attribute("#matches", "data-tm-state"))
     page.close()
 
     # ---------- the sheets ----------
@@ -291,13 +292,13 @@ with sync_playwright() as p:
           found[:1] == ["Vacation Mexico"] and "places to visit.md" in found, found)
     page.keyboard.press("Enter")
     page.wait_for_timeout(100)
-    check("Enter opens what was found, in this tab", active_title(page) == "Vacation Mexico" and page.locator(".tfd").count() == 0, active_title(page))
+    check("Enter opens what was found, in this tab", lambda: active_title(page) == "Vacation Mexico" and page.locator(".tfd").count() == 0, lambda: active_title(page))
     page.keyboard.press("ControlOrMeta+k")
     page.keyboard.type("team b")
     page.keyboard.press("Enter")
     page.wait_for_timeout(100)
-    check("a team found shows in the tree", page.evaluate("document.querySelector('#tree [aria-selected=true]')?.dataset.key") == "team-b",
-          page.evaluate("document.querySelector('#tree [aria-selected=true]')?.dataset.key"))
+    check("a team found shows in the tree", lambda: page.evaluate("document.querySelector('#tree [aria-selected=true]')?.dataset.key") == "team-b",
+          lambda: page.evaluate("document.querySelector('#tree [aria-selected=true]')?.dataset.key"))
     page.close()
 
     # ---------- dark ----------
@@ -305,7 +306,7 @@ with sync_playwright() as p:
     shot(page, "dark")
     page.wait_for_timeout(300)
     check("dark: the page and the toolbar follow the system",
-          page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(47, 50, 52)"
+          lambda: page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(47, 50, 52)"
           and page.evaluate("getComputedStyle(document.querySelector('#toolbar .tmn-tool[aria-pressed=true]')).backgroundColor") == "rgb(90, 94, 97)")
     page.close()
 

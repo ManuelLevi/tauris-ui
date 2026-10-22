@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from engine import WEBKIT, launch
+from engine import WEBKIT, launch, settled
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -19,6 +19,7 @@ failures = []
 
 
 def check(name, ok, detail=""):
+    ok, detail = settled(ok, detail)
     print(("PASS " if ok else "FAIL ") + name + (f"  {detail}" if detail and not ok else ""))
     if not ok:
         failures.append(name)
@@ -101,7 +102,7 @@ with sync_playwright() as p:
     page.locator(".tt-new").click()
     page.wait_for_function("document.querySelectorAll('.tt-tab').length === 4")
     page.wait_for_timeout(300)  # the new tab pops in
-    check("+ adds a tab and activates it", titles(page)[-1] == "Tab 4" and page.title() == "Tab 4")
+    check("+ adds a tab and activates it", lambda: titles(page)[-1] == "Tab 4" and page.title() == "Tab 4")
     page.locator(".tt-tab").nth(3).hover()
     page.locator(".tt-tab").nth(3).locator(".tt-close").click()
     page.wait_for_function("document.querySelectorAll('.tt-tab').length === 3")
@@ -145,7 +146,7 @@ with sync_playwright() as p:
     shot(page, "3_drag_tab")
     page.mouse.up()
     page.wait_for_timeout(400)
-    check("dragging a tab past the others reorders them", page.evaluate("window.__titles()") == ["Tab 2", "Tab 3", "Tab 1"], page.evaluate("window.__titles()"))
+    check("dragging a tab past the others reorders them", lambda: page.evaluate("window.__titles()") == ["Tab 2", "Tab 3", "Tab 1"], lambda: page.evaluate("window.__titles()"))
     page.close()
 
     # --- drag out ---
@@ -174,7 +175,7 @@ with sync_playwright() as p:
         shot(page, f"4_preview_{mode}")
         page.mouse.up()
         page.wait_for_timeout(300)
-        check(f"dragPreview '{mode}' clears the preview on release", page.locator(".tt-preview").count() == 0)
+        check(f"dragPreview '{mode}' clears the preview on release", lambda: page.locator(".tt-preview").count() == 0)
         page.close()
 
     # --- customising ---
@@ -230,7 +231,7 @@ with sync_playwright() as p:
     # --- many tabs: the row scrolls, + stays reachable ---
     page = fresh(browser, before="window.__tabCount = 50", width=960)
     page.wait_for_timeout(200)
-    check("50 tabs: the row scrolls", page.locator(".tt-tabs.tt-scrolling").count() == 1)
+    check("50 tabs: the row scrolls", lambda: page.locator(".tt-tabs.tt-scrolling").count() == 1)
     plus = page.locator(".tt-new").bounding_box()
     check("50 tabs: + stays inside the window", plus["x"] + plus["width"] <= 960, plus)
     page.locator(".tt-tab").nth(49).scroll_into_view_if_needed()
@@ -281,7 +282,7 @@ with sync_playwright() as p:
     page = fresh(browser, "{ onBeforeClose: tab => tab.title !== 'Tab 2' }")
     page.locator(".tt-tab").nth(1).click(button="middle")
     page.wait_for_timeout(200)
-    check("onBeforeClose can keep a tab open", len(titles(page)) == 3, titles(page))
+    check("onBeforeClose can keep a tab open", lambda: len(titles(page)) == 3, lambda: titles(page))
     page.locator(".tt-tab").nth(2).click(button="middle")
     page.wait_for_function("document.querySelectorAll('.tt-tab').length === 2")
     check("onBeforeClose lets other tabs close", titles(page) == ["Tab 1", "Tab 2"], titles(page))
@@ -315,8 +316,8 @@ with sync_playwright() as p:
     page.wait_for_selector(".tt-tab")
     page.locator(".tt-tab").nth(0).click(button="right")
     page.wait_for_timeout(100)
-    check("after destroy and mount, one menu opens", page.locator(".tt-menu").count() == 1, page.locator(".tt-menu").count())
-    check("after destroy and mount, one strip is drawn", page.locator(".tt-tabs").count() == 1)
+    check("after destroy and mount, one menu opens", lambda: page.locator(".tt-menu").count() == 1, lambda: page.locator(".tt-menu").count())
+    check("after destroy and mount, one strip is drawn", lambda: page.locator(".tt-tabs").count() == 1)
     page.close()
 
     page = fresh(browser, "{ labels: { closeTab: 'Fechar separador', newTab: 'Novo separador' } }")
@@ -330,7 +331,7 @@ with sync_playwright() as p:
     page = fresh(browser, before="window.__deny = true")
     page.wait_for_timeout(300)
     check("a refused call explains the capability fix",
-          any("tauris-ui:default" in e and "tabs-*" in e for e in page.errors), page.errors)
+          lambda: any("tauris-ui:default" in e and "tabs-*" in e for e in page.errors), lambda: page.errors)
     page.close()
 
     # --- light mode ---
@@ -357,8 +358,8 @@ with sync_playwright() as p:
     page.evaluate("window.__slow = {}; window.__emit('tauris-ui:state-changed', 'tabs-1')")
     page.locator(".tt-new").click()
     page.wait_for_timeout(700)
-    check("stale answers are dropped", len(titles(page)) == 4 and titles(page) == page.evaluate("window.__titles()"),
-          [titles(page), page.evaluate("window.__titles()")])
+    check("stale answers are dropped", lambda: len(titles(page)) == 4 and titles(page) == page.evaluate("window.__titles()"),
+          lambda: [titles(page), page.evaluate("window.__titles()")])
     page.close()
 
     # --- dragging toward an end of a crowded row scrolls it ---
@@ -396,22 +397,22 @@ with sync_playwright() as p:
     # --- the close guard: the window's close button asks every tab ---
     page = fresh(browser, "{ onBeforeClose: tab => window.__allow || tab.title !== 'Tab 2' }")
     page.wait_for_timeout(100)
-    check("a page with onBeforeClose turns on the close guard", page.evaluate("window.__guard") is True)
+    check("a page with onBeforeClose turns on the close guard", lambda: page.evaluate("window.__guard") is True)
     page.evaluate("window.__emit('tauris-ui:close-window-request', 'tabs-1')")
     page.wait_for_timeout(200)
-    check("one tab refusing keeps the window open", page.evaluate("window.__windowClosed") is None)
+    check("one tab refusing keeps the window open", lambda: page.evaluate("window.__windowClosed") is None)
     page.evaluate("window.__allow = true; window.__emit('tauris-ui:close-window-request', 'tabs-1')")
     page.wait_for_timeout(200)
-    check("all tabs agreeing closes the window", page.evaluate("window.__windowClosed") == 1)
-    check("the page answers every close request at once", page.evaluate("window.__closeAsked") == 2)
+    check("all tabs agreeing closes the window", lambda: page.evaluate("window.__windowClosed") == 1)
+    check("the page answers every close request at once", lambda: page.evaluate("window.__closeAsked") == 2)
     page.evaluate("tabs.destroy()")
     page.wait_for_timeout(100)
-    check("destroy turns the guard off", page.evaluate("window.__guard") is False)
+    check("destroy turns the guard off", lambda: page.evaluate("window.__guard") is False)
     page.close()
 
     page = fresh(browser)
     page.wait_for_timeout(100)
-    check("without onBeforeClose there is no guard", page.evaluate("window.__guard") is None)
+    check("without onBeforeClose there is no guard", lambda: page.evaluate("window.__guard") is None)
     page.locator(".tt-tab").nth(1).click(button="right")
     page.get_by_text("Move to new window", exact=True).click()
     page.wait_for_function("document.querySelectorAll('.tt-tab').length === 2")
@@ -424,7 +425,7 @@ with sync_playwright() as p:
     page.locator(".tt-tab").nth(2).click()
     page.evaluate("window.__slow = {}")
     page.wait_for_timeout(800)
-    check("a click is not undone by an older answer", page.locator(".tt-tab.tt-active .tt-title").text_content() == "Tab 3")
+    check("a click is not undone by an older answer", lambda: page.locator(".tt-tab.tt-active .tt-title").text_content() == "Tab 3")
     page.close()
 
     page = fresh(browser)
@@ -448,7 +449,7 @@ with sync_playwright() as p:
     check("and close the window once", page.evaluate("window.__windowClosed") == 1)
     page.evaluate("window.__asked = []; tabs.close(1); tabs.close(1)")
     page.wait_for_timeout(400)
-    check("two closes of one tab ask once, with reason 'tab'", page.evaluate("window.__asked") == [["Tab 1", "tab"]], page.evaluate("window.__asked"))
+    check("two closes of one tab ask once, with reason 'tab'", lambda: page.evaluate("window.__asked") == [["Tab 1", "tab"]], lambda: page.evaluate("window.__asked"))
     page.close()
 
     # --- StrictMode: mount, destroy, mount; the newest mount's guard wins ---
@@ -506,12 +507,12 @@ with sync_playwright() as p:
     page.keyboard.press("Delete")
     page.wait_for_timeout(200)
     check("End, Backspace and Delete in a rename box leave the tabs alone",
-          len(titles(page)) == 3 and page.locator(".tt-tab.tt-active .tt-title").text_content() == "Tab 1", titles(page))
+          lambda: len(titles(page)) == 3 and page.locator(".tt-tab.tt-active .tt-title").text_content() == "Tab 1", lambda: titles(page))
     page.locator(".tt-tab").nth(1).click()
     page.locator(".tt-tab.tt-active").focus()
     page.keyboard.press("Backspace")
     page.wait_for_timeout(200)
-    check("Backspace on a tab does not close it", len(titles(page)) == 3, titles(page))
+    check("Backspace on a tab does not close it", lambda: len(titles(page)) == 3, lambda: titles(page))
     page.close()
 
     # --- Windows high contrast ---
@@ -631,8 +632,8 @@ with sync_playwright() as p:
       const many = Array.from({ length: 300 }, (_, i) => ({ id: i % 299, label: 'Row ' + i }));
       TaurisTree.mount(d, { data: many })""")
     page.wait_for_timeout(200)
-    check("repeated ids are reported", any("repeated or missing" in w for w in page.warnings), page.warnings)
-    check("a tree with no height says so", any("has no height" in w for w in page.warnings), page.warnings)
+    check("repeated ids are reported", lambda: any("repeated or missing" in w for w in page.warnings), lambda: page.warnings)
+    check("a tree with no height says so", lambda: any("has no height" in w for w in page.warnings), lambda: page.warnings)
     page.close()
 
     page = tree_page()
@@ -673,7 +674,7 @@ with sync_playwright() as p:
     page.keyboard.press("Delete")
     page.wait_for_timeout(100)
     check("onBeforeClose that throws keeps the tab, and says why in the console",
-          len(titles(page)) == 3 and any("onBeforeClose failed" in m for m in page.errors), page.errors)
+          lambda: len(titles(page)) == 3 and any("onBeforeClose failed" in m for m in page.errors), lambda: page.errors)
     page.keyboard.press("Shift+F10")
     second = page.evaluate("document.querySelectorAll('.tt-tab')[1].dataset.id")
     page.evaluate("id => { tabs.update(Number(id), { title: 'Renamed' }); }", second)
@@ -691,7 +692,7 @@ with sync_playwright() as p:
     page.evaluate("__emit('tauris-ui:close-window-request', 'tabs-1')")
     page.wait_for_timeout(100)
     check("Delete (as ⌘W) and the window's close button together ask the tab once",
-          page.evaluate("window.calls") == 1 and page.evaluate("window.__closeAsked") == 1, page.evaluate("[window.calls, window.__closeAsked]"))
+          lambda: page.evaluate("window.calls") == 1 and page.evaluate("window.__closeAsked") == 1, lambda: page.evaluate("[window.calls, window.__closeAsked]"))
     page.close()
     page = fresh(browser, before="window.__noActive = true")
     reachable = page.evaluate("[...document.querySelectorAll('.tt-tab')].map(t => t.getAttribute('tabindex'))")
@@ -753,7 +754,7 @@ with sync_playwright() as p:
     page.keyboard.press("Delete")
     page.evaluate("""for (let i = 0; i < 4; i++) document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', repeat: true, bubbles: true }))""")
     page.wait_for_timeout(200)
-    check("Delete held down closes one tab, not one per repeat", len(titles(page)) == 5, titles(page))
+    check("Delete held down closes one tab, not one per repeat", lambda: len(titles(page)) == 5, lambda: titles(page))
     page.close()
 
     page = fresh(browser, "{ dragPreview: 'ghost' }", before="window.__tabCount = 1")
@@ -800,8 +801,8 @@ with sync_playwright() as p:
     page.mouse.up()
     page.wait_for_timeout(400)
     check("a drop lands by the tab it was dropped by, though Rust closed a tab meanwhile",
-          titles(page) == ["Tab 2", "Tab 4", "Tab 3"], titles(page))
-    check("and says where it landed", page.evaluate("drops") == [1], page.evaluate("drops"))
+          lambda: titles(page) == ["Tab 2", "Tab 4", "Tab 3"], lambda: titles(page))
+    check("and says where it landed", lambda: page.evaluate("drops") == [1], lambda: page.evaluate("drops"))
     page.close()
 
     page = fresh(browser, """{ renderTab: tab => { const t = document.createElement('span'); t.className = 'my-title'; t.textContent = tab.title;
@@ -809,7 +810,7 @@ with sync_playwright() as p:
     page.locator(".tt-tab").nth(2).locator(".my-title").click()
     check("the first click on a tab the app draws reaches what it drew", page.evaluate("window.clicks") == 1, page.evaluate("window.clicks"))
     page.wait_for_timeout(50)
-    check("and the tab is drawn as active after", page.locator(".tt-tab.tt-active .my-title").text_content() == "Tab 3")
+    check("and the tab is drawn as active after", lambda: page.locator(".tt-tab.tt-active .my-title").text_content() == "Tab 3")
     page.close()
 
     page = fresh(browser)
@@ -824,8 +825,8 @@ with sync_playwright() as p:
     check("shortcuts: false leaves ^Tab alone", page.evaluate("tabs.activeTab().title") == "Tab 1")
     page.locator(".tt-tab").nth(1).click(button="middle")
     page.wait_for_timeout(100)
-    check("middleClickClose: false keeps the tab", len(titles(page)) == 3, titles(page))
-    check("documentTitle names the window", page.title() == "App: Tab 1", page.title())
+    check("middleClickClose: false keeps the tab", lambda: len(titles(page)) == 3, lambda: titles(page))
+    check("documentTitle names the window", lambda: page.title() == "App: Tab 1", lambda: page.title())
     page.locator(".tt-new").click()
     page.wait_for_function("document.querySelectorAll('.tt-tab').length === 4")
     check("appear: false: a new tab does not pop in", page.locator(".tt-appear").count() == 0)
@@ -872,7 +873,7 @@ with sync_playwright() as p:
     page.mouse.move(lefts[5] + 20, first["y"] + 16, steps=12)
     page.mouse.up()
     page.wait_for_timeout(400)
-    check("a tab dropped exactly on a place lands there (the tabs sit a gap apart)", page.evaluate("drops") == [5], (page.evaluate("drops"), titles(page)[:10]))
+    check("a tab dropped exactly on a place lands there (the tabs sit a gap apart)", lambda: page.evaluate("drops") == [5], lambda: (page.evaluate("drops"), titles(page)[:10]))
     page.close()
 
     page = fresh(browser, """{ renderTab: tab => { const s = document.createElement('span'); s.className = 'my-title'; s.textContent = tab.title;
@@ -882,7 +883,7 @@ with sync_playwright() as p:
     page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|update_tab', { tab: 2, title: 'Tab 2', fields: { status: 'synced' } }); __emit('tauris-ui:state-changed', 'tabs-1'); 0")
     page.wait_for_timeout(100)
     check("Rust changing another tab keeps a field the app drew in a tab, its text and the focus",
-          page.evaluate("document.activeElement.id") == "rename" and page.input_value("#rename").endswith("ab"), page.evaluate("document.activeElement.tagName"))
+          lambda: page.evaluate("document.activeElement.id") == "rename" and page.input_value("#rename").endswith("ab"), lambda: page.evaluate("document.activeElement.tagName"))
     page.close()
 
     page = fresh(browser, "{ onBeforeClose: () => true }", before="window.__slow = { window_state: 150 }")
@@ -890,7 +891,7 @@ with sync_playwright() as p:
     page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|new_tab'); 0")
     page.evaluate("__emit('tauris-ui:close-request', { label: 'tabs-1', tab: 4 }); 0")
     page.wait_for_timeout(600)
-    check("⌘W for a tab the page had not loaded yet still closes it", page.evaluate("__titles()") == ["Tab 1", "Tab 2", "Tab 3"], page.evaluate("__titles()"))
+    check("⌘W for a tab the page had not loaded yet still closes it", lambda: page.evaluate("__titles()") == ["Tab 1", "Tab 2", "Tab 3"], lambda: page.evaluate("__titles()"))
     page.close()
 
     page = fresh(browser, "{ contextMenu: (tab, items) => [...items, '-', { label: 'Remove all', danger: true }] }")
@@ -919,24 +920,24 @@ with sync_playwright() as p:
     page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|close_tab', { tab: 1 }); 0")
     page.wait_for_timeout(150)
     check("typing in a field the app drew in a tab (its title updated as it goes) keeps the focus and the text",
-          typed == ["rename", "Tab 3ab"], typed)
-    check("and Rust closing a tab before it keeps them too", page.evaluate("[document.activeElement.id, document.activeElement.value]") == ["rename", "Tab 3ab"],
-          page.evaluate("[document.activeElement.id, document.activeElement.value]"))
+          lambda: typed == ["rename", "Tab 3ab"], lambda: typed)
+    check("and Rust closing a tab before it keeps them too", lambda: page.evaluate("[document.activeElement.id, document.activeElement.value]") == ["rename", "Tab 3ab"],
+          lambda: page.evaluate("[document.activeElement.id, document.activeElement.value]"))
     page.close()
 
     page = fresh(browser, "{ onBeforeClose: () => false }", before="window.__slow = { window_state: 80 }")
     page.wait_for_timeout(300)
     page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|new_tab'); __emit('tauris-ui:close-request', { label: 'tabs-1', tab: 4 }); setTimeout(() => __emit('tauris-ui:state-changed', 'tabs-1'), 20); 0")
     page.wait_for_timeout(600)
-    check("⌘W for a tab not loaded yet, while more changes arrive: it is asked, not closed past its question", page.evaluate("__titles()").count("Tab 4") == 1,
-          page.evaluate("__titles()"))
+    check("⌘W for a tab not loaded yet, while more changes arrive: it is asked, not closed past its question", lambda: page.evaluate("__titles()").count("Tab 4") == 1,
+          lambda: page.evaluate("__titles()"))
     page.close()
 
     page = fresh(browser, "{ onBeforeClose: tab => tab.id !== 4 }", before="window.__slow = { window_state: 80 }")
     page.wait_for_timeout(300)
     page.evaluate("__TAURI__.core.invoke('plugin:tauris-ui|new_tab'); __emit('tauris-ui:close-window-request', 'tabs-1'); 0")
     page.wait_for_timeout(600)
-    check("the window's close button asks a tab Rust added a moment ago too", page.evaluate("window.__windowClosed") is None, page.evaluate("window.__windowClosed"))
+    check("the window's close button asks a tab Rust added a moment ago too", lambda: page.evaluate("window.__windowClosed") is None, lambda: page.evaluate("window.__windowClosed"))
     page.close()
 
     page = fresh(browser, "{ newIcon: '<b class=\\'my-plus\\'>+</b>', closeIcon: '<i class=\\'my-x\\'>x</i>', moveThreshold: 30, detachDistance: 120 }")
@@ -962,7 +963,7 @@ with sync_playwright() as p:
     page.locator(".tt-new").click()
     page.wait_for_timeout(600)
     check("a new tab's pop-in is done once it has played (it does not play again when the strip is put in order)",
-          page.locator(".tt-appear").count() == 0)
+          lambda: page.locator(".tt-appear").count() == 0)
     page.close()
 
     # --- an eleventh review ---
@@ -976,15 +977,15 @@ with sync_playwright() as p:
     page.evaluate("tabs.update(tabs.activeTab(), { title: 'Changed while pressed' }); 0")
     page.mouse.up()
     page.wait_for_timeout(200)
-    check("the close button pressed, the tab updated meanwhile, then released: the tab closes", len(titles(page)) == 2, titles(page))
-    check("reload() resolves true when its answer is the one shown", page.evaluate("tabs.reload()") is True)
+    check("the close button pressed, the tab updated meanwhile, then released: the tab closes", lambda: len(titles(page)) == 2, lambda: titles(page))
+    check("reload() resolves true when its answer is the one shown", lambda: page.evaluate("tabs.reload()") is True)
     page.close()
 
     page = fresh(browser, """{ renderTab: tab => { const s = document.createElement('span'); s.className = 'my-title'; s.textContent = tab.title;
       const i = document.createElement('input'); i.className = 'my-field'; s.append(i); return [s]; } }""")
     page.click(".tt-tab .my-field", button="right")
     page.wait_for_timeout(50)
-    check("a right click in a field the app drew in a tab leaves the field its own menu (no tab menu)", page.locator(".tt-menu").count() == 0)
+    check("a right click in a field the app drew in a tab leaves the field its own menu (no tab menu)", lambda: page.locator(".tt-menu").count() == 0)
     page.close()
 
     page = fresh(browser, "{ contextMenu: false }")
@@ -992,7 +993,7 @@ with sync_playwright() as p:
     page.locator(".tt-tab").first.focus()
     page.keyboard.press("Shift+F10")
     page.wait_for_timeout(50)
-    check("contextMenu: false: no tab menu, from the mouse or the keys", page.locator(".tt-menu").count() == 0)
+    check("contextMenu: false: no tab menu, from the mouse or the keys", lambda: page.locator(".tt-menu").count() == 0)
     page.locator(".tt-tab").nth(2).focus()
     page.keyboard.press("Home")
     check("Home shows the first tab", page.locator(".tt-tab.tt-active .tt-title").text_content() == "Tab 1")
@@ -1006,8 +1007,8 @@ with sync_playwright() as p:
       __TAURI__.core.invoke('plugin:tauris-ui|move_tab', { tab: 1, index: 2 }); 0""")
     page.wait_for_timeout(200)
     check("tabs moving around the one with the focus (no moveBefore): it keeps the focus all along",
-          titles(page) == ["Tab 2", "Tab 3", "Tab 1"] and page.evaluate("[document.activeElement === node, blurred]") == [True, 0],
-          (titles(page), page.evaluate("[document.activeElement === node, blurred]")))
+          lambda: titles(page) == ["Tab 2", "Tab 3", "Tab 1"] and page.evaluate("[document.activeElement === node, blurred]") == [True, 0],
+          lambda: (titles(page), page.evaluate("[document.activeElement === node, blurred]")))
     page.close()
 
     # Moving a tab from the keyboard, and into another window from its menu.
@@ -1027,9 +1028,9 @@ with sync_playwright() as p:
     page.locator(".tt-menu-item", has_text="Board minutes").click()
     page.wait_for_timeout(200)
     check("the tab menu: Move left (off on the first tab), Move right, and Move to each other window, the focus kept as it grows",
-          ["Move left", "true"] in items and ["Move right", None] in items and ["Move to “Board minutes”", None] in items and focused.startswith("New tab"), (items, focused))
-    check("Move to another window: Rust moves the tab there", page.evaluate("window.__movedTo") == [["Tab 1", "tabs-2"]] and titles(page) == ["Tab 2", "Tab 3"],
-          (page.evaluate("window.__movedTo"), titles(page)))
+          lambda: ["Move left", "true"] in items and ["Move right", None] in items and ["Move to “Board minutes”", None] in items and focused.startswith("New tab"), lambda: (items, focused))
+    check("Move to another window: Rust moves the tab there", lambda: page.evaluate("window.__movedTo") == [["Tab 1", "tabs-2"]] and titles(page) == ["Tab 2", "Tab 3"],
+          lambda: (page.evaluate("window.__movedTo"), titles(page)))
     page.close()
 
     page = fresh(browser)
@@ -1039,7 +1040,7 @@ with sync_playwright() as p:
     page.locator(".tt-tab").nth(1).focus()
     page.keyboard.press("Shift+F10")
     page.wait_for_timeout(200)
-    check("no other window: no Move to items", page.locator(".tt-menu-item", has_text="Move to “").count() == 0)
+    check("no other window: no Move to items", lambda: page.locator(".tt-menu-item", has_text="Move to “").count() == 0)
     page.keyboard.press("Escape")
     page.close()
 
@@ -1056,8 +1057,8 @@ with sync_playwright() as p:
       __TAURI__.core.invoke('plugin:tauris-ui|move_tab', { tab: id, index: 1 }); __emit('tauris-ui:drop-hover', { label: 'tabs-1', index: 1, title: '', dropped: id }); })(); 0""")
     page.wait_for_timeout(300)
     check("a tab from another window: hovering shows where, leaving drops nothing, landing says which tab and where",
-          ghost == 1 and left == (0, []) and page.evaluate("drops") == [["Report", 1]] and page.locator(".tt-ghost").count() == 0,
-          (ghost, left, page.evaluate("drops")))
+          lambda: ghost == 1 and left == (0, []) and page.evaluate("drops") == [["Report", 1]] and page.locator(".tt-ghost").count() == 0,
+          lambda: (ghost, left, page.evaluate("drops")))
     page.evaluate("__emit('tauris-ui:drop-hover', { label: 'tabs-2', index: 0, title: 'Elsewhere', dropped: null }); 0")
     check("another window's hover is not this strip's", page.locator(".tt-ghost").count() == 0)
     check("the strip hears Rust without Tauri's events (which every listening page would get too)",
@@ -1081,15 +1082,15 @@ with sync_playwright() as p:
     first = page.evaluate("window.__windowClosed")
     page.evaluate("window.__emit('tauris-ui:close-window-request', 'tabs-1')")
     page.wait_for_timeout(100)
-    check("example: a window with two noted tabs closes on the second try", first is None and page.evaluate("window.__windowClosed") == 1,
-          (first, page.evaluate("window.__windowClosed")))
+    check("example: a window with two noted tabs closes on the second try", lambda: first is None and page.evaluate("window.__windowClosed") == 1,
+          lambda: (first, page.evaluate("window.__windowClosed")))
     page.click("#title")
     page.keyboard.press("ControlOrMeta+a")
     page.keyboard.press("Backspace")
     page.keyboard.type("Groceries")
     page.wait_for_timeout(50)
-    check("example: emptying the title and typing a new one gives that title", page.input_value("#title") == "Groceries"
-          and page.locator(".tt-tab.tt-active .tt-title").text_content() == "Groceries", page.input_value("#title"))
+    check("example: emptying the title and typing a new one gives that title", lambda: page.input_value("#title") == "Groceries"
+          and page.locator(".tt-tab.tt-active .tt-title").text_content() == "Groceries", lambda: page.input_value("#title"))
     page.close()
 
     # --- the native feel (Config::native_feel): a desktop app's window, not a web page ---
