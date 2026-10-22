@@ -11,6 +11,8 @@ const COMMANDS: &[&str] = &[
     "set_close_guard",
     "close_window",
     "move_to_new_window",
+    "other_windows",
+    "move_to_window",
     "close_asked",
     "pick_files",
     "save_dialog",
@@ -18,4 +20,17 @@ const COMMANDS: &[&str] = &[
 
 fn main() {
     tauri_plugin::Builder::new(COMMANDS).build();
+    // On Windows a program that links Tauri starts only with the common
+    // controls' manifest (STATUS_ENTRYPOINT_NOT_FOUND without it); real apps get
+    // it from tauri-build. The library's own tests get it here. (Only programs
+    // of this package are linked with it: an app using the library is not.)
+    let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let manifest =
+        std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default()).join("test/windows.manifest");
+    if windows && manifest.is_file() {
+        println!("cargo:rerun-if-changed={}", manifest.display());
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
+    }
 }

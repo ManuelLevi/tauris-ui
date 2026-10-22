@@ -613,8 +613,9 @@
         handle.close(false);
       }), { signal });
 
-      if (how === "keyboard") go(lv, enabledIn(menu)[0]);
-      else if (how === "last") go(lv, enabledIn(menu).at(-1));
+      const items = enabledIn(menu);
+      if (how === "keyboard") go(lv, items[0]);
+      else if (how === "last") go(lv, items[items.length - 1]); // not .at(-1): Safari before 15.4
       else if (!parent) menu.focus({ preventScroll: true });
       return lv;
     }

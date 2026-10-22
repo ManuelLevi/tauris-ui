@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-other-windows"
+description = "Enables the other_windows command without any pre-configured scope."
+commands.allow = ["other_windows"]
+
+[[permission]]
+identifier = "deny-other-windows"
+description = "Denies the other_windows command without any pre-configured scope."
+commands.deny = ["other_windows"]

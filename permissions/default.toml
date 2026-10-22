@@ -13,6 +13,8 @@ permissions = [
     "allow-set-close-guard",
     "allow-close-window",
     "allow-move-to-new-window",
+    "allow-other-windows",
+    "allow-move-to-window",
     "allow-close-asked",
     "allow-pick-files",
     "allow-save-dialog",

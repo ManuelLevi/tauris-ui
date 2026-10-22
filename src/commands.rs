@@ -136,6 +136,32 @@ pub async fn close_window<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R
     Ok(())
 }
 
+// The tab menu's "Move to": the other windows a tab can go to.
+#[tauri::command]
+pub fn other_windows<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>) -> Vec<windows::OtherWindow> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
+    windows::other_windows(&app, window.label())
+}
+
+// "Move to" one of them: the tab goes to the end of that window's strip.
+#[tauri::command]
+pub fn move_to_window<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    tab: u64,
+    target: String,
+) -> Result<(), String> {
+    let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
+    if !windows::owns(&app, window.label(), tab) {
+        return Err(not_here(tab, window.label()));
+    }
+    if !windows::is_tab_window(&app, &target) {
+        return Err(format!("{target} is not a window of tabs"));
+    }
+    windows::move_to_window(&app, tab, &target);
+    Ok(())
+}
+
 // "Move to new window" in the tab's menu: works on every system.
 #[tauri::command]
 pub async fn move_to_new_window<R: Runtime>(

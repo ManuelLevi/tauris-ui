@@ -13,6 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 from playwright.sync_api import sync_playwright
+from engine import WEBKIT, launch
 
 HERE = Path(__file__).parent
 DEMO = HERE / "tree_demo.html"
@@ -100,7 +101,7 @@ def shot(page, name, clip=None, enlarge=0):
 
 with sync_playwright() as p:
     # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
-    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
+    browser = launch(p)
 
     # ---------- screenshots ----------
     for scheme in ["dark", "light"]:
@@ -282,7 +283,7 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     check("text: Enter saves and emits change", events(page, "change") == [["settings", "change", "general.name", "value", "Atlas Pro"]])
     check("the editor closes and focus returns to the row", editor.count() == 0 and active_key(page) == "general.name")
-    check("the cell shows the new value", row(page, "general.name").locator('.tv-cell[data-col="1"]').inner_text() == "Atlas Pro")
+    check("the cell shows the new value", row(page, "general.name").locator('.tv-cell[data-col="1"]').inner_text().strip() == "Atlas Pro")
     page.keyboard.press("Enter")
     page.keyboard.type("x")
     page.keyboard.press("Escape")
@@ -822,7 +823,7 @@ with sync_playwright() as p:
     page.evaluate("t.setData(build()); 0")
     page.keyboard.press("Enter")
     check("setData during an edit, then Enter: the value typed is saved and shown, in the new list's node",
-          page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']") == "NEW" and page.evaluate("model.a") == "NEW",
+          page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']").strip() == "NEW" and page.evaluate("model.a") == "NEW",
           page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']"))
     page.close()
 
@@ -918,7 +919,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(50)
     check("setData while an editor is open but untouched: it shows the new data, which stands, and nothing is said changed",
           shows == "Atlas 2 (from the server)" and
-          page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']") == "Atlas 2 (from the server)" and page.evaluate("got") == [],
+          page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']").strip() == "Atlas 2 (from the server)" and page.evaluate("got") == [],
           (page.inner_text("#mine .tv-row[data-key=a] .tv-cell[data-col='1']"), page.evaluate("got")))
     page.close()
 
@@ -1025,6 +1026,35 @@ with sync_playwright() as p:
           return [ratio(cs[0], cs[2]), ratio(cs[1], cs[2])]; }""", colours)
         check(f"--tauris-accent alone ({scheme}): a ticked box and a hovered +/- box show on the tree (3:1)", min(ratios) >= 3, (colours, ratios))
         page.close()
+
+    # ---------- two million rows: more than a browser can scroll ----------
+    page = fresh(browser)
+    page.evaluate("""(() => { const host = document.createElement('div'); host.id = 'big'; host.style.cssText = 'height:300px;width:400px'; document.body.prepend(host);
+      window.big = TaurisTree.mount(host, { data: Array.from({ length: 2000000 }, (_, i) => ({ id: 'r' + i, label: 'Row ' + i })) }); return 0; })()""")
+    shown = """k => { const s = document.querySelector('#big .tv-scroll, #big .tv-body').closest('#big').querySelector('.tv-row[data-key="' + k + '"]');
+      if (!s) return false; const r = s.getBoundingClientRect(), v = document.getElementById('big').getBoundingClientRect();
+      return r.top >= v.top - 0.5 && r.bottom <= v.bottom + 0.5 && document.elementFromPoint(r.left + 20, r.top + r.height / 2)?.closest('.tv-row') === s; }"""
+    page.click("#big .tv-row[data-key=r0] .tv-label")
+    page.keyboard.press("End")
+    page.wait_for_timeout(100)
+    end = (page.evaluate("document.activeElement.dataset.key"), page.evaluate("(" + shown + ")('r1999999')"))
+    page.evaluate("big.select('r1000000'); 0")
+    page.wait_for_timeout(100)
+    middle = page.evaluate("(" + shown + ")('r1000000')")
+    page.keyboard.press("Home")
+    page.wait_for_timeout(100)
+    home = page.evaluate("(" + shown + ")('r0')")
+    page.evaluate("window.wheeled = 0; document.getElementById('big').addEventListener('wheel', e => { wheeled += e.deltaY; }, true); 0")
+    page.mouse.move(150, 150)
+    page.mouse.wheel(0, 180)
+    page.wait_for_timeout(200)
+    first = page.evaluate("""(() => { const v = document.getElementById('big').getBoundingClientRect();
+      return Number(document.elementFromPoint(v.left + 60, v.top + 5)?.closest('.tv-row')?.dataset.key.slice(1)); })()""")
+    rows_moved = page.evaluate("wheeled") / 18  # the wheel's pixels, in 18px rows (not the scroll bar's)
+    height = page.evaluate("document.querySelector('#big .tv-body').getBoundingClientRect().height")
+    check("two million rows: End, select() and Home bring the row into view, and the wheel moves by rows as usual",
+          end == ("r1999999", True) and middle and home and abs(first - rows_moved) <= 1 and height <= 15e6, (end, middle, home, first, rows_moved, height))
+    page.close()
 
     # ---------- an eleventh review ----------
     page = fresh(browser)

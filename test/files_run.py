@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from engine import WEBKIT, launch
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -139,7 +140,7 @@ def shot(page, name):
 
 with sync_playwright() as p:
     # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
-    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
+    browser = launch(p)
 
     # ---------- the look ----------
     page = fresh(browser)
@@ -151,7 +152,7 @@ with sync_playwright() as p:
           css(page, ".tf-title", "font-size") == "15px" and css(page, ".tf-title", "font-weight") == "600"
           and css(page, ".tf-chip", "background-color") == "rgb(42, 120, 214)" and rect(page, ".tf-chip")["w"] == 10)
     check("header: Add files… is a 22px button with an icon, the search field 26px",
-          rect(page, ".tf-add")["h"] == 22 and page.inner_text(".tf-add") == "Add files…" and page.locator(".tf-add svg").count() == 1
+          rect(page, ".tf-add")["h"] == 22 and page.inner_text(".tf-add").strip() == "Add files…" and page.locator(".tf-add svg").count() == 1
           and rect(page, ".tf-search")["h"] == 26 and page.get_attribute(".tf-q", "placeholder") == "Search files")
     heads = page.evaluate("[...document.querySelectorAll('.tf-th')].map(t => [t.textContent, t.getBoundingClientRect().height])")
     check("columns: type, Name ▲, Size, Added, By, actions; the header row 23px",
@@ -350,7 +351,8 @@ with sync_playwright() as p:
     check("Delete asks first, with the file's name, the safe answer (Cancel) focused",
           page.is_visible(".tf-ask") and page.inner_text(".tf-ask-text") == "Delete “Kickoff notes.md”? This cannot be undone."
           and page.evaluate("document.activeElement.textContent") == "Cancel" and css(page, ".tf-ask .tf-danger", "background-color") == DANGER
-          and page.get_attribute(".tf-ask", "aria-modal") == "true")
+          and page.get_attribute(".tf-ask", "aria-modal") is None and page.evaluate("document.querySelector('.tf-list').inert")
+          and not page.evaluate("document.querySelector('.tf-head').inert"))
     page.keyboard.press("Tab")
     check("Tab stays inside the question", page.evaluate("document.activeElement.textContent") == "Delete")
     page.keyboard.press("Tab")
@@ -759,8 +761,10 @@ with sync_playwright() as p:
     check("Shift+Enter opens nothing (only plain Enter does)", page.evaluate("opens") == 0)
     page.fill(".tf-q", "")
     page.focus(".tf-list")
-    page.evaluate("""document.querySelector('.tf-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'ą', ctrlKey: true, altKey: true, modifierAltGraph: true, bubbles: true }))""")
-    check("a letter made with AltGr (Ctrl+Alt) still jumps to its name", selected(page) == "ąbc.pdf", selected(page))
+    # AltGr is Windows's (Ctrl+Alt there); WebKit's events take no modifierAltGraph.
+    if not WEBKIT:
+        page.evaluate("""document.querySelector('.tf-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'ą', ctrlKey: true, altKey: true, modifierAltGraph: true, bubbles: true }))""")
+        check("a letter made with AltGr (Ctrl+Alt) still jumps to its name", selected(page) == "ąbc.pdf", selected(page))
     check("the row's buttons make no column for screen readers",
           page.evaluate("document.querySelectorAll('[role=columnheader][aria-label=\"Actions\"], .tf-c-acts[role=gridcell]').length") == 0)
     page.evaluate("demo.files.select('d')")
@@ -939,7 +943,7 @@ with sync_playwright() as p:
     check("Add files…: the system's picker, titled with the place",
           page.evaluate("__calls[0]") == ["plugin:tauris-ui|pick_files", {"title": "Add files to Northwind Launch", "multiple": True}])
     check("while adding: a card with a 20-segment bar, and Add files… is off",
-          page.inner_text(".tf-busy") == "Adding 2 files…" and page.locator(".tf-seg i").count() == 20
+          page.inner_text(".tf-busy").strip() == "Adding 2 files…" and page.locator(".tf-seg i").count() == 20
           and page.get_attribute(".tf-add", "aria-disabled") == "true"
           and css(page, ".tf-seg i:nth-child(5)", "animation-delay") == "0.24s")
     shot(page, "adding")
@@ -975,7 +979,7 @@ with sync_playwright() as p:
     page.evaluate("""__emit('tauri://drag-enter', { paths: ['/Users/m/Term sheet.docx'], position: { x: 300, y: 300 } });
       __emit('tauri://drag-over', { position: { x: 310, y: 300 } });
       __emit('tauri://drag-drop', { paths: ['/Users/m/Term sheet.docx'], position: { x: 310, y: 300 } })""")
-    check("a drop: the zone goes and the busy card says what is coming", page.is_hidden(".tf-drop") and page.inner_text(".tf-busy") == "Adding 1 file…")
+    check("a drop: the zone goes and the busy card says what is coming", page.is_hidden(".tf-drop") and page.inner_text(".tf-busy").strip() == "Adding 1 file…")
     idle(page)
     check("the dropped file is added, a DOC", row(page, "Term sheet.docx").count() == 1
           and row(page, "Term sheet.docx").locator(".tf-kind").inner_text() == "DOC" and message(page) == "Added Term sheet.docx to Northwind Launch.")
@@ -1274,10 +1278,12 @@ with sync_playwright() as p:
     page = fresh(browser)
     page.evaluate(MOUNT, None)
     page.evaluate("v.update({ onOpen: async () => {}, onRename: async () => {}, onDelete: async () => {}, onSaveAs: async () => {} }); 0")
-    cdp = page.context.new_cdp_session(page)
-    tree = cdp.send("Accessibility.getFullAXTree")["nodes"]
-    row_names = [n["name"]["value"] for n in tree if n.get("role", {}).get("value") == "row" and n.get("name", {}).get("value", "").startswith("Budget")]
-    check("a row is named by what it shows, not by its buttons too", row_names and all("Open" not in r and "Rename" not in r for r in row_names), row_names)
+    # The accessibility tree as Chromium builds it (its debugging protocol; WebKit has none here).
+    if not WEBKIT:
+        cdp = page.context.new_cdp_session(page)
+        tree = cdp.send("Accessibility.getFullAXTree")["nodes"]
+        row_names = [n["name"]["value"] for n in tree if n.get("role", {}).get("value") == "row" and n.get("name", {}).get("value", "").startswith("Budget")]
+        check("a row is named by what it shows, not by its buttons too", row_names and all("Open" not in r and "Rename" not in r for r in row_names), row_names)
     live = page.evaluate("[document.querySelector('.tf-live')].map(n => [n.getAttribute('role'), n.hidden, n.textContent])")
     page.evaluate("v.search('zzz'); 0")
     page.wait_for_timeout(600)  # it speaks once the typing stops
@@ -1483,16 +1489,18 @@ with sync_playwright() as p:
     check("the empty place's button is described by what the place says", len(described) == 2 and all(described), described)
     page.close()
 
-    page = fresh(browser)
-    cdp = page.context.new_cdp_session(page)
-    page.focus(".tf-q")
-    cdp.send("Input.imeSetComposition", {"selectionStart": 1, "selectionEnd": 1, "text": "こ"})
-    page.wait_for_timeout(100)
-    shown_while = page.locator(".tf-file").count()
-    cdp.send("Input.insertText", {"text": "こん"})
-    page.wait_for_timeout(100)
-    check("the search waits for an input method's text (the list is not filtered by half a word)", shown_while == 8, shown_while)
-    page.close()
+    # An input method composing, through Chromium's debugging protocol (WebKit has none here).
+    if not WEBKIT:
+        page = fresh(browser)
+        cdp = page.context.new_cdp_session(page)
+        page.focus(".tf-q")
+        cdp.send("Input.imeSetComposition", {"selectionStart": 1, "selectionEnd": 1, "text": "こ"})
+        page.wait_for_timeout(100)
+        shown_while = page.locator(".tf-file").count()
+        cdp.send("Input.insertText", {"text": "こん"})
+        page.wait_for_timeout(100)
+        check("the search waits for an input method's text (the list is not filtered by half a word)", shown_while == 8, shown_while)
+        page.close()
 
     for accent, dark, var in (("#039250", False, "--tauris-accent"), ("#ffd400", False, "--tauris-accent"), ("#000080", True, "--tauris-accent"),
                               ("#ffd400", False, "--tf-accent"), ("#000080", True, "--tf-accent"), ("#0d6efd", False, "--tf-accent")):
@@ -1630,6 +1638,36 @@ with sync_playwright() as p:
     without = page.get_attribute(".tf-empty", "aria-describedby")
     check("the empty place's text is read once: by its button, or by the place when there is no button",
           with_add[0] is None and with_add[1] and without and without.endswith("-empty-text"), (with_add, without))
+    page.close()
+
+    # 20,000 files shown: only the rows in view are drawn, so nothing waits on all of them.
+    page = fresh(browser)
+    big = page.evaluate("""() => { const all = Array.from({ length: 20000 }, (_, i) => ({ id: i, name: 'File ' + String(i).padStart(5, '0') + '.pdf', size: i }));
+      const host = document.createElement('div'); host.id = 'big'; host.style.cssText = 'height:400px;width:700px'; document.body.prepend(host);
+      let t = performance.now(); window.w = TaurisFiles.mount(host, { multiple: true, files: all }); host.getBoundingClientRect(); const mount = performance.now() - t;
+      window.all = all; return { mount, drawn: host.querySelectorAll('.tf-file').length, count: host.querySelector('.tf-list').getAttribute('aria-rowcount') }; }""")
+    page.evaluate("w.select(0); w.focus(); 0")
+    t0 = page.evaluate("performance.now()")
+    for _ in range(10):
+        page.keyboard.press("ArrowDown")
+    down = (page.evaluate("performance.now()") - t0) / 10
+    page.keyboard.press("End")
+    page.wait_for_timeout(50)
+    end = page.evaluate("""(() => { const g = document.querySelector('#big .tf-list'); const a = document.getElementById(g.getAttribute('aria-activedescendant'));
+      const r = a.getBoundingClientRect(), v = g.getBoundingClientRect(); return [a.querySelector('.tf-c-name').textContent, a.getAttribute('aria-rowindex'), r.top >= v.top && r.bottom <= v.bottom + 0.5]; })()""")
+    timed = page.evaluate("""() => { let t = performance.now(); w.search('File 1'); const search = performance.now() - t;
+      w.search(''); const next = all.slice(); next[5] = { ...next[5], name: 'Renamed.pdf' };
+      t = performance.now(); w.setFiles(next); document.getElementById('big').getBoundingClientRect(); const set = performance.now() - t;
+      return { search, set, drawn: document.querySelectorAll('#big .tf-file').length }; }""")
+    page.evaluate("document.querySelector('#big .tf-list').scrollTop = 250000; 0")
+    page.wait_for_timeout(100)
+    middle = page.evaluate("""(() => { const g = document.querySelector('#big .tf-list').getBoundingClientRect();
+      return document.elementFromPoint(g.left + 200, g.top + 100)?.closest('.tf-file')?.querySelector('.tf-c-name').textContent; })()""")
+    check("20,000 files: mounted, stepped through, searched and given a new list quickly, drawing only the rows in view",
+          big["mount"] < 600 and big["drawn"] < 80 and big["count"] == "20001" and down < 40 and timed["search"] < 200 and timed["set"] < 300
+          and timed["drawn"] < 80, (big, down, timed))
+    check("and End shows the last file (row 20,001 of 20,001), scrolling shows the files there",
+          end == ["File 19999.pdf", "20001", True] and middle is not None and 9990 <= int(middle[5:10]) <= 10010, (end, middle))
     page.close()
 
     # Options no other test reached.

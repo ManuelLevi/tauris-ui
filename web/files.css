@@ -372,6 +372,9 @@
   .tf-thead { display: table-header-group; }
   .tf-tbody { display: table-row-group; }
   .tf-row { display: table-row; }
+  /* Where the rows out of view would be (only those in view are drawn): their height, nothing else. */
+  .tf-gap { display: table-row; }
+  .tf-gap-cell { display: table-cell; padding: 0; border: 0; }
 
   .tf-th,
   .tf-cell {

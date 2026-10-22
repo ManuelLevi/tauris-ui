@@ -55,6 +55,8 @@
 
   const KINDS = new Set(["ok", "warn", "error"]);
   const FKEY = /^F([1-9]|1[0-2])$/;
+  // Hebrew, Arabic and the other right-to-left scripts.
+  const RTL_CHAR = /^(?:[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]|[\ud802\ud803\ud83a][\udc00-\udfff])$/;
   const pad = n => String(n).padStart(2, "0");
   const timeOf = d => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   const dateOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -260,10 +262,20 @@
       const text = mirror.firstChild;
       if (!text) return 0;
       const range = document.createRange();
-      range.setStart(text, Math.min(at, text.length));
+      const to = Math.min(at, text.length);
+      range.setStart(text, to);
       range.collapse(true);
+      const from = mirror.getBoundingClientRect().left;
+      if (range.getClientRects().length) return range.getBoundingClientRect().left - from;
+      // WebKit has no box for the caret at the end of right-to-left text: the
+      // character before it says (the caret is on the left of a right-to-left
+      // one, on the right of any other).
+      if (to === 0) return 0;
+      const back = to > 1 && /[\udc00-\udfff]/.test(text.data[to - 1]) ? 2 : 1; // a pair of surrogates is one character
+      range.setStart(text, to - back);
+      range.setEnd(text, to);
       const box = range.getBoundingClientRect();
-      return box.left - mirror.getBoundingClientRect().left;
+      return (RTL_CHAR.test(text.data.slice(to - back, to)) ? box.left : box.right) - from;
     }
     let frame = 0;
     function place() {

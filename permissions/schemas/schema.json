@@ -379,6 +379,18 @@
           "markdownDescription": "Denies the move_to_new_window command without any pre-configured scope."
         },
         {
+          "description": "Enables the move_to_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-move-to-window",
+          "markdownDescription": "Enables the move_to_window command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the move_to_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-move-to-window",
+          "markdownDescription": "Denies the move_to_window command without any pre-configured scope."
+        },
+        {
           "description": "Enables the new_tab command without any pre-configured scope.",
           "type": "string",
           "const": "allow-new-tab",
@@ -401,6 +413,18 @@
           "type": "string",
           "const": "deny-open-tab",
           "markdownDescription": "Denies the open_tab command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the other_windows command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-other-windows",
+          "markdownDescription": "Enables the other_windows command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the other_windows command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-other-windows",
+          "markdownDescription": "Denies the other_windows command without any pre-configured scope."
         },
         {
           "description": "Enables the pick_files command without any pre-configured scope.",
@@ -475,10 +499,10 @@
           "markdownDescription": "Denies the window_state command without any pre-configured scope."
         },
         {
-          "description": "Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`",
+          "description": "Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-other-windows`\n- `allow-move-to-window`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`"
+          "markdownDescription": "Lets a window use the tab strip (read its tabs, open, close, move and drag them) and the system's file pickers, which return only what the person chose.\n#### This default permission set includes:\n\n- `allow-window-state`\n- `allow-new-tab`\n- `allow-close-tab`\n- `allow-activate-tab`\n- `allow-move-tab`\n- `allow-update-tab`\n- `allow-report-strip`\n- `allow-drag-out`\n- `allow-open-tab`\n- `allow-set-close-guard`\n- `allow-close-window`\n- `allow-move-to-new-window`\n- `allow-other-windows`\n- `allow-move-to-window`\n- `allow-close-asked`\n- `allow-pick-files`\n- `allow-save-dialog`"
         }
       ]
     }

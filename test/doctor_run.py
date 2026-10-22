@@ -302,6 +302,73 @@ for name in ("Tauri.toml", "tauri.conf.json5"):
     out, code = app(conf_name=name)
     check(f"an app set up with {name} is read", code == 0 and "Ready" in out, out[-300:])
 
+
+def toml_app(toml, page, rust):
+    """An app set up with Tauri.toml as Tauri's docs write it (kebab-case), its page in ui/."""
+    root = Path(tempfile.mkdtemp(prefix="tauris-doctor-"))
+    try:
+        tauri = root / "src-tauri"
+        (tauri / "src").mkdir(parents=True)
+        (tauri / "capabilities").mkdir()
+        (root / "ui").mkdir()
+        (tauri / "Cargo.toml").write_text(f'[package]\nname = "x"\nversion = "0.1.0"\n[dependencies]\ntauris-ui = {{ path = "{LIB}", version = "{SERIES}" }}\n')
+        (tauri / "Tauri.toml").write_text(toml)
+        (tauri / "capabilities" / "default.json").write_text(json.dumps(GOOD_CAP))
+        (tauri / "src" / "main.rs").write_text(rust)
+        (root / "ui" / "index.html").write_text(page)
+        run = subprocess.run([sys.executable, str(DOCTOR), str(root)], capture_output=True, text=True, encoding="utf-8")
+        return run.stdout + run.stderr, run.returncode
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+out, code = toml_app('[app]\nwith-global-tauri = true\n[build]\nfrontend-dist = "../ui"\n[plugins.deep-link]\ndesktop = { schemes = ["x"] }\n',
+                     "<script>TaurisTabs.mount(document.getElementById('strip'))</script>",
+                     "use tauris_ui::TabsExt;\n" + GOOD_RUST + "fn s(app: &tauri::App) { app.tabs().start(); }\n")
+check("Tauri.toml in kebab-case (with-global-tauri, frontend-dist) is read: Ready", code == 0 and "Ready" in out, out[-400:])
+out, code = toml_app('[app]\nwith-global-tauri = true\n[[app.windows]]\nlabel = "main"\ndrag-drop-enabled = false\n[build]\nfrontend-dist = "../ui"\n',
+                     "<script>TaurisFiles.mount(el, { pick: myPick })</script>", GOOD_RUST)
+check("Tauri.toml's drag-drop-enabled = false is caught", "dropping files is switched off (main)" in out and code == 1, out[-400:])
+
+# The window prefix from a const or static, or from something the checker cannot read.
+PREFIXED = "fn main() { tauri::Builder::default().plugin(tauris_ui::init(tauris_ui::Config::new().window_prefix(ARG))); }\n" + START
+out, code = app(page=TABS, rust='const PREFIX: &str = "doc-";\n' + PREFIXED.replace("ARG", "PREFIX"), capability={**GOOD_CAP, "windows": ["tabs-*"]})
+check("window_prefix(PREFIX) read from its const: a capability for tabs-* does not cover doc-1", "not the tab windows doc-1" in out and code == 1, out[-400:])
+out, code = app(page=TABS, rust="static P: &'static str = \"doc-\";\n" + PREFIXED.replace("ARG", "P"), capability={**GOOD_CAP, "windows": ["doc-*"]})
+check("window_prefix(P) read from its static: a capability for doc-* covers the tab windows", "to the tab windows (doc-1" in out, out[-400:])
+out, code = app(page=TABS, rust=PREFIXED.replace("ARG", "&prefix()"), capability={**GOOD_CAP, "windows": ["tabs-*"]})
+check("window_prefix given something it cannot read: said, not taken as tabs-", "cannot read" in out and "to the tab windows (tabs-1" not in out, out[-400:])
+
+# The plugin's commands granted one by one, without the two for "Move to".
+ONE_BY_ONE = [f"tauris-ui:allow-{c}" for c in ("window-state", "new-tab", "open-tab", "close-tab", "activate-tab", "move-tab", "update-tab", "report-strip",
+                                                 "drag-out", "set-close-guard", "close-asked", "close-window", "move-to-new-window")]
+out, code = app(page=TABS, rust=GOOD_RUST + START, capability={**GOOD_CAP, "permissions": ["core:default", *ONE_BY_ONE]})
+check("commands granted one by one without Move to's: it works, and the missing menu is noted", code == 0 and 'no "Move to" another window' in out, out[-400:])
+out, code = app(page=TABS, rust=GOOD_RUST + START, capability={**GOOD_CAP, "permissions": ["core:default", *ONE_BY_ONE, "tauris-ui:allow-other-windows", "tauris-ui:allow-move-to-window"]})
+check("and with them, nothing is noted about it", code == 0 and "Move to" not in out, out[-400:])
+
+# Config::components: a page using a component left out.
+COMPONENTS = "fn main() { tauri::Builder::default().plugin(tauris_ui::init(tauris_ui::Config::new().components(&[ARG]))); }\n"
+out, code = app(page="<script>TaurisFiles.mount(el, { pick: f }); TaurisTree.mount(t, { data })</script>",
+                rust=COMPONENTS.replace("ARG", "tauris_ui::Component::Files"))
+check("Config::components without the tree, a page mounting it: said", "leaves it out, so the pages have no TaurisTree" in out and code == 1, out[-400:])
+out, code = app(page="<script>TaurisFiles.mount(el, { pick: f }); TaurisMenu.bar(nav, { menus })</script>",
+                rust=COMPONENTS.replace("ARG", "Component::Files"))
+check("Config::components with the files: the menus come with them", "leaves it out" not in out and code == 0, out[-400:])
+out, code = app(rust="fn main() { tauri::Builder::default().plugin(tauris_ui::init(tauris_ui::Config::new().components(&ALL))); }\n")
+check("Config::components given a list it cannot read: noted", "cannot read" in out and code == 0, out[-400:])
+
+# A capability for some systems only.
+HERE_OS = {"darwin": "macOS", "win32": "windows"}.get(sys.platform, "linux")
+ELSEWHERE = "windows" if HERE_OS != "windows" else "linux"
+out, code = app(page=TABS, rust=GOOD_RUST + START, capability={**GOOD_CAP, "platforms": [ELSEWHERE]})
+check("a capability only for another system grants nothing here (and is noted)",
+      "no capability grants tauris-ui:default" in out and f'"platforms": ["{ELSEWHERE}"]' in out and code == 1, out[-400:])
+out, code = app(page=TABS, rust=GOOD_RUST + START, capability={**GOOD_CAP, "platforms": [HERE_OS]})
+check("a capability only for this system works here, and the others are noted", code == 0 and "its windows get none of it" in out, out[-400:])
+out, code = app(conf={"bundle": {"macOS": {"minimumSystemVersion": "11.0"}}})
+check("macOS 11 or later asked for: no note about the engine", code == 0 and "WebKit is older" not in out, out[-400:])
+
 # ---------- every note is said when it applies ----------
 WINDOWS = {"withGlobalTauri": True, "windows": [{"title": "x"}]}
 TABS_APP = {"page": TABS, "rust": GOOD_RUST + START}
@@ -310,6 +377,8 @@ other_copy = Path(tempfile.mkdtemp(prefix="tauris-copy-"))
 for name, kwargs, says in [
     ("a lock without tauris-ui", {"root_files": {"src-tauri/Cargo.lock": "# nothing yet\n"}}, "Cargo.lock has no tauris-ui yet"),
     ("no lock", {}, "no Cargo.lock yet"),
+    ("macOS before 11", {}, "whose WebKit is older than the components need"),
+    ("macOS 10.15 asked for", {"conf": {"bundle": {"macOS": {"minimumSystemVersion": "10.15"}}}}, "installs on macOS 10.15"),
     ("windows not known", {"page": "<script>TaurisFiles.mount(el)</script>"}, "could not tell which windows the app opens"),
     ("no default menu", TABS_APP, "no tauris_ui::default_menu"),
     ("layers", {"page": "<style>@layer reset { p { margin: 0 } }</style><script>TaurisFiles.mount(el, { pick: f })</script>"}, "the app's CSS uses layers"),

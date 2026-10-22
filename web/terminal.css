@@ -99,8 +99,8 @@
     --tm-red: #ff4438;
     --tm-yellow: #ffe14d;
     --tm-key: #5a5a5a;
-    --tm-ink: #000;                 /* text on amber, green and yellow */
-    --tm-ink-light: #fff;           /* text on red and grey */
+    --tm-ink: #000;                 /* text on amber, green, yellow and red (6:1 on red; white is 3.4:1) */
+    --tm-ink-light: #fff;           /* text on grey */
     --tm-key-shade: rgb(0 0 0 / 0.35);
     --tm-flash: rgb(255 164 36 / 0.22);
     --tm-select: rgb(255 164 36 / 0.35);
@@ -236,7 +236,7 @@
   .tm-band[data-tm-state="ok"] { background: var(--tm-green); }
 
   .tm-pane[data-tm-state="error"] > .tm-band,
-  .tm-band[data-tm-state="error"] { color: var(--tm-ink-light); background: var(--tm-red); }
+  .tm-band[data-tm-state="error"] { color: var(--tm-ink); background: var(--tm-red); }
 
   .tm-pane-body {
     display: grid;
@@ -311,7 +311,7 @@
   }
 
   .tm-key.tm-go { color: var(--tm-ink); background: var(--tm-green); }
-  .tm-key.tm-cancel { color: var(--tm-ink-light); background: var(--tm-red); }
+  .tm-key.tm-cancel { color: var(--tm-ink); background: var(--tm-red); }
   .tm-key.tm-yellow { color: var(--tm-ink); background: var(--tm-yellow); }
   /* a toggle key that is off */
   .tm-key[aria-pressed="false"] { color: var(--tm-white); background: var(--tm-key); }

@@ -9,7 +9,10 @@
   let active = window.__noActive ? null : tabs[0].id; // __noActive: a window with no active tab
   const listeners = {};
   window.__calls = [];
-  const emit = (event, payload) => (listeners[event] || []).forEach(fn => fn({ payload }));
+  // Like Rust: what it tells the strip is handed to this page (window.__taurisUiDeliver), not sent as an event.
+  const emit = (event, payload) => event.startsWith("tauris-ui:")
+    ? window.__taurisUiDeliver?.(event, payload)
+    : (listeners[event] || []).forEach(fn => fn({ payload }));
   const changed = () => emit("tauris-ui:state-changed", "tabs-1");
   const commands = {
     window_state: () => ({ label: "tabs-1", tabs: JSON.parse(JSON.stringify(tabs)), active }),
@@ -49,6 +52,16 @@
     },
     close_asked: () => { window.__closeAsked = (window.__closeAsked || 0) + 1; },
     close_window: () => { window.__windowClosed = (window.__windowClosed || 0) + 1; },
+    // window.__others: the other windows Rust would list ([{ label, title }]).
+    other_windows: () => window.__others || [],
+    move_to_window: ({ tab, target }) => {
+      const i = tabs.findIndex(t => t.id === tab);
+      if (i < 0) return;
+      (window.__movedTo ||= []).push([tabs[i].title, target]);
+      tabs.splice(i, 1);
+      if (active === tab && tabs.length) active = tabs[Math.min(i, tabs.length - 1)].id;
+      changed();
+    },
     move_to_new_window: ({ tab }) => {
       const i = tabs.findIndex(t => t.id === tab);
       if (i < 0 || tabs.length < 2) return;
@@ -74,6 +87,7 @@
     },
     event: {
       listen: async (event, fn) => {
+        (window.__listened ||= []).push(event);
         (listeners[event] ||= []).push(fn);
         return () => { listeners[event] = listeners[event].filter(f => f !== fn); };
       },

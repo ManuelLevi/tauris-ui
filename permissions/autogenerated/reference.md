@@ -16,6 +16,8 @@ Lets a window use the tab strip (read its tabs, open, close, move and drag them)
 - `allow-set-close-guard`
 - `allow-close-window`
 - `allow-move-to-new-window`
+- `allow-other-windows`
+- `allow-move-to-window`
 - `allow-close-asked`
 - `allow-pick-files`
 - `allow-save-dialog`
@@ -214,6 +216,32 @@ Denies the move_to_new_window command without any pre-configured scope.
 <tr>
 <td>
 
+`tauris-ui:allow-move-to-window`
+
+</td>
+<td>
+
+Enables the move_to_window command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-move-to-window`
+
+</td>
+<td>
+
+Denies the move_to_window command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tauris-ui:allow-new-tab`
 
 </td>
@@ -259,6 +287,32 @@ Enables the open_tab command without any pre-configured scope.
 <td>
 
 Denies the open_tab command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:allow-other-windows`
+
+</td>
+<td>
+
+Enables the other_windows command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tauris-ui:deny-other-windows`
+
+</td>
+<td>
+
+Denies the other_windows command without any pre-configured scope.
 
 </td>
 </tr>

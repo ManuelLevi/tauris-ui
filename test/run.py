@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from engine import WEBKIT, launch
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -84,7 +85,7 @@ for _name, _set in (("light", _light), ("dark", _dark)):
 
 with sync_playwright() as p:
     # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
-    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
+    browser = launch(p)
 
     # --- rendering ---
     page = fresh(browser)
@@ -113,7 +114,7 @@ with sync_playwright() as p:
     page.locator(".tt-tab").nth(0).click(button="right")
     page.wait_for_selector(".tt-menu")
     labels = page.evaluate("[...document.querySelectorAll('.tt-menu-item .tt-menu-label')].map(e => e.textContent)")
-    check("right click opens the menu", labels == ["New tab", "Close tab", "Close other tabs", "Close tabs to the right", "Move to new window"], labels)
+    check("right click opens the menu", labels == ["New tab", "Close tab", "Close other tabs", "Close tabs to the right", "Move left", "Move right", "Move to new window"], labels)
     shot(page, "2_menu")
     page.keyboard.press("Escape")
     check("Escape closes the menu", page.locator(".tt-menu").count() == 0)
@@ -130,7 +131,7 @@ with sync_playwright() as p:
     check("Close other tabs keeps only that tab", titles(page) == ["Tab 1"], titles(page))
     page.locator(".tt-tab").nth(0).click(button="right")
     disabled = page.evaluate("[...document.querySelectorAll('.tt-menu-item')].filter(b => b.getAttribute('aria-disabled') === 'true').map(b => b.textContent)")
-    check("items that do nothing are disabled", len(disabled) == 3, disabled)
+    check("items that do nothing are disabled", len(disabled) == 5, disabled)
     page.keyboard.press("Escape")
     page.close()
 
@@ -587,11 +588,13 @@ with sync_playwright() as p:
       children: [{ id: 'b', label: 'One' }, { id: 'c', label: 'Two', expanded: true, children: [{ id: 'd', label: 'Three' }] }] }] })""")
     page.wait_for_timeout(100)
     box = page.locator("#t").bounding_box()
+    # What the tree caused (Playwright's screenshot adds a <style> of its own, which WebKit's policy refuses).
+    caused = list(errors)
     shot_bytes = page.screenshot(clip={"x": box["x"], "y": box["y"], "width": 40, "height": 80})
     from io import BytesIO
     from PIL import Image
     pixels = set(Image.open(BytesIO(shot_bytes)).convert("RGB").getdata())
-    check("under a strict content policy the tree still draws its lines and boxes", len(pixels) > 3 and not errors, (len(pixels), errors))
+    check("under a strict content policy the tree still draws its lines and boxes", len(pixels) > 3 and not caused, (len(pixels), caused))
     page.close()
 
     # --- the tree: keyboard between cells, row names, warnings, hidden mounts, high contrast ---
@@ -646,13 +649,15 @@ with sync_playwright() as p:
     check("a tree mounted while hidden still scrolls the selected row fully into view", fits)
     page.close()
 
-    page = tree_page()
-    page.emulate_media(forced_colors="active")
-    page.evaluate("""const d = document.createElement('div'); d.style.height = '200px'; document.body.append(d);
-      window.tree = TaurisTree.mount(d, { data: [{ id: 'a', label: 'Root', children: [{ id: 'b', label: 'Child' }] }] }); tree.select('a')""")
-    adjust = page.evaluate("[getComputedStyle(document.querySelector('.tv-box')).forcedColorAdjust, getComputedStyle(document.querySelector('[aria-selected=true]')).forcedColorAdjust]")
-    check("high-contrast mode keeps the boxes and the selection drawn", adjust == ["none", "none"], adjust)
-    page.close()
+    # Forced colours are Windows's (WebView2, Chromium): WebKit has none to test.
+    if not WEBKIT:
+        page = tree_page()
+        page.emulate_media(forced_colors="active")
+        page.evaluate("""const d = document.createElement('div'); d.style.height = '200px'; document.body.append(d);
+          window.tree = TaurisTree.mount(d, { data: [{ id: 'a', label: 'Root', children: [{ id: 'b', label: 'Child' }] }] }); tree.select('a')""")
+        adjust = page.evaluate("[getComputedStyle(document.querySelector('.tv-box')).forcedColorAdjust, getComputedStyle(document.querySelector('[aria-selected=true]')).forcedColorAdjust]")
+        check("high-contrast mode keeps the boxes and the selection drawn", adjust == ["none", "none"], adjust)
+        page.close()
 
     # --- a fifth review ---
     page = fresh(browser, """{ renderTab: tab => { const t = document.createElement('span'); t.className = 'tt-title'; t.textContent = tab.title;
@@ -1003,6 +1008,61 @@ with sync_playwright() as p:
     check("tabs moving around the one with the focus (no moveBefore): it keeps the focus all along",
           titles(page) == ["Tab 2", "Tab 3", "Tab 1"] and page.evaluate("[document.activeElement === node, blurred]") == [True, 0],
           (titles(page), page.evaluate("[document.activeElement === node, blurred]")))
+    page.close()
+
+    # Moving a tab from the keyboard, and into another window from its menu.
+    page = fresh(browser, before="window.__others = [{ label: 'tabs-2', title: 'Board minutes' }]")
+    page.locator(".tt-tab").nth(0).focus()
+    page.keyboard.press("Control+Shift+ArrowRight")
+    moved = (titles(page), page.evaluate("document.activeElement.textContent.trim()"), page.evaluate("__calls.filter(c => c[0] === 'move_tab').map(c => c[1].index)"))
+    page.keyboard.press("Control+Shift+PageUp")
+    back = titles(page)
+    page.keyboard.press("Control+Shift+ArrowLeft")
+    check("Ctrl+Shift+→ / Page Up move the focused tab along the strip (and Rust hears it); not past the first",
+          moved == (["Tab 2", "Tab 1", "Tab 3"], "Tab 1", [1]) and back == ["Tab 1", "Tab 2", "Tab 3"] and titles(page) == back, (moved, back, titles(page)))
+    page.keyboard.press("Shift+F10")
+    page.wait_for_function("[...document.querySelectorAll('.tt-menu-item')].some(i => i.textContent.includes('Board minutes'))")
+    items = page.evaluate("[...document.querySelectorAll('.tt-menu-item')].map(i => [i.querySelector('.tt-menu-label').textContent, i.getAttribute('aria-disabled')])")
+    focused = page.evaluate("document.activeElement.textContent")
+    page.locator(".tt-menu-item", has_text="Board minutes").click()
+    page.wait_for_timeout(200)
+    check("the tab menu: Move left (off on the first tab), Move right, and Move to each other window, the focus kept as it grows",
+          ["Move left", "true"] in items and ["Move right", None] in items and ["Move to “Board minutes”", None] in items and focused.startswith("New tab"), (items, focused))
+    check("Move to another window: Rust moves the tab there", page.evaluate("window.__movedTo") == [["Tab 1", "tabs-2"]] and titles(page) == ["Tab 2", "Tab 3"],
+          (page.evaluate("window.__movedTo"), titles(page)))
+    page.close()
+
+    page = fresh(browser)
+    page.evaluate("document.body.focus(); 0")
+    page.keyboard.press("Control+Shift+PageDown")
+    check("Ctrl+Shift+Page Down anywhere moves the active tab", titles(page) == ["Tab 2", "Tab 1", "Tab 3"], titles(page))
+    page.locator(".tt-tab").nth(1).focus()
+    page.keyboard.press("Shift+F10")
+    page.wait_for_timeout(200)
+    check("no other window: no Move to items", page.locator(".tt-menu-item", has_text="Move to “").count() == 0)
+    page.keyboard.press("Escape")
+    page.close()
+
+    # A tab from another window: hovering, leaving, landing (Rust hands these to this page alone).
+    page = fresh(browser)
+    page.evaluate("window.drops = []; tabs.on('drop', d => drops.push([d.tab && d.tab.title, d.index])); 0")
+    page.evaluate("__emit('tauris-ui:drop-hover', { label: 'tabs-1', index: 2, title: 'Report', dropped: null }); 0")
+    ghost = page.locator(".tt-ghost").count()
+    page.evaluate("__emit('tauris-ui:drop-hover', { label: 'tabs-1', index: null, title: '', dropped: null }); 0")
+    page.wait_for_timeout(100)
+    left = (page.locator(".tt-ghost").count(), page.evaluate("drops"))
+    page.evaluate("__emit('tauris-ui:drop-hover', { label: 'tabs-1', index: 1, title: 'Report', dropped: null }); 0")
+    page.evaluate("""(async () => { const id = await __TAURI__.core.invoke('plugin:tauris-ui|open_tab', { title: 'Report', fields: {} });
+      __TAURI__.core.invoke('plugin:tauris-ui|move_tab', { tab: id, index: 1 }); __emit('tauris-ui:drop-hover', { label: 'tabs-1', index: 1, title: '', dropped: id }); })(); 0""")
+    page.wait_for_timeout(300)
+    check("a tab from another window: hovering shows where, leaving drops nothing, landing says which tab and where",
+          ghost == 1 and left == (0, []) and page.evaluate("drops") == [["Report", 1]] and page.locator(".tt-ghost").count() == 0,
+          (ghost, left, page.evaluate("drops")))
+    page.evaluate("__emit('tauris-ui:drop-hover', { label: 'tabs-2', index: 0, title: 'Elsewhere', dropped: null }); 0")
+    check("another window's hover is not this strip's", page.locator(".tt-ghost").count() == 0)
+    check("the strip hears Rust without Tauri's events (which every listening page would get too)",
+          page.evaluate("typeof window.__taurisUiDeliver") == "function" and page.evaluate("(window.__listened || []).filter(e => e.startsWith('tauris-ui:'))") == [],
+          page.evaluate("window.__listened || []"))
     page.close()
 
     # --- the example app's page (examples/basic/ui), as a new app starts from it ---

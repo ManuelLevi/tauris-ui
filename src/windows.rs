@@ -7,7 +7,7 @@ use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 pub(crate) const STATE_CHANGED: &str = "tauris-ui:state-changed";
 pub(crate) const DROP_HOVER: &str = "tauris-ui:drop-hover";
@@ -389,11 +389,21 @@ fn run_hook<R: Runtime>(app: &AppHandle<R>, label: &str) {
     }
 }
 
+// What Rust tells a window's strip (its tabs changed, a tab hovering it, a
+// close asked) is handed to that window's page alone. An event would reach
+// every page that listens for events, other windows' too, and a tab's title is
+// people's own (a client's name, a document's).
+pub(crate) fn tell_page<R: Runtime, S: serde::Serialize>(app: &AppHandle<R>, label: &str, event: &str, payload: S) {
+    let Some(window) = app.get_webview_window(label) else { return };
+    let (Ok(event), Ok(payload)) = (serde_json::to_string(event), serde_json::to_string(&payload)) else { return };
+    let _ = window.eval(format!("window.__taurisUiDeliver && window.__taurisUiDeliver({event}, {payload})"));
+}
+
 // Tells the page of window `label` that its tabs changed, then the app. Never
 // call it with the lock held: the app's hook may use the tabs.
 pub(crate) fn notify<R: Runtime>(app: &AppHandle<R>, label: &str) {
     inner(app).model().changed();
-    let _ = app.emit(STATE_CHANGED, label.to_string());
+    tell_page(app, label, STATE_CHANGED, label);
     if std::env::var_os("TAURIS_UI_LOG").is_some() {
         log_layout(app);
     }
@@ -470,9 +480,11 @@ fn build_window<R: Runtime>(
     if let Some(hook) = &config.window_hook {
         builder = hook(builder);
     }
+    // A window coming back keeps its place and size, whatever the hook set (a size
+    // there is the one a new window opens at).
     builder = match frame {
-        Some(f) if !f.centre => builder.position(f.x, f.y).maximized(f.maximized),
-        Some(f) => builder.center().maximized(f.maximized),
+        Some(f) if !f.centre => builder.inner_size(f.width, f.height).position(f.x, f.y).maximized(f.maximized),
+        Some(f) => builder.inner_size(f.width, f.height).center().maximized(f.maximized),
         None => builder.center(),
     };
     builder.build()
@@ -679,7 +691,7 @@ pub(crate) fn request_close<R: Runtime>(app: &AppHandle<R>, tab: u64) {
     let Some(label) = label_of_tab(app, tab) else { return };
     let guarded = inner(app).model().win(&label).is_some_and(|w| w.guarded);
     if guarded {
-        let _ = app.emit(CLOSE_REQUEST, CloseRequest { label, tab });
+        tell_page(app, &label, CLOSE_REQUEST, CloseRequest { label: label.clone(), tab });
     } else {
         remove_tab(app, &label, tab);
     }
@@ -739,7 +751,7 @@ pub(crate) fn ask_before_window_closes<R: Runtime>(app: &AppHandle<R>, label: &s
         kept_open_after_all(app, label);
     }
     if ask {
-        let _ = app.emit(CLOSE_WINDOW_REQUEST, label.to_string());
+        tell_page(app, label, CLOSE_WINDOW_REQUEST, label);
     }
     ask
 }
@@ -823,6 +835,66 @@ pub(crate) fn move_to_new_window<R: Runtime>(app: &AppHandle<R>, tab: u64) -> ta
     notify(app, &source);
     changed(app, &label);
     Ok(Some(label))
+}
+
+// Moves a tab to the end of another open window's strip, where it is the
+// active tab, and brings that window up. A window left with no tab closes
+// (as when its last tab is dragged away). False when the tab or the window is
+// not there, or the tab is in that window already.
+pub(crate) fn move_to_window<R: Runtime>(app: &AppHandle<R>, tab: u64, target: &str) -> bool {
+    let (source, alone) = {
+        let mut m = inner(app).model();
+        let Some(source) = m.wins.iter().find(|w| w.tabs.contains(&tab)).map(|w| w.label.clone()) else {
+            return false;
+        };
+        if source == target || !m.takes_tabs(target) {
+            return false;
+        }
+        let alone = m.win(&source).is_some_and(|w| w.tabs.len() == 1);
+        if alone {
+            m.take_win(&source, tab);
+        } else {
+            m.detach(&source, tab);
+        }
+        m.attach(target, tab, usize::MAX);
+        (source, alone)
+    };
+    notify(app, target);
+    if alone {
+        changed(app, &source);
+        if let Some(w) = app.get_webview_window(&source) {
+            let _ = w.destroy();
+        }
+    } else {
+        notify(app, &source);
+    }
+    bring_up(app, target);
+    true
+}
+
+/// Another window of tabs, as the tab menu's "Move to" lists it.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct OtherWindow {
+    /// The window's label (`tabs-2`, ...).
+    pub label: String,
+    /// What its window shows as its title: its active tab's.
+    pub title: String,
+}
+
+// The open windows of tabs besides `label`, the most recently in front first.
+pub(crate) fn other_windows<R: Runtime>(app: &AppHandle<R>, label: &str) -> Vec<OtherWindow> {
+    let m = inner(app).model();
+    let mut others: Vec<_> = m
+        .wins
+        .iter()
+        .filter(|w| w.label != label && !w.opening && !w.leaving)
+        .map(|w| {
+            let title = w.active.and_then(|a| m.tabs.get(&a)).map(|t| t.title.clone()).unwrap_or_default();
+            (w.focused, OtherWindow { label: w.label.clone(), title })
+        })
+        .collect();
+    others.sort_by(|a, b| b.0.cmp(&a.0));
+    others.into_iter().map(|(_, w)| w).collect()
 }
 
 // ⇧⌘W: closes the focused window, whatever it is.

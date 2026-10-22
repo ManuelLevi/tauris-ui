@@ -54,7 +54,7 @@ mod platform;
 mod runtime_tests;
 mod windows;
 
-pub use config::Config;
+pub use config::{Component, Config};
 pub use menu::{default_menu, file_menu};
 
 /// Menu item ids the plugin answers, for a menu in your own words:
@@ -63,7 +63,7 @@ pub mod menu_ids {
     pub use crate::menu::{CLOSE_TAB, CLOSE_WINDOW, NEW_TAB, NEW_WINDOW};
 }
 pub use model::{Fields, NewTab, Tab};
-pub use windows::WindowTabs;
+pub use windows::{OtherWindow, WindowTabs};
 
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::webview::PageLoadEvent;
@@ -84,9 +84,10 @@ const MENUS_SCRIPT: &str = include_str!("../web/menus.js");
 const MENUS_STYLE: &str = include_str!("../web/menus.css");
 
 // The page scripts carry their stylesheets and the version, so one crate
-// delivers everything. Each component adds its stylesheet only when a page
-// mounts it. The strip's left inset follows where the window buttons are.
-fn page_script<R: Runtime>(config: &Config<R>) -> String {
+// delivers everything (the components the app asked for). Each component adds
+// its stylesheet only when a page mounts it. The strip's left inset follows
+// where the window buttons are.
+pub(crate) fn page_script<R: Runtime>(config: &Config<R>) -> String {
     let inset = match config.traffic_lights {
         Some((x, _)) if cfg!(target_os = "macos") => x + 68.0,
         _ => 8.0,
@@ -103,7 +104,18 @@ fn page_script<R: Runtime>(config: &Config<R>) -> String {
         FILES_SCRIPT.replace("\"__TAURIS_FILES_CSS__\"", &serde_json::to_string(FILES_STYLE).unwrap_or_default());
     let menus =
         MENUS_SCRIPT.replace("\"__TAURIS_MENUS_CSS__\"", &serde_json::to_string(MENUS_STYLE).unwrap_or_default());
-    format!("{tabs}\n;\n{tree}\n;\n{terminal}\n;\n{files}\n;\n{menus}")
+    [
+        (Component::Tabs, tabs),
+        (Component::Tree, tree),
+        (Component::Terminal, terminal),
+        (Component::Files, files),
+        (Component::Menus, menus),
+    ]
+    .into_iter()
+    .filter(|(c, _)| config.components.contains(c))
+    .map(|(_, script)| script)
+    .collect::<Vec<_>>()
+    .join("\n;\n")
 }
 
 /// The plugin. Register it with `.plugin(tauris_ui::init(config))`.
@@ -123,6 +135,8 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
             commands::set_close_guard,
             commands::close_window,
             commands::move_to_new_window,
+            commands::other_windows,
+            commands::move_to_window,
             commands::close_asked,
             commands::pick_files,
             commands::save_dialog,
@@ -336,6 +350,13 @@ impl<R: Runtime> Tabs<R> {
     /// there is no such tab.
     pub fn move_to_new_window(&self, tab: u64) -> tauri::Result<Option<String>> {
         windows::move_to_new_window(&self.0, tab)
+    }
+
+    /// Moves a tab into another open window, at the end of its strip, where it
+    /// becomes the active tab (the menu's "Move to"). A window left with no tab
+    /// closes. False when there is no such tab or window, or the tab is there already.
+    pub fn move_to_window(&self, tab: u64, label: &str) -> bool {
+        windows::move_to_window(&self.0, tab, label)
     }
 
     /// How many windows of tabs are open.

@@ -1635,3 +1635,47 @@ fn a_tab_moved_to_a_window_that_failed_to_open_comes_back() {
     let w = &app.tabs().windows()[0];
     assert_eq!(app.tabs().tab(w.active.unwrap()).unwrap().title, "Notes");
 }
+
+// Only the components the app names go in its pages; the files table brings
+// the menus (its row menu).
+#[test]
+fn only_the_components_asked_for_go_in_the_pages() {
+    use crate::Component;
+    let has = |script: &str| {
+        ["TaurisTabs", "TaurisTree", "TaurisTerminal", "TaurisFiles", "TaurisMenu"]
+            .map(|name| script.contains(&format!("window.{name} = ")))
+    };
+    assert_eq!(has(&crate::page_script(&quiet())), [true; 5]);
+    assert_eq!(has(&crate::page_script(&quiet().components(&[Component::Tabs]))), [true, false, false, false, false]);
+    let files = crate::page_script(&quiet().components(&[Component::Tree, Component::Files]));
+    assert_eq!(has(&files), [false, true, false, true, true]);
+    assert!(files.len() < crate::page_script(&quiet()).len());
+}
+
+// "Move to" another window: the tab goes to the end of that strip, active
+// there; a window left with no tab closes. The page's list names the other
+// windows by their active tab, the one in front first.
+#[test]
+fn a_tab_moves_into_another_window() {
+    let app = app(quiet());
+    app.tabs().start().unwrap();
+    let a = app.tabs().windows()[0].label.clone();
+    let second = app.tabs().open_in(&a, NewTab::new("Notes")).unwrap();
+    let b = app.tabs().new_window_with(NewTab::new("Report")).unwrap();
+    assert_eq!(
+        windows::other_windows(app.handle(), &a).iter().map(|w| (w.label.clone(), w.title.clone())).collect::<Vec<_>>(),
+        vec![(b.clone(), "Report".to_string())]
+    );
+    assert!(!app.tabs().move_to_window(second, &a), "already there");
+    assert!(!app.tabs().move_to_window(second, "nowhere"));
+    assert!(app.tabs().move_to_window(second, &b));
+    assert_eq!(titles(&app), vec![vec!["Home".to_string()], vec!["Report".to_string(), "Notes".to_string()]]);
+    let in_b = app.tabs().windows().into_iter().find(|w| w.label == b).unwrap();
+    assert_eq!(in_b.active, Some(second));
+    // The last tab of a window moved away: that window closes.
+    let home = app.tabs().windows()[0].tabs[0].id;
+    assert!(app.tabs().move_to_window(home, &b));
+    assert_eq!(app.tabs().window_count(), 1);
+    assert_eq!(titles(&app), vec![vec!["Report".to_string(), "Notes".to_string(), "Home".to_string()]]);
+    assert!(windows::other_windows(app.handle(), &b).is_empty());
+}

@@ -7,13 +7,16 @@ use crate::windows::{inner, notify, open_window, DROP_HOVER};
 use serde::Serialize;
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, LogicalPosition, Manager, Runtime, WebviewWindow};
+use tauri::{AppHandle, LogicalPosition, Manager, Runtime, WebviewWindow};
 
 #[derive(Clone, Serialize)]
 struct Hover {
     label: String,
+    // Where the tab would land, while it hovers; none once it leaves (or lands).
     index: Option<usize>,
     title: String,
+    // The tab that landed here, on a drop (and only then).
+    dropped: Option<u64>,
 }
 
 // The page calls this once a dragged tab leaves its strip. A tab that is alone
@@ -145,7 +148,18 @@ fn tab_title<R: Runtime>(app: &AppHandle<R>, tab: u64) -> String {
 }
 
 fn send_hover<R: Runtime>(app: &AppHandle<R>, label: &str, index: Option<usize>, title: &str) {
-    let _ = app.emit(DROP_HOVER, Hover { label: label.into(), index, title: title.into() });
+    crate::windows::tell_page(
+        app,
+        label,
+        DROP_HOVER,
+        Hover { label: label.into(), index, title: title.into(), dropped: None },
+    );
+}
+
+// The tab landed in `label`'s strip: its page tells the app which tab, and where.
+fn send_landed<R: Runtime>(app: &AppHandle<R>, label: &str, tab: u64, index: usize) {
+    let hover = Hover { label: label.into(), index: Some(index), title: String::new(), dropped: Some(tab) };
+    crate::windows::tell_page(app, label, DROP_HOVER, hover);
 }
 
 // Moves the dragged window with the mouse until the button is released.
@@ -244,8 +258,9 @@ pub(crate) fn finish<R: Runtime>(
     if let Some(w) = m.win(&target) {
         w.active = Some(tab);
     }
+    let landed = m.win(&target).and_then(|w| w.tabs.iter().position(|t| *t == tab)).unwrap_or(index);
     drop(m);
-    send_hover(app, &target, None, "");
+    send_landed(app, &target, tab, landed);
     notify(app, &target);
     // The dragged window is gone from the layout: the app hears of it too.
     if window.label() != target {

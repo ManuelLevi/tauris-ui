@@ -25,6 +25,12 @@ declare global {
     closeOthers: string;
     closeRight: string;
     moveToWindow: string;
+    moveLeft: string;
+    moveRight: string;
+    /** "Move to “…”": another open window, named by its active tab's title. */
+    moveToOther: string | ((title: string) => string);
+    moveLeftShortcut: string;
+    moveRightShortcut: string;
     newTabShortcut: string;
     closeTabShortcut: string;
   }

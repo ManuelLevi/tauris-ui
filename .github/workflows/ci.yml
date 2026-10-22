@@ -32,14 +32,9 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo clippy --all-targets --features files -- -D warnings
-      # On Windows a test program that links Tauri needs an app manifest to
-      # start (STATUS_ENTRYPOINT_NOT_FOUND without one), which only real apps
-      # get from tauri-build. There the tests are compiled; they run on macOS
-      # and Linux, and the example app below builds on all three.
-      - if: runner.os != 'Windows'
-        run: cargo test && cargo test --features files
-      - if: runner.os == 'Windows'
-        run: cargo test --no-run && cargo test --no-run --features files
+      # Every system runs the window tests (on Windows the test program gets the
+      # app manifest Tauri needs from build.rs).
+      - run: cargo test && cargo test --features files
       - name: Example app builds, without warnings
         working-directory: examples/basic/src-tauri
         run: cargo clippy -- -D warnings && cargo build
@@ -99,3 +94,23 @@ jobs:
       - run: python test/files_run.py
       - run: python test/menus_run.py
       - run: python test/doctor_run.py
+
+  # WebKit: what Tauri renders with on macOS (WKWebView) and Linux (WebKitGTK).
+  page-webkit:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    env:
+      TAURIS_TEST_WEBKIT: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # The WebKit that comes with this Playwright: the same browser every day.
+      - run: pip install playwright==1.48.0 pillow && python -m playwright install webkit
+      - run: python test/run.py
+      - run: python test/tree_run.py
+      - run: python test/terminal_run.py
+      - run: python test/files_run.py
+      - run: python test/menus_run.py

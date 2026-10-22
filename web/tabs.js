@@ -21,6 +21,15 @@
   const DROP_HOVER = "tauris-ui:drop-hover";
   const CLOSE_REQUEST = "tauris-ui:close-request";
   const CLOSE_WINDOW_REQUEST = "tauris-ui:close-window-request";
+  // What Rust tells this window's strip is handed to this page alone (Rust
+  // calls window.__taurisUiDeliver), never sent as an event every page hears.
+  const fromRust = new Map(); // name -> the strips' handlers
+  Object.defineProperty(window, "__taurisUiDeliver", {
+    configurable: true,
+    value: (name, payload) => {
+      for (const fn of [...(fromRust.get(name) ?? [])]) fn({ payload });
+    },
+  });
 
   const CLOSE_SVG = '<svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M1.2 1.2l7.6 7.6M8.8 1.2L1.2 8.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
   const PLUS_SVG = '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M6 1.2v9.6M1.2 6h9.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
@@ -35,8 +44,14 @@
     closeOthers: "Close other tabs",
     closeRight: "Close tabs to the right",
     moveToWindow: "Move to new window",
+    moveLeft: "Move left",
+    moveRight: "Move right",
+    // another open window, named by what it shows (its active tab)
+    moveToOther: title => `Move to “${title}”`,
     newTabShortcut: `${KEY}T`,
     closeTabShortcut: `${KEY}W`,
+    moveLeftShortcut: MAC ? "⌃⇧←" : "Ctrl+Shift+←",
+    moveRightShortcut: MAC ? "⌃⇧→" : "Ctrl+Shift+→",
   };
 
   const DEFAULTS = {
@@ -128,7 +143,6 @@
     if (opt.styles) addStyles();
 
     const { invoke } = window.__TAURI__.core;
-    const { listen } = window.__TAURI__.event;
     const ME = window.__TAURI__.webviewWindow.getCurrentWebviewWindow().label;
     const life = new AbortController();
     const signal = life.signal;
@@ -300,7 +314,7 @@
       menuReturnTab = null;
     }
 
-    function defaultItems(tab) {
+    function defaultItems(tab, others) {
       const at = tab ? tabs.findIndex(t => t.id === tab.id) : -1;
       const items = [{ label: L.newTab, shortcut: L.newTabShortcut, action: () => quiet(call("new_tab")) }];
       if (tab) {
@@ -313,15 +327,44 @@
             if (now >= 0) quiet(closeAll(tabs.slice(now + 1)));
           } },
           "-",
-          { label: L.moveToWindow, disabled: tabs.length < 2, action: () => quiet(call("move_to_new_window", { tab: tab.id })) });
+          // Where the tab is when chosen, as for closing those to its right.
+          { label: L.moveLeft, shortcut: L.moveLeftShortcut, disabled: at <= 0, action: () => moveBy(tab.id, -1) },
+          { label: L.moveRight, shortcut: L.moveRightShortcut, disabled: at >= tabs.length - 1, action: () => moveBy(tab.id, 1) },
+          { label: L.moveToWindow, disabled: tabs.length < 2, action: () => quiet(call("move_to_new_window", { tab: tab.id })) },
+          // The other open windows, once Rust has said which (the menu shows at once, and grows).
+          ...(others ?? []).map(w => ({ label: say(L.moveToOther, w.title || w.label),
+            action: () => quiet(call("move_to_window", { tab: tab.id, target: w.label })) })));
       }
       return items;
     }
 
-    function openMenu(x, y, tab, returnFocus) {
+    // A label given as text, or as a function of what it names.
+    const say = (label, value) => String(typeof label === "function" ? label(value) : label);
+
+    // The tab one place along the strip (the keys, the menu): Rust hears the new order.
+    function moveBy(id, step) {
+      const at = tabs.findIndex(t => t.id === id);
+      const to = at + step;
+      if (at < 0 || to < 0 || to >= tabs.length) return;
+      const next = tabs.slice();
+      const [tab] = next.splice(at, 1);
+      next.splice(to, 0, tab);
+      tabs = next;
+      render();
+      local(call("move_tab", { tab: id, index: to }));
+    }
+
+    function openMenu(x, y, tab, returnFocus, others = null) {
       if (!opt.contextMenu) return;
-      closeMenu();
-      let items = defaultItems(tab);
+      // Rebuilt with the other windows: the item with the focus keeps it.
+      const again = others !== null && menu ? menuItems().indexOf(document.activeElement) : -1;
+      if (others !== null && menu) {
+        menu.remove();
+        menu = null;
+      } else {
+        closeMenu();
+      }
+      let items = defaultItems(tab, others);
       if (typeof opt.contextMenu === "function") items = opt.contextMenu(tab, items) || items;
       if (!items.length) return;
       menu = el("div", "tt-menu", { role: "menu", tabindex: "-1", "aria-label": tab ? tab.title : L.tabs }, items.map(item => {
@@ -341,14 +384,23 @@
       const { width, height } = menu.getBoundingClientRect();
       menu.style.left = `${Math.max(0, Math.min(x, window.innerWidth - width - 4))}px`;
       menu.style.top = `${Math.max(0, Math.min(y, window.innerHeight - height - 4))}px`;
-      menuReturn = returnFocus ?? null;
-      menuReturnTab = returnFocus && tab ? tab.id : null;
-      menuItems()[0]?.focus({ preventScroll: true });
+      if (others === null) {
+        menuReturn = returnFocus ?? null;
+        menuReturnTab = returnFocus && tab ? tab.id : null;
+      }
+      menuItems()[Math.max(0, again)]?.focus({ preventScroll: true });
       menu.addEventListener("keydown", onMenuKey);
       // A press on its padding or a line keeps the focus (and the keys) in the menu.
       menu.addEventListener("pointerdown", e => {
         if (!e.target.closest(".tt-menu-item")) e.preventDefault();
       });
+      // "Move to" another window: the list comes from Rust (none if it is refused).
+      if (tab && others === null) {
+        const shown = menu;
+        call("other_windows").then(list => {
+          if (menu === shown && !signal.aborted && Array.isArray(list) && list.length) openMenu(x, y, tab, returnFocus, list);
+        }, () => {});
+      }
     }
 
     const menuItems = () => menu ? [...menu.querySelectorAll('.tt-menu-item:not([aria-disabled="true"])')] : [];
@@ -556,6 +608,13 @@
         activate(next.id);
         tabEl(next.id)?.focus();
       };
+      // Ctrl+Shift+← / → (or Page Up / Down, as in browsers) moves the tab itself.
+      const along = { ArrowLeft: -1, ArrowRight: 1, PageUp: -1, PageDown: 1 }[e.key];
+      if (along && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        moveBy(tabs[at].id, along);
+        return;
+      }
       if (e.key === "ArrowRight") go(at + 1);
       else if (e.key === "ArrowLeft") go(at - 1);
       else if (e.key === "Home") go(0);
@@ -563,6 +622,8 @@
       else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(tabs[at].id); }
       // Held down, Delete closes one tab, not one per repeat.
       else if (e.key === "Delete") { e.preventDefault(); if (!e.repeat) quiet(close(tabs[at].id)); }
+      // Backspace closes nothing, and on a tab WebKit would take it as "go back a page".
+      else if (e.key === "Backspace") e.preventDefault();
       else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
         e.preventDefault();
         const r = node.getBoundingClientRect();
@@ -833,19 +894,29 @@
 
     // ---------- from Rust and the keyboard ----------
 
-    const keep = promise => promise.then(off => { if (signal.aborted) off(); else unlisten.push(off); });
-    keep(listen(STATE_CHANGED, e => { if (e.payload === ME) quiet(load()); }));
-    keep(listen(DROP_HOVER, e => {
-      const { label, index, title } = e.payload;
+    const hear = (name, fn) => {
+      if (!fromRust.has(name)) fromRust.set(name, new Set());
+      fromRust.get(name).add(fn);
+      unlisten.push(() => fromRust.get(name).delete(fn));
+    };
+    hear(STATE_CHANGED, e => { if (e.payload === ME) quiet(load()); });
+    hear(DROP_HOVER, e => {
+      const { label, index, title, dropped } = e.payload;
       if (label !== ME) return;
-      // A tab from another window landed here.
-      if (hover && index === null && !title) emit("drop", { tab: null, index: null });
-      hover = index === null ? null : { index, title };
+      hover = dropped == null && index != null ? { index, title } : null;
       render();
-    }));
-    keep(listen(CLOSE_REQUEST, e => {
+      // A tab from another window landed here: the app hears which, and where, once this strip has it.
+      if (dropped != null) {
+        quiet(current().then(() => {
+          if (signal.aborted) return;
+          const at = tabs.findIndex(t => t.id === dropped);
+          emit("drop", { tab: at >= 0 ? tabs[at] : null, index: at >= 0 ? at : null });
+        }));
+      }
+    });
+    hear(CLOSE_REQUEST, e => {
       if (e.payload?.label === ME) quiet(closeRequested(e.payload.tab));
-    }));
+    });
     // Rust asks to close a tab (⌘W): one this page has not loaded yet (⌘T a
     // moment before) is loaded first; one it never had closes without a question.
     async function closeRequested(id) {
@@ -857,7 +928,7 @@
     // The window's close button: every tab is asked, and the window closes
     // only if all of them agree.
     let askingWindow = false;
-    keep(listen(CLOSE_WINDOW_REQUEST, async e => {
+    hear(CLOSE_WINDOW_REQUEST, async e => {
       if (e.payload !== ME) return;
       quiet(call("close_asked")); // alive: Rust waits for the tabs' answers
       if (askingWindow) return;
@@ -872,7 +943,7 @@
       } finally {
         askingWindow = false;
       }
-    }));
+    });
     // With an onBeforeClose, Rust asks this page before ⌘W or the close button act.
     if (opt.onBeforeClose) quiet(call("set_close_guard", { on: true, seq: ++guardSeq }));
 
@@ -880,6 +951,14 @@
 
     if (opt.shortcuts) {
       document.addEventListener("keydown", e => {
+        // ^⇧Page Up / Down, as in browsers: the active tab moves along the strip
+        // (on a tab itself, its own keys did that).
+        const along = e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey ? { PageUp: -1, PageDown: 1 }[e.key] : undefined;
+        if (along && active != null && !tabsEl.contains(e.target)) {
+          e.preventDefault();
+          moveBy(active, along);
+          return;
+        }
         // ^Tab and ^⇧Tab (or ⌘⇧] and ⌘⇧[, as in Safari) step through this window's tabs.
         const step = e.ctrlKey && e.key === "Tab" ? (e.shiftKey ? -1 : 1)
           : e.metaKey && e.shiftKey && e.code === "BracketRight" ? 1

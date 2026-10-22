@@ -11,6 +11,21 @@ pub(crate) type NewTabHook<R> = dyn Fn(&AppHandle<R>) -> NewTab + Send + Sync;
 pub(crate) type LayoutHook<R> = dyn Fn(&AppHandle<R>) -> Option<PathBuf> + Send + Sync;
 pub(crate) type ChangeHook<R> = dyn Fn(&AppHandle<R>, &str) + Send + Sync;
 
+/// A page component the plugin puts in every page (see [`Config::components`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Component {
+    /// `TaurisTabs`, the strip.
+    Tabs,
+    /// `TaurisTree`, the tree view.
+    Tree,
+    /// `TaurisTerminal`, the terminal look.
+    Terminal,
+    /// `TaurisFiles`, the files table (it brings the menus too, for its row menu).
+    Files,
+    /// `TaurisMenu`, the in-window menus.
+    Menus,
+}
+
 /// How the tabs behave. Every setting has a default; change only what you need.
 pub struct Config<R: Runtime = Wry> {
     pub(crate) window_url: String,
@@ -25,6 +40,7 @@ pub struct Config<R: Runtime = Wry> {
     pub(crate) drop_slack: (f64, f64),
     pub(crate) drag_opacity: f64,
     pub(crate) settle: Duration,
+    pub(crate) components: Vec<Component>,
 }
 
 impl<R: Runtime> Default for Config<R> {
@@ -42,6 +58,7 @@ impl<R: Runtime> Default for Config<R> {
             drop_slack: (10.0, 16.0),
             drag_opacity: 1.0,
             settle: Duration::from_secs(1),
+            components: vec![Component::Tabs, Component::Tree, Component::Terminal, Component::Files, Component::Menus],
         }
     }
 }
@@ -54,6 +71,18 @@ impl Config<Wry> {
 }
 
 impl<R: Runtime> Config<R> {
+    /// The page components the plugin puts in every page (default: all five).
+    /// An app that uses some leaves the others out, so its pages load less.
+    /// The files table brings the menus with it (its row menu is one).
+    /// `scripts/doctor.py` says when a page uses one left out.
+    pub fn components(mut self, components: &[Component]) -> Self {
+        self.components = components.to_vec();
+        if self.components.contains(&Component::Files) && !self.components.contains(&Component::Menus) {
+            self.components.push(Component::Menus);
+        }
+        self
+    }
+
     /// The page every tab window loads (default "index.html").
     pub fn window_url(mut self, url: &str) -> Self {
         self.window_url = url.into();
@@ -95,6 +124,8 @@ impl<R: Runtime> Config<R> {
     }
 
     /// Dresses every tab window: title, background, anything the builder offers.
+    /// A size or place set here is where a new window opens; a remembered window
+    /// comes back where it was, at its own size.
     pub fn window(
         mut self,
         hook: impl for<'a> Fn(WebviewWindowBuilder<'a, R, AppHandle<R>>) -> WebviewWindowBuilder<'a, R, AppHandle<R>>

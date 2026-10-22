@@ -320,7 +320,8 @@
     let sel = new Set(); // every selected file (selId among them)
     let anchor = null; // where a Shift-click range starts
     let shown = []; // the visible files, in order
-    let rows = new Map(); // id -> row element
+    let shownAt = new Map(); // id -> its place among them
+    let rows = new Map(); // id -> row element, for the rows drawn (those in view, give or take)
     let fresh = new Set();
     let freshTimer = 0;
     let queue = Promise.resolve();
@@ -369,8 +370,9 @@
     let drawFrame = 0;
     let liveTimer = 0;
     // Rows as drawn, kept to be used again when their file and the options are
-    // the same (a search, a sort or a new list redraws only what changed).
+    // the same (a scroll, a search or a new list draws only what changed).
     let rowCache = new Map();
+    let look = ""; // what every row's look depends on besides its file
     // Each file's row keeps one id while it is shown, wherever it moves (aria-activedescendant names the file).
     const rowIds = new Map();
     const rowId = key => {
@@ -416,7 +418,7 @@
     const searchBox = el("span", "tf-search", {}, icon("search"), searchInput);
     const head = el("div", "tf-head", {}, chip, title, sub, addBtn, el("span", "tf-grow"), searchBox);
 
-    const headRow = el("div", "tf-row tf-headrow", { role: "row" });
+    const headRow = el("div", "tf-row tf-headrow", { role: "row", "aria-rowindex": "1" });
     const table = el("div", "tf-table", { role: "presentation" },
       el("div", "tf-thead", { role: "rowgroup" }, headRow));
     const tbody = el("div", "tf-tbody", { role: "rowgroup" });
@@ -455,7 +457,9 @@
     const askNo = el("span", "tf-btn", { role: "button", tabindex: "0" });
     const askYes = el("span", "tf-btn tf-danger", { role: "button", tabindex: "0" });
     // tabindex -1: a click on the question's text keeps the focus in the question.
-    const askCard = el("div", "tf-ask", { role: "alertdialog", "aria-modal": "true", "aria-labelledby": `${id}-ask`, tabindex: "-1" },
+    // Not modal: the list under it is out of reach (inert) while it is open, but the header is not
+    // (going there is a no), so a screen reader is not told everything else is gone.
+    const askCard = el("div", "tf-ask", { role: "alertdialog", "aria-labelledby": `${id}-ask`, tabindex: "-1" },
       askText, el("div", "tf-ask-acts", {}, askNo, askYes));
     const veil = el("div", "tf-veil", { hidden: "" }, askCard);
     pressable(askYes, () => asking?.finish(true));
@@ -608,7 +612,11 @@
 
     const FIELDS = ["id", "name", "size", "added", "by", "type", "kind"];
     const signature = files => JSON.stringify(files.map(f => FIELDS.map(k => (f[k] instanceof Date ? f[k].getTime() : f[k] ?? null))));
-    let drawn = null;
+    // The same files as those drawn, field by field (no string of the whole list).
+    const field = v => (v instanceof Date ? v.getTime() : v ?? null);
+    const sameFiles = (a, b) => a === b || (Array.isArray(a) && Array.isArray(b) && a.length === b.length
+      && a.every((f, i) => FIELDS.every(k => field(f[k]) === field(b[i][k]))));
+    let drawn = null; // the list as last drawn
 
     // "Documents · 3 files · 2.1 MB"; while a search hides some, "2 of 5 files"
     // and the size of the two.
@@ -629,6 +637,114 @@
       if (!drawFrame) drawFrame = requestAnimationFrame(() => { drawFrame = 0; draw(); });
     }
 
+    function setShown(files) {
+      shown = files;
+      shownAt = new Map(shown.map((f, i) => [keyOf(f.id), i]));
+    }
+
+    // Only the rows in view are drawn, a few more around them, the one with the
+    // focus and the one being renamed; the others are spacers of their height,
+    // so the list scrolls as if they were there (a screen reader hears how many
+    // there are from aria-rowcount and aria-rowindex).
+    const OVERSCAN = 8;
+    const KEPT_ROWS = 400;
+    const gaps = [];
+    function rowHeight() {
+      for (const row of rows.values()) if (row.isConnected && row.offsetHeight) return row.offsetHeight;
+      return parseFloat(getComputedStyle(root).getPropertyValue("--tf-row-h")) || 25;
+    }
+    function drawWindow() {
+      const cols = columns();
+      const acts = actions();
+      const words = L();
+      const h = rowHeight();
+      const top = grid.scrollTop;
+      const from = Math.max(0, Math.floor(top / h) - OVERSCAN);
+      const to = Math.min(shown.length, Math.ceil((top + grid.clientHeight) / h) + OVERSCAN);
+      const want = [];
+      for (let i = from; i < to; i++) want.push(i);
+      const editing = renaming ? keyOf(renaming.file.id) : null;
+      for (const k of [selId, editing]) {
+        const i = k == null ? undefined : shownAt.get(k);
+        if (i !== undefined && (i < from || i >= to) && !want.includes(i)) want.push(i);
+      }
+      want.sort((a, b) => a - b);
+      const drawnNow = new Map();
+      const cache = new Map();
+      const nodes = [];
+      let used = 0;
+      const gap = px => {
+        let g = gaps[used++];
+        if (!g) {
+          g = el("div", "tf-gap", { "aria-hidden": "true" }, el("div", "tf-gap-cell"));
+          gaps.push(g);
+        }
+        g.firstChild.style.height = `${px}px`;
+        return g;
+      };
+      let next = 0;
+      for (const i of want) {
+        if (i > next) nodes.push(gap((i - next) * h));
+        const file = shown[i];
+        const key = keyOf(file.id);
+        let row;
+        if (key === editing && rows.has(key)) {
+          row = rows.get(key); // it holds the name being typed
+        } else {
+          // A row drawn before from the same file, with the same options, is used again.
+          const sig = `${look}|${fresh.has(key)}|${signature([file])}`;
+          const kept = rowCache.get(key);
+          row = kept && kept.sig === sig ? kept.row : drawRow(file, i, cols, acts, words);
+          cache.set(key, { sig, row });
+        }
+        row.id = rowId(key);
+        row.setAttribute("aria-rowindex", String(i + 2)); // the headers are row 1
+        drawnNow.set(key, row);
+        nodes.push(row);
+        next = i + 1;
+      }
+      if (shown.length > next) nodes.push(gap((shown.length - next) * h));
+      // Rows scrolled away or hidden by a search are kept a while too, for when
+      // they show again (a few hundred: not every row ever drawn).
+      for (const [k, kept] of rowCache) {
+        if (cache.size >= Math.max(KEPT_ROWS, drawnNow.size)) break;
+        if (!cache.has(k) && fileById(k)) cache.set(k, kept);
+      }
+      rows = drawnNow;
+      rowCache = cache;
+      grid.setAttribute("aria-rowcount", String(shown.length + 1));
+      // Put right in place: the rows gone taken out, the others moved only when
+      // their order changed (not all taken out and put back, which lays every
+      // row out again, and takes the focus off a row's button).
+      const keep = new Set(nodes);
+      for (const child of [...tbody.children]) if (!keep.has(child)) child.remove();
+      let at = tbody.firstElementChild;
+      for (const node of nodes) {
+        if (node === at) at = at.nextElementSibling;
+        else tbody.insertBefore(node, at);
+      }
+    }
+    let windowFrame = 0;
+    function windowSoon() {
+      if (!windowFrame) {
+        windowFrame = requestAnimationFrame(() => {
+          windowFrame = 0;
+          if (signal.aborted) return;
+          drawWindow();
+          paintSelection(false);
+        });
+      }
+    }
+
+    // A row's place among the shown files brought into view (under the headers).
+    function reveal(i) {
+      const h = rowHeight();
+      const view = grid.clientHeight - headRow.offsetHeight;
+      const y = i * h;
+      if (y < grid.scrollTop) grid.scrollTop = y;
+      else if (y + h > grid.scrollTop + view) grid.scrollTop = y + h - view;
+    }
+
     function draw() {
       if (renaming || signal.aborted) return;
       cancelAnimationFrame(drawFrame);
@@ -636,7 +752,7 @@
       // The focus on the list or the empty place's button: kept in the component
       // when that part goes (the last file deleted, the first one added).
       const inPart = [grid, empty, noMatch, searchBox].find(part => part.contains(document.activeElement)) ?? null;
-      drawn = signature(list);
+      drawn = list;
       const words = L();
       title.textContent = String(opt.title ?? "");
       if (opt.color) {
@@ -691,39 +807,10 @@
         if (anchor != null && !have.has(anchor)) anchor = selId;
       }
       drawHead();
-      shown = visible();
+      setShown(visible());
       drawCount();
-      const cols = columns();
       const acts = actions();
-      rows = new Map();
-      const wanted = [];
-      // A row drawn before from the same file, with the same options, is used again.
-      const cache = new Map();
-      const look = `${optionsDrawn}|${cols}|${acts}|${new Date().toDateString()}`; // "Today" changes at midnight
-      shown.forEach((file, i) => {
-        const key = keyOf(file.id);
-        const sig = `${look}|${fresh.has(key)}|${signature([file])}`;
-        const kept = rowCache.get(key);
-        const row = kept && kept.sig === sig ? kept.row : drawRow(file, i, cols, acts, words);
-        row.id = rowId(key);
-        cache.set(key, { sig, row });
-        rows.set(key, row);
-        wanted.push(row);
-      });
-      // Rows a search hides are kept too, for when it is cleared.
-      const inList = new Set(list.map(f => keyOf(f.id)));
-      for (const [k, kept] of rowCache) if (!cache.has(k) && inList.has(k)) cache.set(k, kept);
-      rowCache = cache;
-      // The rows are put right in place: the ones gone taken out, the others moved
-      // only when their order changed (not all of them taken out and put back,
-      // which lays out every row again, and takes the focus off a row's button).
-      const keep = new Set(wanted);
-      for (const child of [...tbody.children]) if (!keep.has(child)) child.remove();
-      let at = tbody.firstElementChild;
-      for (const row of wanted) {
-        if (row === at) at = at.nextElementSibling;
-        else tbody.insertBefore(row, at);
-      }
+      look = `${optionsDrawn}|${columns()}|${acts}|${new Date().toDateString()}`; // "Today" changes at midnight
       root.classList.toggle("tf-has-acts", acts.length > 0);
       root.style.setProperty("--tf-acts-n", String(acts.length));
       grid.hidden = list.length === 0;
@@ -731,6 +818,8 @@
       empty.hidden = list.length !== 0;
       noMatch.hidden = !(list.length && !shown.length);
       noMatchText.textContent = noMatch.hidden ? "" : say(words.noMatch, query.trim());
+      // The rows in view, once the list shows (its height says how many).
+      drawWindow();
       // While a search is on, a moment after the typing stops: that nothing
       // matches, or how many files show. No search: nothing to say.
       clearTimeout(liveTimer);
@@ -758,7 +847,7 @@
         selId = anchor = k;
       }
       // The file with the focus hidden by a search: the focus goes to a selected file that is shown.
-      if (selId != null && !rows.has(selId)) {
+      if (selId != null && !shownAt.has(selId)) {
         const visible = shown.find(f => sel.has(keyOf(f.id)));
         if (visible) selId = keyOf(visible.id);
       }
@@ -767,7 +856,7 @@
     }
 
     function current() {
-      return selId != null && rows.has(selId) ? fileById(selId) : null;
+      return selId != null && shownAt.has(selId) ? fileById(selId) : null;
     }
 
     // The selected file the app should think of first: the one with the focus
@@ -785,6 +874,11 @@
     }
 
     function paintSelection(scroll) {
+      // The row with the focus is brought into view and drawn there first.
+      if (scroll && selId != null && shownAt.has(selId)) {
+        reveal(shownAt.get(selId));
+        drawWindow();
+      }
       let active = null;
       for (const [key, row] of rows) {
         row.setAttribute("aria-selected", sel.has(key) ? "true" : "false");
@@ -794,7 +888,6 @@
       grid.classList.toggle("tf-many", sel.size > 1);
       if (active) {
         grid.setAttribute("aria-activedescendant", active.id);
-        if (scroll) active.scrollIntoView({ block: "nearest" });
       } else {
         grid.removeAttribute("aria-activedescendant");
       }
@@ -861,7 +954,7 @@
     }
 
     // Where the focus goes for a selection of every file shown: where it is, if shown.
-    const focusAmongShown = () => (selId != null && rows.has(selId) ? selId : shown[0] ? keyOf(shown[0].id) : null);
+    const focusAmongShown = () => (selId != null && shownAt.has(selId) ? selId : shown[0] ? keyOf(shown[0].id) : null);
 
     // ---------- the app's actions ----------
 
@@ -927,7 +1020,7 @@
           }
           draw();
           // Every file just added is selected, the first one with the focus.
-          const shownKeys = added.map(f => keyOf(f.id)).filter(k => rows.has(k));
+          const shownKeys = added.map(f => keyOf(f.id)).filter(k => shownAt.has(k));
           anchor = shownKeys[0] ?? keyOf(added[0].id);
           setSelection(several() ? shownKeys : shownKeys.slice(0, 1), anchor);
           message(say(L().addedFiles, added, where), "ok");
@@ -1041,7 +1134,7 @@
       if (renaming && keyOf(renaming.file.id) === key) renaming.end(); // the file being renamed is gone
       else if (renaming) {
         rows.get(key)?.remove();
-        shown = shown.filter(f => keyOf(f.id) !== key);
+        setShown(shown.filter(f => keyOf(f.id) !== key));
         drawCount();
       }
       if (wasSelected && (selId === key || selId === null)) {
@@ -1136,7 +1229,7 @@
       if (renaming && gone.has(keyOf(renaming.file.id))) renaming.end();
       else if (renaming) {
         for (const k of gone) rows.get(k)?.remove();
-        shown = shown.filter(f => !gone.has(keyOf(f.id)));
+        setShown(shown.filter(f => !gone.has(keyOf(f.id))));
         drawCount();
       }
       // The file after the last one deleted takes the selection, as in a file
@@ -1221,12 +1314,12 @@
       if (!file || typeof opt.onRename !== "function" || renaming || signal.aborted) return;
       if (asking) asking.finish(false);
       const key = keyOf(file.id);
-      if (!rows.has(key)) {
+      if (!shownAt.has(key)) {
         query = "";
         searchInput.value = "";
         draw();
       }
-      select(key);
+      select(key); // brought into view, so its row is drawn
       const row = rows.get(key);
       const cell = row?.querySelector(".tf-c-name");
       if (!cell) return;
@@ -1451,12 +1544,20 @@
     let typed = "";
     let typedAt = 0;
     const KEEP_TYPED = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Dead", "AltGraph", "Compose", "Process", "Unidentified"]);
+    // Scrolled, or a new height (shown at last, the window resized): the rows now in view.
+    grid.addEventListener("scroll", windowSoon, { passive: true, signal });
+    if (typeof ResizeObserver === "function") {
+      const sized = new ResizeObserver(windowSoon);
+      sized.observe(grid);
+      signal.addEventListener("abort", () => sized.disconnect());
+    }
+
     grid.addEventListener("keydown", e => {
       const selectAll = cmdKey(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a";
       if (selectAll && e.target !== grid && !(e.target instanceof HTMLInputElement)) e.preventDefault();
       if (e.target !== grid || e.isComposing || e.keyCode === 229 || asking) return;
       const file = current();
-      const i = file ? shown.indexOf(file) : -1;
+      const i = file ? shownAt.get(keyOf(file.id)) ?? -1 : -1;
       const page = Math.max(1, Math.floor(grid.clientHeight / (rows.values().next().value?.offsetHeight || 25)) - 1);
       // Shift extends the selection from the anchor, as in a file manager.
       const toggleKey = cmdKey(e);
@@ -1701,11 +1802,11 @@
         held = next;
         return;
       }
-      const same = signature(next) === drawn;
+      const same = sameFiles(next, drawn);
       list = next;
       // Nothing shown changed, but the objects are new: callbacks get the new ones.
       if (same) {
-        shown = shown.map(f => fileById(keyOf(f.id)) ?? f);
+        setShown(shown.map(f => fileById(keyOf(f.id)) ?? f));
         report();
       } else if (now) {
         draw();
@@ -1772,7 +1873,7 @@
       select(fileId) {
         // A file the search hides is shown: the search is cleared, as for a rename.
         const reveal = keys => {
-          if (query && keys.some(k => !rows.has(k) && fileById(k))) {
+          if (query && keys.some(k => !shownAt.has(k) && fileById(k))) {
             query = "";
             searchInput.value = "";
             draw();

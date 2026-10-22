@@ -289,6 +289,33 @@ def permissions(capability):
 
 TAB_COMMANDS = ("window-state", "new-tab", "open-tab", "close-tab", "activate-tab", "move-tab", "update-tab", "report-strip",
                 "drag-out", "set-close-guard", "close-asked", "close-window", "move-to-new-window")
+# The tab menu's "Move to" another window (it is left out of the menu without them).
+MOVE_COMMANDS = ("other-windows", "move-to-window")
+
+
+def window_prefix(rust):
+    """What Config::window_prefix sets: a string, or a const or static holding one. None when it
+    is something else (worked out as the app runs)."""
+    m = re.search(r"window_prefix\(\s*([^)]*?)\s*\)", rust)
+    if not m:
+        return "tabs-"
+    arg = m.group(1)
+    literal = re.fullmatch(r'"([^"\\]*)"(?:\.(?:to_string|to_owned|into)\(\))?', arg)
+    if literal:
+        return literal.group(1)
+    name = re.fullmatch(r"&?\s*(?:[\w:]+::)?([A-Za-z_]\w*)", arg)
+    if name:
+        held = re.search(rf'\b(?:const|static)\s+{name.group(1)}\s*:\s*&\s*(?:\'static\s+)?str\s*=\s*"([^"\\]*)"', rust)
+        if held:
+            return held.group(1)
+    return None
+
+
+def reaches_tabs(capability, prefix):
+    """Whether a capability is for the tab windows (prefix1, prefix2, ...): a pattern, not one label.
+    Any capability may be, when the prefix cannot be read."""
+    patterns = capability.get("windows") or capability.get("webviews") or []
+    return prefix is None or any(w == "*" or (w.endswith("*") and f"{prefix}1".startswith(w[:-1])) for w in patterns)
 
 
 def grants(capability, commands):
@@ -474,7 +501,27 @@ def capabilities(tauri, app):
     for inline in listed:
         if isinstance(inline, dict):
             caps.append((tauri / "tauri.conf.json", inline))
-    return caps
+    # A capability with "platforms" applies only there: here (where the app is built and
+    # tried) one for other systems grants nothing, and one for some systems is noted.
+    here = {"darwin": "macOS", "win32": "windows"}.get(sys.platform, "linux")
+    desktop = {"macOS", "windows", "linux"}
+    kept = []
+    for path, c in caps:
+        on = c.get("platforms")
+        if isinstance(on, list) and on:
+            missing = sorted(desktop - set(on))
+            key = (str(path), c.get("identifier"))
+            if missing and key not in platforms_noted:
+                platforms_noted.add(key)
+                note(f'capability "{c.get("identifier", path.name)}" has "platforms": {json.dumps(on)}, so on {", ".join(missing)} '
+                     "its windows get none of it")
+            if here not in on:
+                continue
+        kept.append((path, c))
+    return kept
+
+
+platforms_noted = set()
 
 
 CONF_NAMES = ("tauri.conf.json", "tauri.conf.json5", "Tauri.toml")
@@ -543,6 +590,20 @@ def json5_to_json(text):
     return "".join(out)
 
 
+def camel_keys(value, inside_plugins=False):
+    """Tauri.toml's keys are kebab-case (with-global-tauri): as tauri.conf.json's (withGlobalTauri).
+    The plugins' own settings are left as they are."""
+    if isinstance(value, list):
+        return [camel_keys(v, inside_plugins) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out = {}
+    for key, v in value.items():
+        name = key if inside_plugins else re.sub(r"-([a-z0-9])", lambda m: m.group(1).upper(), key)
+        out[name] = v if name == "plugins" or inside_plugins else camel_keys(v)
+    return out
+
+
 def read_conf(tauri):
     """tauri.conf.json, tauri.conf.json5 (comments and trailing commas) or Tauri.toml."""
     for name in CONF_NAMES:
@@ -551,7 +612,7 @@ def read_conf(tauri):
             continue
         text = path.read_text(encoding="utf-8")
         if name.endswith(".toml"):
-            return tomllib.loads(text)
+            return camel_keys(tomllib.loads(text))
         if name.endswith(".json5"):
             text = json5_to_json(text)
         return json.loads(text)
@@ -675,8 +736,10 @@ def main():
             note('tauri.conf.json opens its own windows; tab windows come from the plugin ("windows": [] unless you want another window)')
         else:
             ok("no windows in tauri.conf.json (the plugin opens them)")
-        prefix_match = re.search(r'window_prefix\(\s*"([^"]*)"', rust)
-        prefix = prefix_match.group(1) if prefix_match else "tabs-"
+        prefix = window_prefix(rust)
+        if prefix is None:
+            note("window_prefix(...) is given something the checker cannot read (not a string or a const): "
+                 "whether a capability covers the tab windows is not checked")
         # app.tabs().start(), or let tabs = app.tabs(); ... tabs.start()
         held = re.findall(r"\blet\s+(?:mut\s+)?(\w+)\s*(?::[^=;]+)?=\s*[\w.()&]*\.tabs\(\)\s*;", rust)
         if re.search(r"\.tabs\(\)\s*\.\s*start\(\)", rust) or any(re.search(rf"\b{v}\s*\.\s*start\(\)", rust) for v in held):
@@ -697,19 +760,22 @@ def main():
                 'add "tauris-ui:default" to "permissions" in src-tauri/capabilities/default.json')
         else:
             # Every tab window (tabs-1, tabs-2, ...): a pattern, not one label.
-            covers = any(any(w == "*" or (w.endswith("*") and f"{prefix}1".startswith(w[:-1]))
-                             for w in c.get("windows") or c.get("webviews") or []) for _, c in granting)
-            if covers:
+            covers = any(reaches_tabs(c, prefix) for _, c in granting)
+            if prefix is None:
+                pass
+            elif covers:
                 ok(f"a capability grants tauris-ui:default to the tab windows ({prefix}1, {prefix}2, ...)")
             else:
                 names = ", ".join(json.dumps(c.get("windows") or c.get("webviews") or []) for _, c in granting)
                 bad(f"the capability with tauris-ui:default covers {names}, not the tab windows {prefix}1, {prefix}2, ...",
                     f'set "windows": ["{prefix}*"] (or ["*"]); otherwise the strip stays empty')
+            if not any(grants(c, TAB_COMMANDS + MOVE_COMMANDS) for _, c in granting):
+                note('the tab windows lack "tauris-ui:allow-other-windows" and "tauris-ui:allow-move-to-window": '
+                     'the tab menu has no "Move to" another window (tauris-ui:default has them)')
             if not any("allow-start-dragging" in json.dumps(c.get("permissions", [])) for _, c in granting):
                 note('without "core:window:allow-start-dragging" the window cannot be dragged by its tab strip')
             # The strip hears Rust (⌘T, a tab closed or moved) through events.
-            tab_windows = [c for _, c in caps if any(w == "*" or (w.endswith("*") and f"{prefix}1".startswith(w[:-1]))
-                                                     for w in c.get("windows") or c.get("webviews") or [])]
+            tab_windows = [c for _, c in caps if reaches_tabs(c, prefix)]
             if not any(listens(c) for c in tab_windows):
                 bad("no capability lets the tab windows listen for events, so the strip never hears ⌘T or a tab closing",
                     'add "core:default" to the "permissions" of the capability for the tab windows')
@@ -735,9 +801,7 @@ def main():
                 'remove "dragDropEnabled": false from the window (or the disable_drag_drop_handler() call)')
         if uses_tabs:
             # The strip's checks covered the tab windows' events; the system's picker needs its permission there too.
-            tab_prefix = (re.search(r'window_prefix\(\s*"([^"]*)"', rust) or [None, "tabs-"])[1]
-            for_tabs = [c for c in every if any(w == "*" or (w.endswith("*") and f"{tab_prefix}1".startswith(w[:-1]))
-                                                 for w in c.get("windows") or c.get("webviews") or [])]
+            for_tabs = [c for c in every if reaches_tabs(c, window_prefix(rust))]
             if picks is False and not any(grants(c, dialogs) for c in for_tabs):
                 bad("no capability for the tab windows grants the system's picker, so Add files… is refused",
                     'add "tauris-ui:default" (or "tauris-ui:allow-pick-files") to their capability')
@@ -835,10 +899,34 @@ def main():
             elif in_ts:
                 ok(f"the page has the {word} types")
 
+    # Config::components: only the components named there are in the pages
+    if re.search(r"\.components\(", rust):
+        named = re.search(r"\.components\(\s*&?\s*\[([^\]]*)\]", rust)
+        if not named:
+            note("Config::components(...) is given a list the checker cannot read: whether it has every component the pages use is not checked")
+        else:
+            given = set(re.findall(r"Component::(\w+)", named.group(1)))
+            if "Files" in given:
+                given.add("Menus")  # the files table brings them
+            for word, comp, js in (("tabs", "Tabs", "TaurisTabs"), ("tree view", "Tree", "TaurisTree"), ("terminal", "Terminal", "TaurisTerminal"),
+                                   ("files", "Files", "TaurisFiles"), ("menus", "Menus", "TaurisMenu")):
+                if word in used and comp not in given:
+                    bad(f"the app uses the {word}, but Config::components leaves it out, so the pages have no {js}",
+                        f"add tauris_ui::Component::{comp} to .components(&[...])")
+
     # identity: a copied example must become its own app
     if conf.get("identifier") == "dev.tauris-ui.example" and LIBRARY not in tauri.parents:
         bad('the app still has the example\'s identifier "dev.tauris-ui.example", so it shares the example\'s saved tabs',
             "set your own identifier and productName in tauri.conf.json, and the package name in Cargo.toml")
+
+    # the engine: macOS before 11 has a WebKit older than the components need (Safari 16.4)
+    if used:
+        mac = conf.get("bundle", {}).get("macOS", {}) if isinstance(conf.get("bundle"), dict) else {}
+        least = str(mac.get("minimumSystemVersion") or "10.13")  # Tauri's own default
+        least_at = [int(n) for n in re.findall(r"\d+", least)[:2]] or [10, 13]
+        if least_at < [11, 0]:
+            note(f"the app installs on macOS {least}, whose WebKit is older than the components need (Safari 16.4, macOS 11 with its updates): "
+                 'set "bundle": { "macOS": { "minimumSystemVersion": "11.0" } }')
 
     # 6. last build
     lock = lock_file(tauri)

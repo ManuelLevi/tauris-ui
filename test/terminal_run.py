@@ -16,6 +16,7 @@ from pathlib import Path
 
 from PIL import Image
 from playwright.sync_api import sync_playwright
+from engine import WEBKIT, launch
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -165,7 +166,7 @@ def strict_page(browser, url, before=""):
 
 with sync_playwright() as p:
     # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
-    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
+    browser = launch(p)
 
     # ---------- screenshots: the demo, and the reference rendered the same way ----------
     page = fresh(browser, feed=True)
@@ -244,18 +245,31 @@ with sync_playwright() as p:
     check("checkbox: [ ] when not", css(page, "#remember", "content", "::before") == '"[ ]"')
     check("checkbox: white, three characters wide",
           css(page, "#remember", "color") == WHITE and 20 <= rect(page, "#remember")["w"] <= 23, rect(page, "#remember"))
-    page.keyboard.press("Shift+Tab")
-    page.keyboard.press("Tab")
-    page.keyboard.press("Tab")
+    # WebKit's Tab, as macOS's by default, goes to fields only, not to checkboxes and buttons.
+    if WEBKIT:
+        page.focus("#remember")
+    else:
+        page.keyboard.press("Shift+Tab")
+        page.keyboard.press("Tab")
+        page.keyboard.press("Tab")
     page.keyboard.press("Space")
     check("checkbox: Space flips it, as any checkbox", page.evaluate("document.getElementById('remember').checked") is True)
 
     keys = page.evaluate("""[...document.querySelectorAll('#go, #cancel, .tm-legend .tm-key:not(.tm-go):not(.tm-cancel):not([id]), #help')].map(k => {
       const c = getComputedStyle(k), r = k.getBoundingClientRect(); return [k.textContent, c.backgroundColor, c.color, r.height, c.fontSize, c.borderRadius]; })""")
     check("keys: GO green, CANCEL red, grey, yellow; 20px, 11px text",
-          keys == [["GO", GREEN, BLACK, 20, "11px", "2px"], ["CANCEL", RED, "rgb(255, 255, 255)", 20, "11px", "2px"],
+          keys == [["GO", GREEN, BLACK, 20, "11px", "2px"], ["CANCEL", RED, BLACK, 20, "11px", "2px"],
                    ["TAB", KEY_GREY, "rgb(255, 255, 255)", 20, "11px", "2px"], ["HELP", YELLOW, BLACK, 20, "11px", "2px"]], keys)
     check("keys: the form's keys are 56px wide at least", rect(page, "#go")["w"] == 56)
+    # Every key and band's text reads on it (4.5:1: the text is 11-12px), an error band too.
+    low = page.evaluate("""(() => { const b = document.querySelector('.tm-band'); const was = b.dataset.tmState; b.dataset.tmState = 'error';
+      const rgb = c => { const cv = document.createElement('canvas').getContext('2d'); cv.fillStyle = c; cv.fillRect(0, 0, 1, 1); return [...cv.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+      const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      const out = [...document.querySelectorAll('.tm-key, .tm-band')].map(e => { const c = getComputedStyle(e); return [e.textContent.trim().slice(0, 20), c.color, c.backgroundColor, ratio(c.color, c.backgroundColor)]; })
+        .filter(x => x[3] < 4.5);
+      if (was === undefined) delete b.dataset.tmState; else b.dataset.tmState = was; return out; })()""")
+    check("every key and band, an error band too: its text reads on it (4.5:1)", not low, low)
     page.evaluate("demo.live(false)")
     check("keys: a toggle that is off is grey", css(page, "#live", "background-color") == KEY_GREY and css(page, "#live", "color") == WHITE)
 
@@ -320,7 +334,7 @@ with sync_playwright() as p:
         shot(page, "band_ok", {"x": 0, "y": 0, "width": 470, "height": 300})
     page.evaluate("demo.signon.error()")
     page.wait_for_timeout(300)
-    check("error(): the band turns red with white text", bg("#signon .tm-band") == RED and css(page, "#signon .tm-band", "color") == "rgb(255, 255, 255)")
+    check("error(): the band turns red with black text (it reads: 6:1)", bg("#signon .tm-band") == RED and css(page, "#signon .tm-band", "color") == BLACK)
     page.evaluate("demo.signon.reset()")
     page.wait_for_timeout(300)
     check("reset(): back to amber", bg("#signon .tm-band") == AMBER and page.get_attribute("#signon", "data-tm-state") is None)
@@ -436,8 +450,9 @@ with sync_playwright() as p:
     page.evaluate(TWO_FRAMES)
     x4 = rect(page, ".tm-cmd .tm-cursor")["x"] - rect(page, ".tm-cmd-input")["x"]
     ch = x6 / 6
+    # WebKit puts its caret on whole pixels: within one there.
     check("the block cursor sits on the caret, one character per step",
-          x0 == 0 and 6.5 <= ch <= 8 and abs(x4 - 4 * ch) < 0.5, (x0, x6, x4))
+          x0 == 0 and 6.5 <= ch <= 8 and abs(x4 - 4 * ch) < (1 if WEBKIT else 0.5), (x0, x6, x4))
     check("the system caret is hidden", css(page, ".tm-cmd-input", "caret-color") == "rgba(0, 0, 0, 0)")
     page.keyboard.press("End")
     page.keyboard.press("Enter")
@@ -627,6 +642,8 @@ with sync_playwright() as p:
     page.focus("#user")
     page.keyboard.press("F8")
     page.wait_for_timeout(400)
+    # What the page caused (Playwright's picture adds a <style> of its own, which WebKit's policy refuses).
+    caused = (list(page.errors), page.evaluate("__csp"))
     img = picture(page)
     bar = rect(page, "#bar")
     lit = [near(img.getpixel((int((bar["x"] + x + 0.5) * SCALE), int((bar["y"] + 4) * SCALE))), hex_rgb(AMBER)) for x in range(14)]
@@ -636,7 +653,7 @@ with sync_playwright() as p:
           (css(page, ".tm-band", "background-color"), css(page, "#pass", "background-color"), lit))
     check("strict policy: the clocks, the log and the F-keys work",
           TIME.match(page.inner_text(".tm-band [data-tm-clock]")) and page.locator("#log li").count() == 2 and page.evaluate("prints") == 1)
-    check("strict policy: no console errors and nothing refused", not page.errors and page.evaluate("__csp") == [], (page.errors, page.evaluate("__csp")))
+    check("strict policy: no console errors and nothing refused", caused == ([], []), caused)
     shot(page, "strict_policy")
     page.close()
 

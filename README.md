@@ -10,7 +10,9 @@ UI components for Tauri 2 desktop apps. One library for every app.
 | [Menus](#menus) | `TaurisMenu.bar(nav, { menus })` | An in-window menu bar, toolbar buttons with a ▾ menu, and right-click menus, with a desktop app's keyboard |
 | [Terminal](#terminal) | `TaurisTerminal.mount(element)` | An optional Bloomberg-style look: amber on black, monospace, dense tables, function keys, a command line and a message log |
 
-The plugin delivers every component's script and stylesheet to every page. A component's stylesheet is added only when a page mounts it, so a component you don't use changes nothing.
+The plugin delivers every component's script and stylesheet to every page (or the ones `Config::components` names). A component's stylesheet is added only when a page mounts it, so a component you don't use changes nothing.
+
+**What the page needs.** The components use what Safari 16.4 has (stylesheets made in script, `color-mix()`, `:has()`, `inert`, cascade layers). That is macOS 11 or later with its Safari updates, WebKitGTK 2.40 or later on Linux, and WebView2 on Windows (Windows keeps it current). Set `"bundle": { "macOS": { "minimumSystemVersion": "11.0" } }`, as the example does; the checker says so when it is lower. Colours worked out from your accent need Safari 18 or Chromium 119; an older engine shows each component's own colours instead.
 
 ## One look for every component
 
@@ -31,7 +33,7 @@ Set a few `--tauris-*` colours once, and the tabs, the tree, the files table and
   --tauris-on-accent: #ffffff;            /* text on the accent (the files' Add button, the tree's ticks) */
   --tauris-sel-bg: #2675bf;               /* the selected row, the chosen menu item */
   --tauris-sel-fg: #ffffff;
-  --tauris-sel-inactive: #c9d6ea;         /* a selection without the focus; an open menu's title, a pressed button */
+  --tauris-sel-inactive: #c9d6ea;         /* a selection without the focus; an open menu's title */
   --tauris-faint: #a3a6ad;                /* faint and disabled text */
   --tauris-focus: rgb(31 100 166 / 0.32); /* the soft halo around a focus line */
 }
@@ -65,7 +67,7 @@ Set them on `:root` (on another element they do not reach the components). Which
 | `--tauris-chrome`, `--tauris-dim` | ✓ | ✓ | ✓ | ✓ (chrome) |
 | `--tauris-accent` | ✓ (without `--tauris-accent-ink`: the active tab's bar and focus lines, made readable) | ✓ (the ticked boxes; without `--tauris-accent-ink`, made readable: focus lines and box edges) | ✓ (the buttons; without `--tauris-accent-ink`, made readable: the lines) | ✓ (without `--tauris-accent-ink`: focus lines, made readable) |
 | `--tauris-sel-bg`, `--tauris-sel-fg` | | ✓ | ✓ | ✓ |
-| `--tauris-sel-inactive` | | ✓ | | ✓ (an open title, a pressed button) |
+| `--tauris-sel-inactive` | | ✓ | | ✓ (an open title) |
 | `--tauris-faint` | | | | ✓ |
 | `--tauris-focus` | | | ✓ | ✓ |
 | `--tauris-accent-ink` | ✓ (the active tab's bar, focus lines) | ✓ (focus lines, box edges, the sort arrow) | ✓ (lines, the sort arrow, the drop zone) | ✓ (focus lines) |
@@ -89,7 +91,7 @@ The example above sets its colours for both: the dark ones on a dark system unle
 - Drop it on another window's strip to move it there (macOS).
 - Right click: New tab, Close tab, Close other tabs, Close tabs to the right, Move to new window.
 - ⌘T, ⌘N, ⌘W and ⇧⌘W, through a ready-made menu.
-- Keyboard: arrows, Home, End, Delete, Shift+F10 for the menu, ^Tab to step. Keys typed into a field inside a tab stay in the field; Enter, Space and Delete on a button inside a tab are that button's.
+- Keyboard: arrows, Home, End, Delete, Shift+F10 for the menu, ^Tab to step. Ctrl+Shift+← / → on a tab (or Ctrl+Shift+Page Up / Down anywhere, as in browsers) moves it along the strip; the tab's menu also moves it left or right, to a new window, or into any other open window ("Move to “…”"). Keys typed into a field inside a tab stay in the field; Enter, Space and Delete on a button inside a tab are that button's.
 - Too many tabs to fit: the row scrolls, also while you drag a tab.
 - On macOS the tabs sit in the title bar, level with the window buttons; elsewhere, just below the system's title bar.
 - Windows, tabs and the data on them are remembered between runs, quits included.
@@ -283,7 +285,7 @@ Tab ids are given fresh at every launch. To find a tab again after a restart, ke
 | `onBeforeClose` | none | `(tab) => boolean \| Promise<boolean>`. Return `false` to keep the tab open (unsaved work). See "Closing and quitting". |
 | `dragPreview` | `"tab"` | What follows the mouse in the strip: `"tab"`, `"ghost"`, `"title"`, `"none"`, or `(tab, tabEl) => HTMLElement`. |
 | `panelId` | none | The id of the element that shows the active tab, for screen readers. |
-| `labels` | English, ⌘ or Ctrl+ by system | `{ tabs, newTab, newTabHint, closeTab, closeOthers, closeRight, moveToWindow, newTabShortcut, closeTabShortcut }` |
+| `labels` | English, ⌘ or Ctrl+ by system | `{ tabs, newTab, newTabHint, closeTab, closeOthers, closeRight, moveToWindow, moveLeft, moveRight, moveToOther, newTabShortcut, closeTabShortcut, moveLeftShortcut, moveRightShortcut }` (`moveToOther`: text, or `title => text` for another window) |
 | `newIcon`, `closeIcon` | SVG | Text, or SVG markup. |
 | `tabClass` | none | `(tab) => "class names"` |
 | `documentTitle` | the tab's title | `(tab) => string \| undefined` |
@@ -324,6 +326,7 @@ The returned object:
   - `activate_tab(id)`
   - `update_tab(id, title, fields)`
   - `move_to_new_window(id)`
+  - `move_to_window(id, label)` (into another open window, at the end of its strip; a window left with no tab closes)
 - **Read:** `tab(id)`, `windows()` (every window with its tabs), `frontmost()`, `bring_up(label)`, `window_count()`.
 
 Windows remember their place, size and whether they were maximized.
@@ -336,7 +339,7 @@ Calls that open windows return `tauri::Result`. A page can only change the tabs 
 
 | Method | Default |
 |---|---|
-| `window(\|builder\| ...)` | Dress each window: title, background, anything Tauri's window builder offers. |
+| `window(\|builder\| ...)` | Dress each window: title, background, anything Tauri's window builder offers. A size or place set here is where a new window opens; a remembered one comes back where it was. |
 | `new_tab(\|app\| NewTab)` | `"New tab"`. Used by +, ⌘T and new windows. |
 | `window_size(w, h)`, `min_window_size(w, h)` | 1180 × 760, 560 × 360 |
 | `window_buttons_at(x, y)` | 16, 23: where the macOS window buttons sit in the strip. |
@@ -346,6 +349,7 @@ Calls that open windows return `tauri::Result`. A page can only change the tabs 
 | `layout_file(\|app\| Some(path))` / `no_layout()` | `tabs.json` in the app's data folder. |
 | `on_change(\|app, label\| ...)` | Called after anything about a window's tabs changes, from Rust or the page. It may use `app.tabs()`; its own changes don't call it again. Several changes to one window while its call waits on the worker make one call. |
 | `drop_slack(above, below)`, `drag_opacity(0.2..1)` | 10, 16 px; 1.0 |
+| `components(&[Component::Tabs, ...])` | All five. The page components the plugin puts in every page; leave out the ones the app does not use, so its pages load less (`Component::Files` brings the menus). The checker says when a page uses one left out. |
 
 Set `TAURIS_UI_LOG=1` to print every window's tabs after each change.
 
@@ -688,7 +692,7 @@ TaurisMenu.bar(nav, { menus, onOpen: () => sound.open(), onClose: ({ chosen }) =
 
 **Methods:** `bar(...)` returns `setMenus`, `open(index)`, `close`, `focus`, `destroy`; `button(...)` returns `setItems`, `open`, `close`, `destroy`; `TaurisMenu.open(items, { x, y })` returns `close`; `TaurisMenu.close()` closes whichever is open. Closing a menu, by any of these or by a press elsewhere, puts the focus back where it was when the menu had it.
 
-Types are in `web/menus.d.ts`. **The look:** `--tmn-*` variables at the top of `web/menus.css`. `.tmn-toolbar`, `.tmn-tool` (`aria-pressed="true"` for the current view) and `.tmn-tool-sep` give a toolbar the same look; they are optional.
+Types are in `web/menus.d.ts`. **The look:** `--tmn-*` variables at the top of `web/menus.css`. `.tmn-toolbar`, `.tmn-tool` (`aria-pressed="true"` for the current view: a neutral grey fill with its own edge, `--tmn-tool-on-bg` and `--tmn-tool-on-border`) and `.tmn-tool-sep` give a toolbar the same look; they are optional. The row is 34px with 26px buttons; put an `<svg>` (any `viewBox`, drawn as a 13px line icon in the text colour) before the label for an icon; `--tmn-toolbar-pad`, `--tmn-tool-pad`, `--tmn-tool-gap` and `--tmn-tool-icon` set the spacing and the icon's size.
 
 ## Terminal
 
@@ -766,18 +770,20 @@ python test/files_run.py [shots-dir]       # the files component, with drops and
 python test/menus_run.py [shots-dir]       # the menus, mouse and keyboard
 python test/doctor_run.py                  # the checker, on small apps set up right and wrong
 (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build) && python scripts/doctor.py examples/basic
-(cd test/freeze_check && cargo run)        # macOS: a real app; the Dock click and New Window must open their windows
+(cd test/freeze_check && cargo run)        # macOS: a real app (it opens windows and takes the focus; CI runs it at every push)
 rm -f Cargo.lock && export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback && cargo +1.90 build && cargo +1.90 build --features files   # the oldest Rust, as CI
+rustup target add x86_64-pc-windows-msvc && cargo clippy --all-targets --features files --target x86_64-pc-windows-msvc -- -D warnings   # Windows's code, from a Mac
+TAURIS_TEST_WEBKIT=1 python test/run.py    # any page suite in WebKit (python -m playwright install webkit first)
 ```
 
 ## Limits
 
 - Dragging a tab out of its window, and between windows, follows the real mouse. That needs macOS, and it is checked by hand, not by tests. On every system, "Move to new window" in a tab's menu does the same without dragging.
 - The close button sits inside its tab, as in browsers. Screen readers reach it through the tab's menu (Shift+F10) and Delete.
-- The page tests run in Chrome (CI runs them in the Chromium that comes with its pinned Playwright, the same browser every day; `TAURIS_TEST_CHROMIUM=1` does that here too). Tauri on macOS uses WebKit, and on Windows WebView2 (Chromium).
+- The page tests run in Chrome here. CI runs them in the Chromium and the WebKit that come with its pinned Playwright, the same browsers every day (`TAURIS_TEST_CHROMIUM=1` or `TAURIS_TEST_WEBKIT=1` does that here too): Tauri uses WebKit on macOS and Linux, and WebView2 (Chromium) on Windows. Windows's high-contrast colours and an input method's composing are tested in Chromium only, which is where they can be driven.
 - The tree's choice and colour editors open the system's own pop-ups, which headless tests cannot show; they are checked through their elements.
 - The system's file picker and save dialog cannot be shown by a test either. The page tests stand in for them; Rust checks that a page is told what is missing (the feature, the dialog plugin).
-- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does all four in a real app on macOS; CI runs it on every push, and `cd test/freeze_check && cargo run` runs it here. A change the app makes from its own code reaches `on_change` at once (unless earlier calls are still waiting, or the hook is running on another thread: then it waits its turn, on the worker); one made inside that lock, by an async page command, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows. A quitting app waits for it (half a second at most; it cannot open windows then, and a hook that waits for the main thread then does not finish). Other plugins' callbacks (deep-link's `on_open_url`, for one) can run inside that same lock: there, call `app.tabs()` from a thread of your own (`std::thread::spawn`), or a window that opens freezes the app.
+- A window opened inside Tauri's plugin lock (the plugin's event handler: the Dock click, ⌘N; its page commands; an `on_change` hook called from either) freezes only the real event loop. `test/freeze_check` does each of them in a real app on macOS, and closes a window's last tab by ⌘W and from the page; CI runs it on every push (run by hand, it opens windows and takes the focus). A change the app makes from its own code reaches `on_change` at once (unless earlier calls are still waiting, or the hook is running on another thread: then it waits its turn, on the worker); one made inside that lock, by an async page command, or by ⌘N, ⌘T or the Dock click, reaches it a moment later on a worker thread, so the hook may open windows. A quitting app waits for it (half a second at most; it cannot open windows then, and a hook that waits for the main thread then does not finish). Other plugins' callbacks (deep-link's `on_open_url`, for one) can run inside that same lock: there, call `app.tabs()` from a thread of your own (`std::thread::spawn`), or a window that opens freezes the app.
 - A dropped folder cannot be told from a file in the page. The app refuses it where it reads the paths (`tauris_ui::files::inspect` says why), and the component shows that sentence.
 
 ## Contributing

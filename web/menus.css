@@ -12,9 +12,10 @@
  *                     (the ✓ column), .tmn-chip (an item's colour) and .tmn-sub
  *                     (the arrow of an item that opens a sub-menu)
  *   .tmn-caret        on a menu button: the ▾ after its text
- *   .tmn-toolbar      optional: a toolbar row, with .tmn-tool buttons and
- *                     .tmn-tool-sep lines between groups. Any element can be a
- *                     menu button; .tmn-tool is only the look.
+ *   .tmn-toolbar      optional: a toolbar row, with .tmn-tool buttons (an <svg>
+ *                     before the label is its 13px icon) and .tmn-tool-sep lines
+ *                     between groups. Any element can be a menu button; .tmn-tool
+ *                     is only the look.
  */
 @layer tauris-ui {
   :root {
@@ -52,11 +53,16 @@
     --tmn-sep: var(--tauris-line, #d3d5da);
     --tmn-chip-size: 10px;
     /* the toolbar look */
+    --tmn-toolbar-pad: 4px 7px 3px;   /* a 34px row with its foot line: 4px above and below the buttons */
     --tmn-tool-h: 26px;
     --tmn-tool-font-size: 12px;
+    --tmn-tool-pad: 10px;             /* beside the content of a button */
+    --tmn-tool-gap: 8px;              /* between its icon and its text */
+    --tmn-tool-icon: 13px;
     --tmn-tool-hover-bg: var(--tauris-hover, #e6e8ec);
     --tmn-tool-border: var(--tauris-line, #c4c6cc);
-    --tmn-tool-on-bg: var(--tauris-sel-inactive, #dbe6f4); /* pressed, or with its menu open: not the hover colour */
+    --tmn-tool-on-bg: #d9d9da;        /* pressed (the current view), or with its menu open: a neutral grey, not the hover colour */
+    --tmn-tool-on-border: #aeb0b6;
   }
 
   /* The system's dark mode, unless the app chose a mode with
@@ -80,7 +86,8 @@
       --tmn-sep: var(--tauris-line, #515356);
       --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
       --tmn-tool-border: var(--tauris-line, #5e6165);
-      --tmn-tool-on-bg: var(--tauris-sel-inactive, #3d5a8f);
+      --tmn-tool-on-bg: #5a5e61;
+      --tmn-tool-on-border: #75797d;
     }
   }
 
@@ -102,7 +109,8 @@
     --tmn-sep: var(--tauris-line, #515356);
     --tmn-tool-hover-bg: var(--tauris-hover, #4c5052);
     --tmn-tool-border: var(--tauris-line, #5e6165);
-    --tmn-tool-on-bg: var(--tauris-sel-inactive, #3d5a8f);
+    --tmn-tool-on-bg: #5a5e61;
+    --tmn-tool-on-border: #75797d;
   }
 
   /* The accent made readable, where the engine works colours out (relative colours: Safari 18,
@@ -284,7 +292,8 @@
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 0 6px;
+    box-sizing: border-box;
+    padding: var(--tmn-toolbar-pad);
     color: var(--tmn-fg);
     background: var(--tmn-bar-bg);
     border-bottom: 1px solid var(--tmn-bar-line);
@@ -294,10 +303,10 @@
   .tmn-tool {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: var(--tmn-tool-gap);
     box-sizing: border-box;
     height: var(--tmn-tool-h);
-    padding: 0 8px;
+    padding: 0 var(--tmn-tool-pad);
     color: inherit;
     background: transparent;
     border: 1px solid transparent;
@@ -315,27 +324,33 @@
   .tmn-tool:focus-visible { box-shadow: 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus, var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) var(--tmn-focus-mix), transparent))); }
   .tmn-tool:active { transform: translateY(0.5px); }
 
-  /* Pressed or open: its tint, and a line along its foot in the focus colour (the tint alone is under 3:1). */
+  /* Pressed or open: a grey fill with its own edge. */
   .tmn-tool[aria-expanded="true"],
-  .tmn-tool[aria-pressed="true"] { background: var(--tmn-tool-on-bg); border-color: var(--tmn-tool-border); box-shadow: inset 0 -2px var(--tmn-focus-line); }
-  .tmn-tool:is([aria-expanded="true"], [aria-pressed="true"]):focus-visible { box-shadow: inset 0 -2px var(--tmn-focus-line), 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus, var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) var(--tmn-focus-mix), transparent))); }
+  .tmn-tool[aria-pressed="true"] { background: var(--tmn-tool-on-bg); border-color: var(--tmn-tool-on-border); }
 
   .tmn-tool[aria-disabled="true"],
   .tmn-tool:disabled { color: var(--tmn-disabled); background: transparent; border-color: transparent; transform: none; }
 
+  /* An icon before the label: a child <svg> of any viewBox, a line icon in the text colour. */
   .tmn-tool svg {
-    width: 16px;
-    height: 16px;
+    flex: none;
+    width: var(--tmn-tool-icon);
+    height: var(--tmn-tool-icon);
     fill: none;
     stroke: currentColor;
     stroke-width: 1.3;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
+  .tmn-tool svg * { vector-effect: non-scaling-stroke; }  /* the line is 1.3px whatever the icon's viewBox */
+
+  /* The ▾ in a button: 4px from the text (after the gap), and 4px less padding after it than the other buttons. */
+  .tmn-tool.tmn-caret::after { margin: 0 -4px 0 4px; }
 
   .tmn-tool-sep {
+    flex: none;
     width: 1px;
-    height: 18px;
+    height: 24px;
     margin: 0 6px;
     background: var(--tmn-bar-line);
   }
@@ -375,7 +390,7 @@
 button:where(.tmn-tool) {
   margin: 0;
   cursor: default; /* a template's button { cursor: pointer } would make it a link's hand */
-  padding: 0 8px;
+  padding: 0 var(--tmn-tool-pad);
   color: inherit;
   background: transparent;
   border: 1px solid transparent;
@@ -390,8 +405,7 @@ button:where(.tmn-tool):hover { background: var(--tmn-tool-hover-bg); border-col
 button:where(.tmn-tool):active { background: var(--tmn-tool-hover-bg); border-color: var(--tmn-tool-border); }
 button:where(.tmn-tool):focus-visible { box-shadow: 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus, var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) var(--tmn-focus-mix), transparent))); }
 button:where(.tmn-tool)[aria-expanded="true"],
-button:where(.tmn-tool)[aria-pressed="true"] { background: var(--tmn-tool-on-bg); border-color: var(--tmn-tool-border); box-shadow: inset 0 -2px var(--tmn-focus-line); }
-button:where(.tmn-tool):is([aria-expanded="true"], [aria-pressed="true"]):focus-visible { box-shadow: inset 0 -2px var(--tmn-focus-line), 0 0 0 1px var(--tmn-focus-line), 0 0 0 3px var(--tmn-focus, var(--tauris-focus, color-mix(in srgb, var(--tmn-focus-line) var(--tmn-focus-mix), transparent))); }
+button:where(.tmn-tool)[aria-pressed="true"] { background: var(--tmn-tool-on-bg); border-color: var(--tmn-tool-on-border); }
 button:where(.tmn-tool):disabled,
 button:where(.tmn-tool)[aria-disabled="true"] { color: var(--tmn-disabled); background: transparent; border-color: transparent; }
 /* A starter template's `button:focus { outline: ... }` (Vite's has one) would add a second ring. */

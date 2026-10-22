@@ -204,6 +204,31 @@
     let gen = 0;              // grows when row contents change; drawn rows refill when theirs is older
     const pool = new Map();   // key -> drawn row element
     let frame = 0;
+    // Past what a browser can scroll (33 million pixels in Chromium and WebKit,
+    // fewer elsewhere) the body stays this tall, and its scroll position is
+    // spread over all the rows: `ratio` row pixels to a scrolled one.
+    const MAX_BODY = 15e6;
+    let ratio = 1;
+    let shift = 0;     // how much higher than i * rowH the drawn rows sit (0 unless spread)
+    let viewAt = 0;    // where the view's top is among the rows, in row pixels
+    let setTop = null; // the scrollTop this code set, while it stands
+    let wheelSpread = false;
+    // Where the view is among the rows: the scroll position, spread; one this
+    // code set stands as it was meant (scrollTop keeps whole pixels).
+    function viewTop() {
+      const s = scroller.scrollTop;
+      if (setTop === null || Math.abs(s - setTop) >= 1) {
+        setTop = null;
+        viewAt = s * ratio;
+      }
+      return viewAt;
+    }
+    function scrollToRow(at) {
+      const viewH = Math.max(0, scroller.clientHeight - headH);
+      viewAt = Math.max(0, Math.min(at, rows.length * rowH - viewH));
+      setTop = ratio === 1 ? null : viewAt / ratio;
+      scroller.scrollTop = viewAt / ratio;
+    }
     let editing = null;
     let sortBy = null;        // { ci, up }: the column sorted by; null keeps the data's order
     let sorted = new Map();   // parent key (null at the top) -> its children in that order
@@ -528,9 +553,24 @@
     function drawRows() {
       cancelAnimationFrame(frame);
       frame = 0;
-      body.style.height = `${rows.length * rowH}px`;
       const viewH = Math.max(0, scroller.clientHeight - headH);
-      const top = scroller.scrollTop;
+      const total = rows.length * rowH;
+      const bodyH = Math.min(total, MAX_BODY);
+      ratio = total > MAX_BODY ? Math.max(1, total - viewH) / Math.max(1, MAX_BODY - viewH) : 1;
+      if (ratio === 1) setTop = null;
+      // Rows spread over the scroll: the wheel moves by row pixels, as it does
+      // otherwise (listened to only then: it holds the scrolling up a little).
+      if (ratio > 1 && !wheelSpread) {
+        wheelSpread = true;
+        scroller.addEventListener("wheel", e => {
+          if (ratio === 1 || e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+          e.preventDefault();
+          scrollToRow(viewTop() + e.deltaY * (e.deltaMode === 1 ? rowH : e.deltaMode === 2 ? scroller.clientHeight - headH : 1));
+        }, { signal, passive: false });
+      }
+      body.style.height = `${bodyH}px`;
+      const top = viewTop();
+      shift = Math.round(top - scroller.scrollTop);
       const from = Math.max(0, Math.floor(top / rowH) - opt.overscan);
       const to = Math.min(rows.length, Math.ceil((top + viewH) / rowH) + opt.overscan);
       const want = [];
@@ -570,11 +610,14 @@
 
     // Where a row sits and its state: cheap, done on every draw.
     function place(node, row, i) {
-      node.style.top = `${i * rowH}px`;
+      // A row kept drawn far from the view (it has the focus) waits above the
+      // body, where it takes no room, when the rows are spread.
+      const y = i * rowH - shift;
+      node.style.top = `${shift && (y < -rowH || y > MAX_BODY) ? -2 * rowH : y}px`;
       node.style.setProperty("--tv-depth", String(row.depth));
       // With an odd row height every other row starts on an odd pixel; the
       // dot pattern shifts by one there so the checkerboard stays unbroken.
-      node.style.setProperty("--tv-ph", `${(i * rowH) % 2}px`);
+      node.style.setProperty("--tv-ph", `${((y % 2) + 2) % 2}px`);
       node.setAttribute("aria-level", String(row.depth + 1));
       node.setAttribute("aria-setsize", String(row.size));
       node.setAttribute("aria-posinset", String(row.pos));
@@ -814,7 +857,7 @@
         if (number) {
           input.addEventListener("wheel", e => {
             e.preventDefault();
-            scroller.scrollTop += e.deltaY;
+            scrollToRow(viewTop() + e.deltaY * (e.deltaMode === 1 ? rowH : 1));
           }, { passive: false, signal });
         }
       }
@@ -947,8 +990,9 @@
     function reveal(i) {
       const viewH = scroller.clientHeight - headH;
       const y = i * rowH;
-      if (y < scroller.scrollTop) scroller.scrollTop = y;
-      else if (y + rowH > scroller.scrollTop + viewH) scroller.scrollTop = Math.max(0, y + rowH - viewH);
+      const top = viewTop();
+      if (y < top) scrollToRow(y);
+      else if (y + rowH > top + viewH) scrollToRow(Math.max(0, y + rowH - viewH));
     }
 
     // "select": the row with the focus, and every selected row, top to bottom.

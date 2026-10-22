@@ -71,11 +71,11 @@ Do all of these, every time:
    (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build)
    python scripts/doctor.py examples/basic
    python test/doctor_run.py                 # the checker itself, on small apps set up right and wrong
-   (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
+   (cd test/freeze_check && cargo clippy -- -D warnings)   # only builds it: never `cargo run` it here (see "What tests cannot cover")
    rm -f Cargo.lock && export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback && cargo +1.90 build && cargo +1.90 build --features files   # the oldest Rust it builds with, as CI
    rustup target add x86_64-pc-windows-msvc && cargo clippy --all-targets --features files --target x86_64-pc-windows-msvc -- -D warnings   # Windows's code paths, from any system
    ```
-   The page suites also run in CI's browser, the Chromium of Playwright 1.48 (older than Chrome: it hangs on some CSS current Chrome takes): in a virtualenv with `pip install playwright==1.48.0 pillow && python -m playwright install chromium`, run each suite with `TAURIS_TEST_CHROMIUM=1`.
+   The page suites also run in CI's two browsers, from Playwright 1.48: its Chromium (older than Chrome: it hangs on some CSS current Chrome takes) and its WebKit, the engine Tauri uses on macOS and Linux. In a virtualenv with `pip install playwright==1.48.0 pillow && python -m playwright install chromium webkit`, run each suite with `TAURIS_TEST_CHROMIUM=1`, then with `TAURIS_TEST_WEBKIT=1`.
 9. **Delete the build output** when finished: `target/`, `examples/basic/src-tauri/target/` and `test/freeze_check/target/`.
 10. **Commit and push the release** once every check passes, as `tauris-ui X.Y.Z: what changed`. Do not ask the maintainer first. Then watch CI (`gh run watch`): the release is done when every job is green (Windows and Linux build what a Mac does not); a red or stuck job is fixed and pushed at once.
 
@@ -110,10 +110,10 @@ Do all of these, every time:
 ## What tests cannot cover
 
 A window opened from the plugin's event handler freezes only the real event
-loop. `test/freeze_check` checks it in a real app: CI runs it on macOS at every
-push. After changing `on_event` in `src/lib.rs`, also run it here:
-`cd test/freeze_check && cargo run`. It must end with "OK" four times. A
-small window opens and closes on the screen while it runs.
+loop. `test/freeze_check` checks it in a real app, and CI runs it on macOS at
+every push. Never run it on the maintainer's machine: it opens windows, presses
+menu items and takes the focus from whatever they are doing. Watch CI's
+`freeze-check` job instead (it must end with "OK" eight times).
 
 Dragging a tab out of a window, and between windows, follows the real mouse.
 No test can drive that. After changing `src/drag.rs` or the drag code in

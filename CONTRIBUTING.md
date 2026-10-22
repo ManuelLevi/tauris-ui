@@ -34,11 +34,11 @@ them.
    (cd examples/basic/src-tauri && cargo clippy -- -D warnings && cargo build)
    python scripts/doctor.py examples/basic
    python test/doctor_run.py                 # the checker itself, on small apps set up right and wrong
-   (cd test/freeze_check && cargo clippy -- -D warnings && cargo run)   # macOS: a real app; ends with "OK" four times
+   (cd test/freeze_check && cargo clippy -- -D warnings)   # builds it; CI runs it (it opens windows and takes the focus)
    rm -f Cargo.lock && export CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback && cargo +1.90 build && cargo +1.90 build --features files   # the oldest Rust it builds with, as CI
    rustup target add x86_64-pc-windows-msvc && cargo clippy --all-targets --features files --target x86_64-pc-windows-msvc -- -D warnings   # Windows's code paths, from any system
    ```
-   The page suites also run in CI's browser, the Chromium of Playwright 1.48: in a virtualenv with `pip install playwright==1.48.0 pillow && python -m playwright install chromium`, run each with `TAURIS_TEST_CHROMIUM=1`. After pushing, watch CI (`gh run watch`) until every job is green.
+   The page suites also run in CI's two browsers, the Chromium and the WebKit of Playwright 1.48: in a virtualenv with `pip install playwright==1.48.0 pillow && python -m playwright install chromium webkit`, run each with `TAURIS_TEST_CHROMIUM=1`, then with `TAURIS_TEST_WEBKIT=1`. After pushing, watch CI (`gh run watch`) until every job is green.
 6. If you touched dragging between windows, try it by hand on macOS. No
    test can drive the real mouse.
 

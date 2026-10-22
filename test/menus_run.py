@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from engine import WEBKIT, launch
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web"
@@ -22,6 +23,7 @@ SIZE = {"width": 1000, "height": 560}
 failures = []
 
 ACCENT, WHITE, FG, DISABLED, OPEN_BG = "rgb(38, 117, 191)", "rgb(255, 255, 255)", "rgb(30, 31, 34)", "rgb(163, 166, 173)", "rgb(219, 230, 244)"
+TOOL_ON_BG, TOOL_ON_BORDER = "rgb(217, 217, 218)", "rgb(174, 176, 182)"  # the toolbar's pressed button: a neutral grey, not the title's blue
 DARK_MENU, DARK_ITEM = "rgb(47, 50, 52)", "rgb(53, 112, 176)"
 
 TEMPLATE_CSS = """
@@ -106,7 +108,7 @@ def shot(page, name):
 
 with sync_playwright() as p:
     # CI runs the Chromium of the pinned Playwright (the same browser every day); here, Chrome.
-    browser = p.chromium.launch(channel=None if os.environ.get("TAURIS_TEST_CHROMIUM") else "chrome")
+    browser = launch(p)
 
     # ---------- the bar, the look ----------
     page = fresh(browser)
@@ -220,12 +222,28 @@ with sync_playwright() as p:
           and page.get_attribute(tb, "role") == "button" and page.get_attribute(tb, "tabindex") == "0"
           and page.evaluate("(() => { const c = getComputedStyle(document.querySelector('#tb-projects'), '::after'); return [c.content, c.width, c.borderBottomStyle]; })()") == ['""', "4px", "solid"])
     check("the toolbar look: 26px buttons", rect(page, tb)["h"] == 26 and rect(page, "#tb-docs")["h"] == 26
-          and css(page, "#tb-docs", "background-color") == OPEN_BG)
+          and css(page, "#tb-docs", "background-color") == TOOL_ON_BG)
+    check("the toolbar row is 34px, with its buttons 4px under its top and 4px over its foot line",
+          rect(page, "#toolbar")["h"] == 34 and rect(page, tb)["y"] - rect(page, "#toolbar")["y"] == 4
+          and rect(page, "#toolbar")["y"] + 34 - (rect(page, tb)["y"] + 26) == 4,
+          (rect(page, "#toolbar"), rect(page, tb)))
+    check("a toolbar button: 10px at its sides; the line between groups is 1px by 24px",
+          css(page, "#tb-docs", "padding-left") == "10px" and css(page, "#tb-docs", "padding-right") == "10px"
+          and (rect(page, ".tmn-tool-sep")["w"], rect(page, ".tmn-tool-sep")["h"]) == (1, 24),
+          (css(page, "#tb-docs", "padding-left"), rect(page, ".tmn-tool-sep")))
+    check("a pressed toolbar button is a grey fill with its own 1px edge, and no line along its foot",
+          css(page, "#tb-docs", "border-top-color") == TOOL_ON_BORDER and css(page, "#tb-docs", "border-top-width") == "1px"
+          and css(page, "#tb-docs", "box-shadow") == "none", (css(page, "#tb-docs", "border-top-color"), css(page, "#tb-docs", "box-shadow")))
+    page.evaluate("""() => { const b = document.getElementById('tb-docs'); b.insertAdjacentHTML('afterbegin', '<svg id="ico" viewBox="0 0 24 24"><path d="M5 3h14v18H5z"/></svg>'); }""")
+    check("an <svg> in a toolbar button is a 13px icon in the text colour, 8px before the label",
+          (rect(page, "#ico")["w"], rect(page, "#ico")["h"]) == (13, 13) and css(page, "#ico", "stroke") == css(page, "#tb-docs", "color")
+          and css(page, "#tb-docs", "column-gap") == "8px" and css(page, "#ico", "flex-shrink") == "0",
+          (rect(page, "#ico"), css(page, "#ico", "stroke"), css(page, "#tb-docs", "column-gap")))
     page.click(tb)
     page.wait_for_timeout(150)
     menu, button = rect(page, ".tmn-menu"), rect(page, tb)
     check("a click opens it 3px under the button", abs(menu["y"] - (button["y"] + button["h"] + 3)) <= 1 and abs(menu["x"] - button["x"]) < 1
-          and page.get_attribute(tb, "aria-expanded") == "true" and css(page, tb, "background-color") == OPEN_BG)
+          and page.get_attribute(tb, "aria-expanded") == "true" and css(page, tb, "background-color") == TOOL_ON_BG)
     chips = page.evaluate("[...document.querySelectorAll('.tmn-chip')].map(c => getComputedStyle(c).backgroundColor)")
     check("items with a colour show it as a chip", chips == ["rgb(42, 120, 214)", "rgb(235, 104, 52)", "rgb(27, 175, 122)", "rgb(237, 161, 0)"], chips)
     shot(page, "button_light")
@@ -658,6 +676,9 @@ with sync_playwright() as p:
     shot(page, "bar_dark")
     check("dark: the menu and the chosen item follow the system",
           css(page, ".tmn-menu", "background-color") == DARK_MENU and css(page, ".tmn-item:focus", "background-color") == DARK_ITEM)
+    dark_on = [int(n) for n in css(page, "#tb-docs", "background-color")[4:-1].split(",")]
+    check("dark: a pressed toolbar button is a neutral grey (not blue), lighter than the bar", max(dark_on) - min(dark_on) <= 8
+          and min(dark_on) > 60 and css(page, "#tb-docs", "border-top-color") != css(page, "#tb-docs", "background-color"), dark_on)
     page.close()
     page = fresh(browser, reduced_motion="reduce")
     page.click(title("File"))
@@ -687,8 +708,12 @@ with sync_playwright() as p:
     page.click(".tmn-item")
     check("and runs the item", page.evaluate("chosen") == ["health"])
     page.focus("#tool")
+    # WebKit's Tab, as macOS's by default, skips buttons: a key, then the focus, is a keyboard focus there too.
     page.keyboard.press("Shift+Tab")
-    page.keyboard.press("Tab")
+    if WEBKIT:
+        page.focus("#tool")
+    else:
+        page.keyboard.press("Tab")
     check("a template's button:focus outline adds no second ring to it (the library's ring alone)",
           css(page, "#tool", "outline-style") == "none" and "0px 0px 0px 1px" in css(page, "#tool", "box-shadow"),
           (css(page, "#tool", "outline-style"), css(page, "#tool", "box-shadow")))
@@ -942,7 +967,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(100)
     page.keyboard.press("Escape")
     look = page.evaluate("""(() => { const b = document.getElementById('tb-docs'); b.setAttribute('aria-pressed', 'true'); return getComputedStyle(b).boxShadow; })()""")
-    check("a pressed toolbar button has a line along its foot (its tint alone is under 3:1)", "inset" in look and "-2px" in look, look)
+    check("a pressed toolbar button keeps its focus ring but has no line along its foot", look == "none", look)
     page.close()
 
     page = fresh(browser)

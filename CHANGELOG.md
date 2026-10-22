@@ -8,6 +8,20 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.24 — 2026-10-26
+
+Fixes from the final reviewer:
+- Files: only the rows in view are drawn (spacers stand for the others; `aria-rowcount` and `aria-rowindex` say where a row is), so 20,000 files mount, step, search and take a new list at once. A new list is compared file by file. The delete question is not marked modal, as the header stays usable while it is open.
+- Tree: past what a browser can scroll (about 1.8 million rows), the rows are spread over the scroll range: End, `select()` and the wheel still reach every row.
+- Tabs: Ctrl+Shift+← / → on a tab, or Ctrl+Shift+Page Up / Down anywhere, moves it along the strip; its menu has Move left, Move right and "Move to “…”" for every other open window (`app.tabs().move_to_window(tab, label)` in Rust; the `other_windows` and `move_to_window` commands are in `tauris-ui:default`). A tab from another window that lands in a strip fires `drop` with that tab and its place; a drag that only passes over, or ends elsewhere, fires nothing. What Rust tells a strip (its tabs changed, a tab hovering it, a close asked) goes to that window's page alone, not as an event every listening page gets; the strip no longer listens for Tauri events. Backspace on a tab does not go back a page in WebKit.
+- Windows: a remembered window comes back at its own size, even when the app's `window` hook sets one.
+- Menus: a fuller toolbar look. The row is 34px (4px above and below its 26px buttons); a button has 10px at its sides and 8px between an icon and its text; a child `<svg>` is a 13px line icon in the text colour (`--tmn-tool-icon`); the line between groups is 24px high; the ▾ sits closer to its text. A pressed or open button is a neutral grey with its own edge (`--tmn-tool-on-bg`, `--tmn-tool-on-border`; a dark grey in dark mode) instead of the selection blue, and has no line along its foot. It no longer follows `--tauris-sel-inactive`: set `--tmn-tool-on-bg` to colour it.
+- `Config::components(&[...])`: the page components the plugin puts in pages (default all five; the files table brings the menus).
+- The checker: `Tauri.toml` in kebab-case (`with-global-tauri`, `frontend-dist`, `drag-drop-enabled`) is read; `window_prefix` from a `const` or `static` is read, and one it cannot read is said; a capability's `platforms` count (one for other systems grants nothing here); a page using a component `Config::components` leaves out is caught; a capability file that cannot be read is said; an app installing on macOS before 11 is told the components need Safari 16.4.
+- Terminal: black text on the red key and error band (6:1; white was 3.4:1). In WebKit, the block cursor finds the caret at the end of right-to-left text.
+- The README says what the page needs: Safari 16.4 (macOS 11 with its updates), WebKitGTK 2.40, WebView2. The example app sets `minimumSystemVersion` 11.0.
+- CI: the page suites also run in WebKit (Playwright's, on macOS); the window tests run on Windows too (the test program gets the manifest Tauri needs); the real-app check closes a window's last tab by ⌘W and from the page, and checks a remembered size and a tab reaching its page. It is for CI: run by hand it opens windows and takes the focus.
+
 ## 0.4.23 — 2026-10-22
 
 - Windows builds with the `files` feature without an unused-variable warning (CI treats warnings as errors). The checks before a release include a Windows clippy run, which works from a Mac.
