@@ -893,7 +893,7 @@ pub(crate) fn other_windows<R: Runtime>(app: &AppHandle<R>, label: &str) -> Vec<
             (w.focused, OtherWindow { label: w.label.clone(), title })
         })
         .collect();
-    others.sort_by(|a, b| b.0.cmp(&a.0));
+    others.sort_by_key(|(focused, _)| std::cmp::Reverse(*focused));
     others.into_iter().map(|(_, w)| w).collect()
 }
 

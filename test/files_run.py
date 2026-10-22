@@ -872,8 +872,9 @@ with sync_playwright() as p:
     # ---------- the row's buttons, double-click, the row menu ----------
     page = fresh(browser)
     page.dblclick(".tf-file:nth-child(2) .tf-c-name")
-    page.wait_for_timeout(150)
-    check("a double click opens", page.evaluate("window.opened") == "Budget 2027.xlsx")
+    # The demo's onOpen takes 80ms; a slow machine takes longer.
+    page.wait_for_function("window.opened !== undefined", timeout=3000)
+    check("a double click opens", page.evaluate("window.opened") == "Budget 2027.xlsx", page.evaluate("window.opened"))
     page.hover(".tf-file:nth-child(1)")
     page.click(".tf-file:nth-child(1) .tf-ib[data-act='saveAs']")
     page.wait_for_timeout(150)

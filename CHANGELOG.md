@@ -8,6 +8,11 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.4.25 — 2026-10-26
+
+- Tabs: in Chromium on a Mac (which says "macOS"), the strip's shortcuts and their labels are the Mac's.
+- CI: builds with the newest clippy; a WebKit check waits for what it checks rather than a fixed time.
+
 ## 0.4.24 — 2026-10-26
 
 Fixes from the final reviewer:
