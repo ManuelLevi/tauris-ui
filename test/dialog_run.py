@@ -376,7 +376,8 @@ with sync_playwright() as p:
     check("(a click on it: focus the dialog's window)", owner.evaluate("__sent.some(s => s[0] === 'plugin:tauris-ui|dialog_window_reply' && s[1].message.type === 'focus')"))
     child = browser.new_page(viewport={"width": 560, "height": 160}, device_scale_factor=2)
     child.on("pageerror", lambda e: failures.append(f"page error: {e}") or print("PAGEERROR", e))
-    child.add_init_script(MOCK + "window.__spec = " + json.dumps(opened["spec"]) + ";")
+    # As in Tauri: window.__TAURI__ arrives after the plugin's scripts have run.
+    child.add_init_script("window.addEventListener('DOMContentLoaded', () => { " + MOCK + " window.__spec = " + json.dumps(opened["spec"]) + "; });")
     child.add_init_script("window.addEventListener('DOMContentLoaded', () => TaurisDialog.defineField('people', (cell, f) => { const i = document.createElement('input'); i.className = 'pp'; i.value = (f.value || []).join(','); cell.append(i); return { value: () => i.value.split(',').filter(Boolean) }; }));")
     child.goto(DEMO.as_uri() + "#tauris-dialog")
     check("the dialog's window: the app's page, and only the dialog shows (no title bar of its own: the window's)",
@@ -409,6 +410,16 @@ with sync_playwright() as p:
     owner.wait_for_function("__sent.some(s => s[0] === 'plugin:tauris-ui|dialog_window_open')")
     owner.evaluate("__sent.length = 0; __taurisUiDeliver('tauris-ui:dialog-window', { label: 'tauris-dialog-1', message: { type: 'closed' } })")
     check("its window closed from its title bar: the dialog ends", lambda: owner.evaluate("window.answer") == "closed" and owner.locator(".tdl-shield").count() == 0)
+    errors = []
+    owner.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    owner.evaluate("__sent.length = 0; window.answer = undefined; TaurisDialog.form({ window: true, title: 'Lost', fields: [{ name: 'a' }] }).then(a => { window.answer = a; }); 0")
+    owner.wait_for_selector(".tdl-form", timeout=10000)
+    check("a window that never shows its dialog: closed, the dialog in the page instead, and the console says why",
+          owner.locator(".tdl-shield").count() == 0
+          and owner.evaluate("__sent.some(s => s[0] === 'plugin:tauris-ui|dialog_window_reply' && s[1].message.type === 'close')")
+          and any("did not show the dialog" in e for e in errors), errors)
+    owner.keyboard.press("Escape")
+    owner.evaluate("__taurisUiDeliver('tauris-ui:dialog-window', { label: 'tauris-dialog-1', message: { type: 'log', text: 'boom' } })")
     owner.evaluate("window.__TAURI__.core.invoke = async () => { throw new Error('no window'); }; window.answer = undefined; TaurisDialog.confirm({ title: 'x' }); 0")
     owner.evaluate("document.querySelector('.tdl .tdl-btn').click()")
     owner.evaluate("TaurisDialog.form({ window: true, title: 'Here', fields: [{ name: 'a' }] }).then(a => { window.answer = a; }); 0")

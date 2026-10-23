@@ -217,12 +217,23 @@ pub(crate) fn reply<R: Runtime>(
     if owner_of(label).as_deref() != Some(from) {
         return Err(format!("{label} is not a dialog of this window"));
     }
-    // A click on the window that asked brings its dialog forward.
-    if message.get("type").and_then(|t| t.as_str()) == Some("focus") {
-        if let Some(d) = app.get_webview_window(label) {
-            let _ = d.set_focus();
+    match message.get("type").and_then(|t| t.as_str()) {
+        // A click on the window that asked brings its dialog forward.
+        Some("focus") => {
+            if let Some(d) = app.get_webview_window(label) {
+                let _ = d.set_focus();
+            }
+            return Ok(());
         }
-        return Ok(());
+        // Closed from the window that asked (TaurisDialog.close(), or a dialog that never showed):
+        // closed here, so it closes even when its page never loaded.
+        Some("close") => {
+            if let Some(d) = app.get_webview_window(label) {
+                let _ = d.close();
+            }
+            return Ok(());
+        }
+        _ => {}
     }
     tell_page(app, label, DIALOG_EVENT, serde_json::json!({ "label": label, "message": message }));
     Ok(())

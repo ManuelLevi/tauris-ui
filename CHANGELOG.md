@@ -8,6 +8,14 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.5.4 — 2026-10-23
+
+- Dialogs in their own window (`window: true`) now open in a real app. The dialog's window looked for `window.__TAURI__` before Tauri had set it, so it never drew the dialog and never showed, and the window that asked waited for ever. It now looks once the page has loaded.
+- Such a dialog can no longer fail silently:
+  - if its window has not shown the dialog after 6 seconds, the window closes, the dialog shows in the page, and the console says why;
+  - errors in the dialog's window are logged in the window that asked, as "[tauris-ui dialog window]";
+  - options that can't be sent to a window (not JSON) are logged, and the dialog shows in the page.
+
 ## 0.5.3 — 2026-10-22
 
 - Forms start in their first text field, its text selected, not in a select above it. `autofocus: true` on a field starts there instead.

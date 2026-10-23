@@ -124,12 +124,18 @@
   async function openWindow(kind, options, title, width) {
     if (!tauri() || IN_WINDOW) return null;
     // Data only: the functions stay here, and are asked through messages.
-    const spec = {
-      kind,
-      options: JSON.parse(JSON.stringify({ ...options, window: undefined })),
-      has: { validate: typeof options.validate === "function", review: typeof options.review === "function", submit: typeof options.submit === "function",
-        left: Boolean(options.left && typeof options.left === "object" && typeof options.left.run === "function") },
-    };
+    let spec;
+    try {
+      spec = {
+        kind,
+        options: JSON.parse(JSON.stringify({ ...options, window: undefined })),
+        has: { validate: typeof options.validate === "function", review: typeof options.review === "function", submit: typeof options.submit === "function",
+          left: Boolean(options.left && typeof options.left === "object" && typeof options.left.run === "function") },
+      };
+    } catch (e) {
+      console.error("[tauris-ui dialog] its options cannot cross to a window of its own (they must be JSON), so it shows in the page:", e);
+      return null;
+    }
     try {
       const label = await plugin("dialog_window_open", { spec: JSON.stringify(spec), title: String(title ?? ""), width: Number(width) || 440 });
       return typeof label === "string" ? label : null;
@@ -146,7 +152,10 @@
   const questions = new Map(); // id -> resolve, for questions shown in a dialog's window
   let questionIds = 0;
 
-  function waitForWindow(label, onMessage) {
+  // How long a dialog's window may take to show its dialog; after that the dialog shows in the page, and says why.
+  const WINDOW_WAIT_MS = 6000;
+
+  function waitForWindow(label, onMessage, here) {
     const back = rememberFocus();
     const shield = el("div", "tdl-shield");
     const quieted = [...document.body.children].filter(n => !n.inert && !n.matches("script, style"));
@@ -160,18 +169,33 @@
     windowWaits.push(label);
     return new Promise(resolve => {
       let done = false;
-      const finish = value => {
-        if (done) return;
+      const settle = () => {
         done = true;
+        clearTimeout(late);
         heard.delete(label);
         windowWaits.splice(windowWaits.indexOf(label), 1);
         shield.remove();
         for (const n of quieted) n.inert = false;
         open.splice(open.indexOf(shield), 1);
+      };
+      const finish = value => {
+        if (done) return;
+        settle();
         // After the window is key again.
         requestAnimationFrame(back);
         resolve(value);
       };
+      // A window that never shows its dialog is closed, and the dialog shows here instead.
+      const late = setTimeout(() => {
+        if (done) return;
+        console.error(`[tauris-ui dialog] its window (${label}) did not show the dialog within ${WINDOW_WAIT_MS / 1000} s, so it shows in the page. ` +
+          "Check that Config::window_url is the app's page, that the page loads there without an error (its errors are logged here, " +
+          "as \"[tauris-ui dialog window]\"), and that the capability's windows include \"tauris-dialog-*\".");
+        plugin("dialog_window_reply", { label, message: { type: "close" } }).catch(() => {});
+        settle();
+        back();
+        resolve(here());
+      }, WINDOW_WAIT_MS);
       const reply = (id, answer) => plugin("dialog_window_reply", { label, message: { type: "answer", id, ...answer } }).catch(() => {});
       // TaurisDialog.close(): the window closes, the dialog ends as cancelled.
       shield.abort = () => {
@@ -181,6 +205,9 @@
       heard.set(label, async msg => {
         if (msg.type === "closed") return finish(null);
         if (msg.type === "done") return finish(msg.value ?? null);
+        if (msg.type === "shown") return void clearTimeout(late);
+        // What went wrong in that window, which may never show: said here.
+        if (msg.type === "log") return void console.error(`[tauris-ui dialog window] ${msg.text ?? ""}`);
         if (msg.type === "answered") {
           questions.get(msg.id)?.(msg.yes === true);
           questions.delete(msg.id);
@@ -197,6 +224,13 @@
       });
     });
   }
+
+  // In a dialog's window: what goes wrong is said in the window that asked too (this one may never show).
+  function report(text) {
+    console.error(`[tauris-ui dialog] ${text}`);
+    if (IN_WINDOW && tauri()) plugin("dialog_window_send", { message: { type: "log", text: String(text) } }).catch(() => {});
+  }
+  let shownTold = false;
 
   // In a dialog's window: asks the window that asked, and waits for its answer.
   let asked = 0;
@@ -289,7 +323,13 @@
         if (state.closed) return;
         const r = box.getBoundingClientRect();
         plugin("dialog_window_ready", { width: Math.ceil(r.width), height: Math.ceil(r.height), pageW: window.innerWidth, pageH: window.innerHeight })
-          .catch(e => console.error("[tauris-ui dialog] cannot size its window:", e));
+          .then(() => {
+            // Shown: the window that asked stops waiting for it.
+            if (shownTold) return;
+            shownTold = true;
+            plugin("dialog_window_send", { message: { type: "shown" } }).catch(() => {});
+          })
+          .catch(e => report(`cannot size its window: ${e}`));
       };
       const seen = new ResizeObserver(() => {
         if (queued) return;
@@ -554,7 +594,7 @@
           if (what === "submit" && typeof options.submit === "function") await options.submit(value);
           if (what === "left" && options.left && typeof options.left.run === "function") return (await options.left.run()) === true;
           return null;
-        });
+        }, () => formHere(options));
       }
     }
     return formHere(options);
@@ -838,7 +878,7 @@
   async function review(options = {}) {
     if (options.window) {
       const label = await openWindow("review", options, options.title ?? words(options.labels).review, options.width ?? 440);
-      if (label) return (await waitForWindow(label, () => null)) === true;
+      if (label) return (await waitForWindow(label, () => null, () => reviewHere(options))) === true;
     }
     return reviewHere(options);
   }
@@ -877,7 +917,7 @@
   async function shortcuts(options = {}) {
     if (options.window) {
       const label = await openWindow("shortcuts", options, options.title ?? words(options.labels).shortcuts, options.width ?? 700);
-      if (label) return void (await waitForWindow(label, () => null));
+      if (label) return void (await waitForWindow(label, () => null, () => shortcutsHere(options)));
     }
     return shortcutsHere(options);
   }
@@ -915,7 +955,7 @@
   async function about(options = {}) {
     if (options.window) {
       const label = await openWindow("about", options, options.title ?? `About ${options.name ?? ""}`.trim(), options.width ?? 420);
-      if (label) return void (await waitForWindow(label, () => null));
+      if (label) return void (await waitForWindow(label, () => null, () => aboutHere(options)));
     }
     return aboutHere(options);
   }
@@ -985,8 +1025,7 @@
     document.documentElement.classList.add("tdl-in-window");
     addStyles();
     heard.set("self", async msg => {
-      // The window that asked: a question during its save, or close (TaurisDialog.close()).
-      if (msg.type === "close") return void plugin("dialog_window_close").catch(() => {});
+      // The window that asked: a question during its save.
       if (msg.type === "confirm") {
         const yes = await confirmHere(msg.options ?? {});
         return void plugin("dialog_window_send", { message: { type: "answered", id: msg.id, yes } }).catch(() => {});
@@ -1002,10 +1041,10 @@
     try {
       spec = JSON.parse(await plugin("dialog_window_spec"));
     } catch (e) {
-      console.error("[tauris-ui dialog] this window has no dialog to show:", e);
+      report(`this window has no dialog to show: ${e}`);
       return;
     }
-    if (!spec || !spec.options) return;
+    if (!spec || !spec.options) return void report("this window has no dialog to show");
     const o = spec.options;
     if (spec.kind === "form") {
       const values = await formHere({
@@ -1022,7 +1061,7 @@
     if (spec.kind === "about") return tellDone(await aboutHere(o));
     return tellDone(null);
   }
-  if (IN_WINDOW && tauri()) {
+  if (IN_WINDOW) {
     // The asker's answers come to this window under its own label: heard as "self".
     const own = window.__taurisUiDeliver;
     Object.defineProperty(window, "__taurisUiDeliver", {
@@ -1032,9 +1071,17 @@
         return own(name, payload);
       },
     });
-    // After the app's page has run (and defined its field types).
-    if (document.readyState === "complete") queueMicrotask(serveWindow);
-    else window.addEventListener("load", () => serveWindow(), { once: true });
+    // The page's own errors here are said in the window that asked: this window shows only once its dialog has drawn.
+    window.addEventListener("error", e => report(`${e.message} (${e.filename}:${e.lineno})`));
+    window.addEventListener("unhandledrejection", e => report(`unhandled: ${e.reason?.stack ?? e.reason}`));
+    // After the app's page has run (and defined its field types). Tauri's window.__TAURI__ comes
+    // after this script, so it is looked for only then.
+    const start = () => {
+      if (tauri()) return void serveWindow();
+      console.error('[tauris-ui dialog] a dialog\'s window without window.__TAURI__: set "app": { "withGlobalTauri": true } in tauri.conf.json');
+    };
+    if (document.readyState === "complete") queueMicrotask(start);
+    else window.addEventListener("load", start, { once: true });
   }
 
   window.TaurisDialog = {
