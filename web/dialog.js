@@ -317,9 +317,7 @@
     }, { signal });
     // In its own window: the window is its size (and follows it as a refusal or a review shows).
     if (sizesWindow) {
-      let queued = false;
       const fit = () => {
-        queued = false;
         if (state.closed) return;
         const r = box.getBoundingClientRect();
         plugin("dialog_window_ready", { width: Math.ceil(r.width), height: Math.ceil(r.height), pageW: window.innerWidth, pageH: window.innerHeight })
@@ -331,11 +329,8 @@
           })
           .catch(e => report(`cannot size its window: ${e}`));
       };
-      const seen = new ResizeObserver(() => {
-        if (queued) return;
-        queued = true;
-        requestAnimationFrame(fit);
-      });
+      // Straight from the observer, not on an animation frame: a window never yet on screen gets none.
+      const seen = new ResizeObserver(fit);
       seen.observe(box);
       signal.addEventListener("abort", () => seen.disconnect());
     }

@@ -8,9 +8,13 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.5.5 — 2026-10-23
+
+- Dialogs in their own window now show. The dialog's window waited for an animation frame before telling its size, and WebKit gives none to a window that has never been on screen, so it stayed hidden until the 6-second fallback. It now tells its size as soon as the dialog has laid out.
+
 ## 0.5.4 — 2026-10-23
 
-- Dialogs in their own window (`window: true`) now open in a real app. The dialog's window looked for `window.__TAURI__` before Tauri had set it, so it never drew the dialog and never showed, and the window that asked waited for ever. It now looks once the page has loaded.
+- Dialogs in their own window (`window: true`) now draw in a real app. The dialog's window looked for `window.__TAURI__` before Tauri had set it, so it never drew the dialog, and the window that asked waited for ever. It now looks once the page has loaded.
 - Such a dialog can no longer fail silently:
   - if its window has not shown the dialog after 6 seconds, the window closes, the dialog shows in the page, and the console says why;
   - errors in the dialog's window are logged in the window that asked, as "[tauris-ui dialog window]";
