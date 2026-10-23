@@ -219,7 +219,12 @@ pub async fn dialog_window_open<R: Runtime>(
 #[tauri::command]
 pub fn dialog_window_spec<R: Runtime>(window: WebviewWindow<R>) -> Option<String> {
     let _locked = windows::InPlugin::enter(); // Tauri holds its plugin lock here
-    crate::dialogs::spec(window.label())
+    let spec = crate::dialogs::spec(window.label());
+    // A window kept ready, waiting: put on screen once, unseen.
+    if spec.is_none() {
+        crate::dialogs::prewarm(&window);
+    }
+    spec
 }
 
 // This dialog window's page has laid out: its size, then (the first time) shown.

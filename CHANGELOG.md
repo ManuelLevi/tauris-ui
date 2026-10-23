@@ -8,6 +8,11 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.5.7 — 2026-10-23
+
+- A dialog's window is sized, placed and shown in one turn of the main thread, so there's no waiting for the system to apply the size and place before showing. That wait took 10–80 ms on each show.
+- A window kept ready (`warm_dialogs`) is put on screen once, unseen (clear, click-through, not taking the keyboard), as soon as its page has loaded, then hidden again. Its first real show is then as quick as the later ones; it took about half a second more.
+
 ## 0.5.6 — 2026-10-23
 
 - `Config::warm_dialogs()` (off by default) keeps a dialog window ready for each tab window: hidden, its page loaded. A `TaurisDialog` with `window: true` is handed to it and shows at once, instead of waiting about a second for a new window to load the page. After its dialog the window hides and waits for the next. If it is closed, another is made. Each one is a hidden page in memory.

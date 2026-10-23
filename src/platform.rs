@@ -29,7 +29,8 @@ pub(crate) fn set_alpha<R: Runtime>(window: &WebviewWindow<R>, alpha: f64) {
 pub(crate) fn set_alpha<R: Runtime>(_window: &WebviewWindow<R>, _alpha: f64) {}
 
 // A dialog's window, attached to the window that asked: it moves with it and
-// stays above it. macOS orders the child in as it attaches, so this shows it.
+// stays above it. macOS orders the child in as it attaches, so this shows it
+// (seen, and in the mouse's way, even while `order_in_unseen` has it).
 #[cfg(target_os = "macos")]
 pub(crate) fn attach_child<R: Runtime>(parent: &WebviewWindow<R>, child: &WebviewWindow<R>) {
     let Ok(p) = parent.ns_window() else {
@@ -39,12 +40,46 @@ pub(crate) fn attach_child<R: Runtime>(parent: &WebviewWindow<R>, child: &Webvie
     let p = p as usize;
     with_ns_window(child, move |c| unsafe {
         let p = p as *mut objc2::runtime::AnyObject;
+        let _: () = objc2::msg_send![c, setAlphaValue: 1.0f64];
+        let _: () = objc2::msg_send![c, setIgnoresMouseEvents: false];
         if !p.is_null() {
             // [parent addChildWindow:child ordered:NSWindowAbove]
             let _: () = objc2::msg_send![&*p, addChildWindow: c, ordered: 1isize];
         }
     });
 }
+
+// A window kept ready, put on screen unseen: clear, out of the mouse's way, and
+// not taking the keyboard (orderFront changes neither the key nor the main window).
+#[cfg(target_os = "macos")]
+pub(crate) fn order_in_unseen<R: Runtime>(window: &WebviewWindow<R>) {
+    with_ns_window(window, |w| unsafe {
+        let none: Option<&objc2::runtime::AnyObject> = None;
+        let _: () = objc2::msg_send![w, setAlphaValue: 0.0f64];
+        let _: () = objc2::msg_send![w, setIgnoresMouseEvents: true];
+        let _: () = objc2::msg_send![w, orderFront: none];
+    });
+}
+
+// Off the screen again when `still` says it shows nothing; seen and in the
+// mouse's way again either way.
+#[cfg(target_os = "macos")]
+pub(crate) fn order_out_unseen<R: Runtime>(window: &WebviewWindow<R>, still: impl FnOnce() -> bool + Send + 'static) {
+    with_ns_window(window, move |w| unsafe {
+        if still() {
+            let none: Option<&objc2::runtime::AnyObject> = None;
+            let _: () = objc2::msg_send![w, orderOut: none];
+        }
+        let _: () = objc2::msg_send![w, setAlphaValue: 1.0f64];
+        let _: () = objc2::msg_send![w, setIgnoresMouseEvents: false];
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn order_in_unseen<R: Runtime>(_window: &WebviewWindow<R>) {}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn order_out_unseen<R: Runtime>(_window: &WebviewWindow<R>, _still: impl FnOnce() -> bool + Send + 'static) {}
 
 // Takes a dialog's window off the window that asked, before it hides: an
 // attached window would come back on screen with it.

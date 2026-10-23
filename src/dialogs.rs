@@ -34,6 +34,10 @@ struct Open {
     spec: Option<String>,
     // Its page asked for its dialog and had none: it is told when it has one.
     idle: bool,
+    // On screen with a dialog (placed and shown by `ready` when not).
+    shown: bool,
+    // Has been on screen once (or put there unseen, by `prewarm`).
+    prewarmed: bool,
     // What the window adds around its page (a title bar inside the inner size), measured once.
     frame: Option<(f64, f64)>,
 }
@@ -124,7 +128,7 @@ fn build<R: Runtime>(
     #[cfg(not(target_os = "macos"))]
     let builder = builder.parent(owner).map_err(|e| e.to_string())?;
     if let Ok(mut map) = open_dialogs().lock() {
-        map.insert(label.clone(), Open { owner: owner.label().to_string(), spec, idle: false, frame: None });
+        map.insert(label.clone(), Open { owner: owner.label().to_string(), spec, idle: false, shown: false, prewarmed: false, frame: None });
     }
     let dialog = match builder.build() {
         Ok(d) => d,
@@ -183,6 +187,8 @@ pub(crate) fn spec(label: &str) -> Option<String> {
 /// is placed over its owner (a third of the way down) and shown with the
 /// keyboard. Later calls (a refusal, a review) resize it, its top edge kept.
 /// Answers the height it got: less only on a screen too short (then it scrolls).
+/// All of it happens in one turn of the main thread, so the size and the place
+/// are the window's before it shows, with nothing to wait for.
 pub(crate) async fn ready<R: Runtime>(
     app: &AppHandle<R>,
     me: &WebviewWindow<R>,
@@ -191,17 +197,42 @@ pub(crate) async fn ready<R: Runtime>(
     page_w: f64,
     page_h: f64,
 ) -> Result<f64, String> {
+    let owner_label = owner_of(me.label()).ok_or("This window is not a dialog.")?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (app2, me2) = (app.clone(), me.clone());
+    me.run_on_main_thread(move || {
+        let _ = tx.send(place(&app2, &me2, &owner_label, width, height, page_w, page_h));
+    })
+    .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || rx.recv())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|_| "The dialog's window is gone.".to_string())?
+}
+
+// `ready`, on the main thread (where the window's calls happen at once).
+fn place<R: Runtime>(
+    app: &AppHandle<R>,
+    me: &WebviewWindow<R>,
+    owner_label: &str,
+    width: f64,
+    height: f64,
+    page_w: f64,
+    page_h: f64,
+) -> Result<f64, String> {
     let label = me.label().to_string();
-    let owner_label = owner_of(&label).ok_or("This window is not a dialog.")?;
-    let owner = app.get_webview_window(&owner_label);
-    let first = !me.is_visible().unwrap_or(false);
+    let owner = app.get_webview_window(owner_label);
     let scale = me.scale_factor().unwrap_or(1.0);
     let inner_size = me.inner_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
     let outer_size = me.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
-    let (fw, fh) = {
+    let (fw, fh, first) = {
         let mut map = open_dialogs().lock().map_err(|e| e.to_string())?;
         let d = map.get_mut(&label).ok_or("The dialog is gone.")?;
-        *d.frame.get_or_insert(((inner_size.width - page_w).max(0.0), (inner_size.height - page_h).max(0.0)))
+        let first = !d.shown;
+        d.shown = true;
+        d.prewarmed = true;
+        let (fw, fh) = *d.frame.get_or_insert(((inner_size.width - page_w).max(0.0), (inner_size.height - page_h).max(0.0)));
+        (fw, fh, first)
     };
     let chrome = outer_size.height - inner_size.height + fh;
     let screen = owner.as_ref().unwrap_or(me).current_monitor().ok().flatten().map(|m| {
@@ -226,7 +257,6 @@ pub(crate) async fn ready<R: Runtime>(
     if !first {
         return Ok(height);
     }
-    let mut at = None;
     if let Some(o) = &owner {
         let os = o.scale_factor().unwrap_or(1.0);
         if let (Ok(pos), Ok(size)) = (o.outer_position(), o.outer_size()) {
@@ -239,28 +269,8 @@ pub(crate) async fn ready<R: Runtime>(
                 x = x.min(sx + sw - ww).max(sx);
                 y = y.min(sy + sh - wh).max(sy);
             }
-            at = Some(LogicalPosition::new(x.round(), y.round()));
+            me.set_position(LogicalPosition::new(x.round(), y.round())).map_err(|e| e.to_string())?;
         }
-    }
-    if let Some(p) = at {
-        me.set_position(p).map_err(|e| e.to_string())?;
-    }
-    // Shown once the system has really sized and moved it (macOS applies both
-    // later, on its main thread, while showing is at once): briefly waited for.
-    let want = to.to_physical::<u32>(scale);
-    let want_at = at.map(|p| p.to_physical::<i32>(scale));
-    for _ in 0..60 {
-        let sized = me
-            .inner_size()
-            .map(|s| s.width.abs_diff(want.width) <= 1 && s.height.abs_diff(want.height) <= 1)
-            .unwrap_or(true);
-        let placed = want_at.is_none_or(|w| {
-            me.outer_position().map(|p| (p.x - w.x).abs() <= 1 && (p.y - w.y).abs() <= 1).unwrap_or(true)
-        });
-        if sized && placed {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
     }
     match &owner {
         Some(o) => crate::platform::attach_child(o, me),
@@ -268,6 +278,33 @@ pub(crate) async fn ready<R: Runtime>(
     }
     me.set_focus().map_err(|e| e.to_string())?;
     Ok(height)
+}
+
+/// A window kept ready, its page loaded and waiting: put on screen once,
+/// unseen, so the system and WebKit make what drawing it needs. Its first real
+/// show is then as quick as the later ones.
+pub(crate) fn prewarm<R: Runtime>(window: &WebviewWindow<R>) {
+    let label = window.label().to_string();
+    let first = open_dialogs()
+        .lock()
+        .ok()
+        .and_then(|mut map| {
+            let d = map.get_mut(&label)?;
+            (!d.prewarmed && d.spec.is_none()).then(|| d.prewarmed = true)
+        })
+        .is_some();
+    if !first {
+        return;
+    }
+    crate::platform::order_in_unseen(window);
+    let w = window.clone();
+    let _ = std::thread::Builder::new().name("tauris-ui dialog window".into()).spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        // Off again, unless a dialog was handed to it meanwhile and it shows that.
+        crate::platform::order_out_unseen(&w, move || {
+            open_dialogs().lock().ok().and_then(|m| m.get(&label).map(|d| !d.shown)).unwrap_or(false)
+        });
+    });
 }
 
 /// From a dialog window to the window that asked.
@@ -321,6 +358,7 @@ pub(crate) fn close<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String>
         if let Some(d) = map.get_mut(&label) {
             d.spec = None;
             d.idle = false;
+            d.shown = false;
         }
     }
     if !inner(app).config.warm_dialogs {
