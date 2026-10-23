@@ -22,6 +22,11 @@
 // Keys: ⌘K or ⌘L (Ctrl elsewhere) opens it, anywhere in the page; ↑ ↓ (or
 // ⌃N ⌃P) move, ⌘↑ ⌘↓ go to the first and last, Page Up and Down by a page,
 // Tab to the next group; Enter picks; Esc closes and puts the focus back.
+//
+// As a command line: `extra(query)` adds results made from what is typed
+// ('New Task "call ana"…'), after the matches; `onKey(item, e)` hears the other
+// keys on the chosen result (⌘C, ⌘E, ⌘⌫, Space in an empty field); an item's
+// `actions` show those keys in the strip, its `shortcut` on its right.
 
 (() => {
   "use strict";
@@ -64,6 +69,8 @@
     close: "to close",
     // what ⌘↩ (or a ⌘-click) does, shown in the key strip when set ("New Tab"); onPick hears { cmd: true }
     openAlt: "",
+    // the heading of extra(query)'s results that have no kind
+    actions: "Actions",
   };
 
   const DEFAULTS = {
@@ -82,6 +89,11 @@
     styles: true,
     onPick: null, // (item, { how: "keyboard" | "mouse", cmd }): cmd is ⌘↩ or a ⌘-click (Ctrl elsewhere)
     onContextMenu: null, // (item, { x, y, how }): a right click, or the menu key, on a result
+    // (item, e) => true (handled: the panel stays), "close" (handled, and it closes as on a pick) or false:
+    // the keys the panel and its field do not use, on the chosen result
+    onKey: null,
+    // (query) => [items]: results made from what is typed, after the matches, in their own group
+    extra: null,
     onOpen: null,
     onClose: null, // ({ picked })
   };
@@ -247,6 +259,7 @@
   // ---------- the panel ----------
 
   let current = null; // the open finder (one at a time)
+  const MODIFIERS = new Set(["Shift", "Meta", "Control", "Alt", "AltGraph", "CapsLock", "Fn", "OS"]);
 
   function mount(options = {}) {
     const given = changes => Object.fromEntries(Object.entries(changes ?? {}).filter(([, v]) => v !== undefined));
@@ -274,6 +287,8 @@
     let at = 0;           // the row chosen
     let back = null;      // where the focus was before
     let pointer = null;   // where the mouse was (a row it rests on is chosen only when it moves)
+    let enterHint = null; // the strip's "↵ to open"
+    let ownKeys = null;   // the strip's keys of the chosen result
 
     const kindsOf = () => (Array.isArray(opt.kinds) ? opt.kinds : []).filter(k => k && k.id != null);
     const keyOf = item => `${item.kind ?? ""}:${item.id}`;
@@ -330,7 +345,7 @@
         const out = [];
         if (recent.length) out.push({ key: "recent", title: String(words.recent), rows: recent.map(e => ({ e, ranges: [] })), total: recent.length });
         if (latest.length) out.push({ key: "latest", title: String(words.latest), rows: latest.map(e => ({ e, ranges: [] })), total: latest.length });
-        return out;
+        return [...out, ...extraGroups(query)];
       }
       const bias = new Map(kinds.map(k => [String(k.id), Number(k.bias) || 0]));
       const by = new Map();
@@ -345,7 +360,32 @@
       }
       // The group with the best match first; equal groups keep their usual order.
       const rank = kind => (order.has(kind) ? order.get(kind) : kinds.length);
-      return out.sort((a, b) => b.rows[0].score - a.rows[0].score || rank(a.key) - rank(b.key));
+      return [...out.sort((a, b) => b.rows[0].score - a.rows[0].score || rank(a.key) - rank(b.key)), ...extraGroups(query)];
+    }
+
+    // extra(query)'s results: in the order given, a group for each kind, after everything else.
+    function extraGroups(query) {
+      if (typeof opt.extra !== "function") return [];
+      let items = [];
+      try {
+        items = opt.extra(query);
+      } catch (e) {
+        console.error("[tauris-ui finder] extra() failed:", e);
+      }
+      const kinds = kindsOf();
+      const by = new Map();
+      for (const item of Array.isArray(items) ? items : []) {
+        if (!item || item.id == null) continue;
+        const kind = item.kind == null ? "" : String(item.kind);
+        const label = String(item.label ?? "");
+        if (!by.has(kind)) by.set(kind, []);
+        by.get(kind).push({ e: { item, kind, label, labelF: fold(label), more: [], strict: false, extra: true }, ranges: [] });
+      }
+      return [...by].map(([kind, rows]) => ({
+        key: `extra:${kind}`,
+        title: kind ? String(kinds.find(k => String(k.id) === kind)?.label ?? kind) : String(L().actions),
+        rows, total: rows.length, extra: true,
+      }));
     }
 
     function iconOf(item) {
@@ -384,6 +424,7 @@
           if (r.snip && !r.ranges.length) meta.append(el("span", "tfd-snip", {}, ...marked(r.snip.text, r.snip.ranges, 44)));
           if (item.detail != null && String(item.detail) !== "") meta.append(el("span", "tfd-detail-text", { title: String(item.detail) }, String(item.detail)));
           row.append(iconOf(item), name, meta);
+          if (item.shortcut != null && String(item.shortcut) !== "") row.append(el("kbd", "tfd-shortcut", {}, String(item.shortcut)));
           group.append(row);
         }
         list.append(group);
@@ -398,7 +439,7 @@
       for (const label of list.querySelectorAll(".tfd-label")) {
         if (label.scrollWidth > label.clientWidth + 1 || label.textContent !== label.__full) label.parentElement.title = label.__full;
       }
-      const total = gs.reduce((sum, g) => sum + g.total, 0);
+      const total = gs.filter(g => !g.extra).reduce((sum, g) => sum + g.total, 0);
       count.textContent = query.trim() ? String(total) : "";
       input.setAttribute("aria-expanded", String(flat.length > 0));
       paint(true);
@@ -406,6 +447,11 @@
 
     function paint(scroll) {
       for (const row of list.querySelectorAll(".tfd-row")) row.setAttribute("aria-selected", String(Number(row.dataset.i) === at));
+      // The chosen result's own keys in the strip ("⌘C Copy"); one for ↵ names what Enter does to it ("Run").
+      const actions = (Array.isArray(flat[at]?.e.item.actions) ? flat[at].e.item.actions : []).filter(a => a && a.key != null && a.label != null);
+      const enter = actions.find(a => String(a.key) === "↵");
+      enterHint.lastChild.textContent = ` ${enter ? enter.label : L().open}`;
+      ownKeys.replaceChildren(...actions.filter(a => a !== enter).map(a => el("span", "", {}, el("kbd", "", {}, String(a.key)), ` ${a.label}`)));
       const row = list.querySelector(`.tfd-row[data-i="${at}"]`);
       if (row) {
         input.setAttribute("aria-activedescendant", row.id);
@@ -430,10 +476,27 @@
       return Math.max(1, Math.floor(list.clientHeight / (row?.offsetHeight || 24)) - 1);
     };
 
+    // The keys the field keeps, as any text field: typing (Space too, but in an empty field or with ⌥),
+    // deleting, moving in the text, and its edit shortcuts (⌘C only with text selected).
+    function forField(e) {
+      const k = e.key;
+      const c = cmd(e);
+      const other = MAC ? e.ctrlKey : e.metaKey;
+      if (e.code === "Space" || k === " ") return !c && !other && !e.altKey && input.value !== "";
+      if (!c && !other && k.length === 1) return true;
+      if ((k === "Backspace" || k === "Delete") && !c && !other) return true;
+      if (k === "ArrowLeft" || k === "ArrowRight" || k === "Home" || k === "End") return true;
+      if (c && !e.altKey && ["a", "x", "v", "z"].includes(k.toLowerCase())) return true;
+      if (c && !e.altKey && !e.shiftKey && k.toLowerCase() === "c" && input.selectionStart !== input.selectionEnd) return true;
+      // ⌃ and a letter move and edit in the text on a Mac (⌃A ⌃E ⌃K ⌃D), as in every field.
+      return MAC && e.ctrlKey && !e.metaKey && k.length === 1;
+    }
+
     function pick(i, how, alt = false) {
       const r = flat[i];
       if (!r) return;
-      keepRecent(r.e.item);
+      // What extra() made from the query is not a place to come back to.
+      if (!r.e.extra) keepRecent(r.e.item);
       close(true);
       call(opt.onPick, r.e.item, { how, cmd: alt });
     }
@@ -466,10 +529,13 @@
       const field = el("div", "tfd-field", {}, el("span", "tfd-search", { "aria-hidden": "true" }), input, count, el("kbd", "tfd-esc", { "aria-hidden": "true" }, "esc"));
       field.firstChild.innerHTML = SEARCH_SVG;
       list = el("div", "tfd-list", { id: `${id}-list`, role: "listbox", "aria-label": String(words.results), tabindex: "-1" });
+      enterHint = el("span", "", {}, el("kbd", "", {}, "↵"), ` ${words.open}`);
+      ownKeys = el("span", "tfd-own-keys");
       const keys = el("div", "tfd-keys", { "aria-hidden": "true" },
         el("span", "", {}, el("kbd", "", {}, "↑"), el("kbd", "", {}, "↓"), ` ${words.choose}`),
-        el("span", "", {}, el("kbd", "", {}, "↵"), ` ${words.open}`),
+        enterHint,
         words.openAlt ? el("span", "", {}, el("kbd", "", {}, MAC ? "⌘↵" : "Ctrl+↵"), ` ${words.openAlt}`) : null,
+        ownKeys,
         el("span", "", {}, el("kbd", "", {}, "esc"), ` ${words.close}`));
       const panel = el("div", "tfd", { role: "dialog", "aria-label": String(words.find), "aria-modal": "true" }, field, list, keys);
       host = el("div", "tfd-host", {}, panel);
@@ -505,18 +571,30 @@
           if (!firsts.length) return;
           const now = firsts.filter(f => f <= at).length - 1;
           move(firsts[(now + (e.shiftKey ? -1 : 1) + firsts.length) % firsts.length]);
-        } else if (e.key === "Enter") {
+        } else if (e.key === "Enter" && ((cmd(e) && !e.shiftKey && !e.altKey) || (!e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey))) {
+          // Plain, or with ⌘ alone (the app's other way to open: a new tab); with other keys, the app's (onKey).
           e.preventDefault();
-          // Plain, or with ⌘ alone (the app's other way to open: a new tab); with other keys, nothing.
-          const alt = cmd(e) && !e.shiftKey && !e.altKey;
-          const plainKey = !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey;
-          if (!e.repeat && (plainKey || alt)) pick(at, "keyboard", alt);
+          if (!e.repeat) pick(at, "keyboard", cmd(e));
         } else if ((e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) && typeof opt.onContextMenu === "function") {
           const row = list.querySelector(`.tfd-row[data-i="${at}"]`);
           if (!row || !flat[at]) return;
           e.preventDefault();
           const r = row.getBoundingClientRect();
           call(opt.onContextMenu, flat[at].e.item, { x: r.left + 24, y: r.bottom, how: "keyboard" });
+        } else if (flat[at] && typeof opt.onKey === "function" && !MODIFIERS.has(e.key) && !forField(e)) {
+          // Any other key, on the chosen result: the app's (⌘C copies it, ⌘E edits it).
+          let r = false;
+          try {
+            r = opt.onKey(flat[at].e.item, e);
+          } catch (err) {
+            console.error("[tauris-ui finder] onKey failed:", err);
+          }
+          if (r !== true && r !== "close") return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (r === "close") close(true);
+        } else if (e.key === "Enter") {
+          e.preventDefault();
         }
       });
       // The mouse: a row it rests on is chosen when it moves (not when the list moves under it).
@@ -569,7 +647,7 @@
       leaving = remove;
       setTimeout(remove, matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 90);
       host = null;
-      input = list = count = null;
+      input = list = count = enterHint = ownKeys = null;
       flat = [];
       if (current === api) current = null;
       // The focus goes back where it was (a pick: before onPick, which may move it on).

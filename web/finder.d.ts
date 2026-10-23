@@ -23,6 +23,11 @@ declare global {
     when?: string;
     /** Long text (a log entry): its letters must sit together; no initials or scattered letters (default its kind's). */
     strict?: boolean;
+    /** A key that does it elsewhere ("⇧⌘K"), shown on its right as a menu's. */
+    shortcut?: string;
+    /** Its own keys, shown in the key strip while it is chosen ("⌘C" "Copy"); onKey does them.
+     *  One with the key "↵" names what Enter does to it ("Run"). */
+    actions?: { key: string; label: string }[];
   }
 
   interface TaurisFinderKind {
@@ -53,6 +58,8 @@ declare global {
     close: string;
     /** What ⌘↩ (or a ⌘-click) does, shown in the key strip when set ("New Tab"). */
     openAlt: string;
+    /** The heading of extra()'s results that have no kind. */
+    actions: string;
   }
 
   interface TaurisFinderOptions {
@@ -73,6 +80,13 @@ declare global {
     onPick?: (item: TaurisFinderItem, info: { how: "keyboard" | "mouse"; cmd: boolean }) => void;
     /** A right click on a result, or the menu key: where to open the app's own menu (the panel stays open). */
     onContextMenu?: (item: TaurisFinderItem, at: { x: number; y: number; how: "mouse" | "keyboard" }) => void;
+    /** A key on the chosen result that the panel and its field don't use: ⌘C (with no text selected in the field),
+     *  ⌘E, ⌘⌫, ⇧↩, F2, ⌥Space, Space in an empty field… true: handled (the panel stays open, the key goes no further);
+     *  "close": handled, and the panel closes as on a pick; false: the key does what it would. */
+    onKey?: (item: TaurisFinderItem, event: KeyboardEvent) => boolean | "close";
+    /** Results made from what is typed, at every key ('New Task "call ana"…'): after the matches, a group for each
+     *  kind, in the order given, shown even when nothing else matches. Picked through onPick; not kept in Recent. */
+    extra?: (query: string) => TaurisFinderItem[];
     onOpen?: () => void;
     onClose?: (info: { picked: boolean }) => void;
   }

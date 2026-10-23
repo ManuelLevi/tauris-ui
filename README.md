@@ -307,7 +307,7 @@ Tab ids are given fresh at every launch. To find a tab again after a restart, ke
 The returned object:
 
 - **Read:** `tabs.tabs`, `tabs.active`, `activeTab()`.
-- **Change:** `activate(id)`, `close(id)` (asks `onBeforeClose`), `open({ title, ...fields })` (resolves to the new id), `update(tab, patch)`, `reload()`.
+- **Change:** `activate(id)`, `close(id)` (asks `onBeforeClose`), `closeOthers(id?)` and `moveToWindow(id?)` (the tab menu's Close Other Tabs and Move to New Window, for the app's own menu items; the active tab by default), `open({ title, ...fields })` (resolves to the new id), `update(tab, patch)`, `reload()`.
 - **Events:** `on(event, fn)` returns a function that stops listening. The events are:
   - `change`: tabs or the active tab changed.
   - `activate`: another tab became active.
@@ -845,7 +845,11 @@ const finder = TaurisFinder.mount({
 
 - **What is found:** only an item's `label` and its `more` texts (`strict: true` on an item, or on its kind, for long text such as a log entry: its letters must sit together, no initials or scattered letters); what the app leaves out (a password, a note) is never found. Each word typed must match: the label whole, at its start, at a word's start, inside, as initials ("rp" finds Revenue Pipeline), or as scattered letters at word starts; or a `more` text, its letters together, at half weight. Accents do not count ("cafe" finds Café). The matches are marked; a `more` text that matched shows beside the label.
 - **How it shows:** in groups by `kind`, the group with the best match first, each cut at its `limit` ("5 of 12"). With nothing typed: what was picked last (`storageKey`), then the latest items by `when`. `detail`, `icon`, `color` and `dim` (a done task, struck through) dress a row; a label cut short is whole in its tooltip.
-- **Keys:** ↑ ↓ (⌃N ⌃P) move, ⌘↑ ⌘↓ go to the first and last, Page Up and Down by a page, Tab and ⇧Tab from group to group, Enter picks, Esc or a press beside the panel closes it (a short fade), the focus back where it was. ⌘↩ or a ⌘-click picks with `{ cmd: true }`, for the app's other way to open (a new tab; `labels.openAlt: "New Tab"` says so in the key strip); Enter with other keys does nothing. ⌘K with it open selects its field's text, to type a new search. The menu key or ⇧F10 on a result calls `onContextMenu`.
+- **Keys:** ↑ ↓ (⌃N ⌃P) move, ⌘↑ ⌘↓ go to the first and last, Page Up and Down by a page, Tab and ⇧Tab from group to group, Enter picks, Esc or a press beside the panel closes it (a short fade), the focus back where it was. ⌘↩ or a ⌘-click picks with `{ cmd: true }`, for the app's other way to open (a new tab; `labels.openAlt: "New Tab"` says so in the key strip); Enter with other keys goes to `onKey`. ⌘K with it open selects its field's text, to type a new search. The menu key or ⇧F10 on a result calls `onContextMenu`.
+- **As a command line:**
+  - `extra: query => [...]` adds results made from what is typed ('New Task "call ana"…'), after the matches, even when nothing matches; they are picked through `onPick`.
+  - `onKey: (item, e) => true | "close" | false` hears the keys the panel and its field don't use, on the chosen result: ⌘C (with no text selected), ⌘E, ⌘⌫, ⇧↩, F2, and Space in an empty field or with ⌥. `true` keeps the panel open, `"close"` closes it as a pick does, `false` lets the key do what it would. The field keeps typing, ⌫, the arrows and ⌘A ⌘X ⌘V ⌘Z.
+  - An item's `actions: [{ key: "⌘C", label: "Copy" }]` show in the key strip while it is chosen (`key: "↵"` names what Enter does: "Run"), and its `shortcut: "⇧⌘K"` shows on its right, as in a menu.
 - **Methods:** `open(text?)`, `close()`, `isOpen`, `update(changes)`, `destroy()`; `TaurisFinder.close()` closes whichever is open. `onOpen()`, `onClose({ picked })`; `labels` has every word it shows (`web/finder.d.ts`).
 
 Types are in `web/finder.d.ts`. **The look:** `--tfd-*` variables at the top of `web/finder.css`.

@@ -8,6 +8,14 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.5.8 — 2026-10-23
+
+- Finder, as a command line:
+  - `extra(query)` adds results made from what is typed ('New Task "call ana"…'), after the matches, even when nothing matches;
+  - `onKey(item, e)` hears the keys the panel and its field don't use, on the chosen result (⌘C with no text selected, ⌘E, ⌘⌫, ⇧↩, Space in an empty field or with ⌥). It returns true to keep the panel open, "close" to close it as a pick does, or false to let the key through;
+  - an item's `actions` show in the key strip while it is chosen, and its `shortcut` shows on its right.
+- Tabs: `closeOthers(id?)` and `moveToWindow(id?)`, the tab menu's Close Other Tabs and Move to New Window, for an app's own menu items.
+
 ## 0.5.7 — 2026-10-23
 
 - A dialog's window is sized, placed and shown in one turn of the main thread, so there's no waiting for the system to apply the size and place before showing. That wait took 10–80 ms on each show.

@@ -176,6 +176,43 @@ with sync_playwright() as p:
     check("⌘K with it open selects the field's text, to type a new search at once", sel[0] == 0 and sel[1] == sel[2] == 7 and sel[3], sel)
     page.close()
 
+    # ---------- a command line: results made from the query, the result's own keys ----------
+    page = fresh(browser)
+    page.evaluate("""finder.update({
+      extra: q => (q.trim() ? [{ id: 'new-task', label: `New Task “${q.trim()}”…`, shortcut: '⇧⌘T',
+        actions: [{ key: '↵', label: 'Run' }, { key: '⌘D', label: 'Duplicate' }] }] : []),
+      onKey: (item, e) => {
+        const k = e.key.toLowerCase(), c = e.metaKey || e.ctrlKey;
+        if (c && k === 'c') { said.push(['key', item.id, 'copy']); return true; }
+        if (c && k === 'e') { said.push(['key', item.id, 'edit']); return 'close'; }
+        if (e.code === 'Space') { said.push(['key', item.id, 'space']); return true; }
+        return false;
+      },
+    }); finder.open(); 0""")
+    said(page)
+    search(page, "zzqx")
+    shown = (rows(page), groups(page), page.locator(".tfd-empty").count(), page.inner_text(".tfd-row .tfd-shortcut"), page.inner_text(".tfd-keys"))
+    check("extra(query): its results after the matches, in place of “nothing matches”; an item's shortcut on its right; its actions in the strip",
+          shown[:4] == (["New Task “zzqx”…"], ["Actions"], 0, "⇧⌘T") and "Run" in shown[4] and "Duplicate" in shown[4], shown)
+    page.keyboard.press("Enter")
+    check("picked through onPick, and not kept as a recent", said(page)[-2:] == [["close", True], ["pick", "new-task", "keyboard"]]
+          and page.evaluate("JSON.stringify(localStorage)").count("new-task") == 0, page.evaluate("said"))
+    page.evaluate("finder.open(); 0")
+    search(page, "north")
+    first = chosen(page)
+    page.keyboard.press("ControlOrMeta+c")
+    page.keyboard.press("Alt+Space")
+    page.keyboard.press("Space")
+    keys = (said(page), page.evaluate("finder.isOpen"), page.input_value(".tfd-input"))
+    check("onKey: ⌘C and ⌥Space on the chosen result are the app's (the panel stays); Space with text typed is the field's",
+          keys == ([["key", "p1", "copy"], ["key", "p1", "space"]], True, "north "), (first, keys))
+    page.keyboard.press("ControlOrMeta+a")
+    page.keyboard.press("ControlOrMeta+c")
+    page.keyboard.press("ControlOrMeta+e")
+    check("⌘C with text selected is the field's; \"close\" closes the panel as a pick does",
+          said(page) == [["key", "p1", "edit"], ["close", True]] and not page.evaluate("finder.isOpen"), page.evaluate("said"))
+    page.close()
+
     # ---------- the look ----------
     for scheme in ("light", "dark"):
         page = fresh(browser, scheme)

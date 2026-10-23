@@ -1056,6 +1056,20 @@
       activate,
       /** Closes a tab after asking onBeforeClose; resolves to true when it closed. */
       close,
+      /** The tab menu's Close Other Tabs, for a menu item of the app's: the tabs but this one (default the active one),
+       *  each asked through onBeforeClose; it stops at one kept. Resolves to true when they all closed. */
+      async closeOthers(id = active) {
+        if (!tabs.some(t => t.id === id)) return false;
+        for (const t of tabs.filter(t => t.id !== id)) if (!(await close(t.id))) return false;
+        return true;
+      },
+      /** The tab menu's Move to New Window: this tab (default the active one) in a window of its own.
+       *  Resolves to false when it is the window's only tab. */
+      async moveToWindow(id = active) {
+        if (tabs.length < 2 || !tabs.some(t => t.id === id)) return false;
+        await call("move_to_new_window", { tab: id });
+        return true;
+      },
       /** Opens a tab after the active one: { title, ...yourFields }. Resolves to its id. */
       open({ title = L.newTab, ...fields } = {}) {
         return call("open_tab", { title, fields });

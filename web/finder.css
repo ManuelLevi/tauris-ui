@@ -9,8 +9,9 @@
  *   .tfd              the panel: .tfd-field (the search field, .tfd-count), .tfd-list
  *                     (the results: .tfd-group with .tfd-group-head and .tfd-row
  *                     options), .tfd-empty, .tfd-keys (the key strip at its foot)
- *   .tfd-row          .tfd-icon, .tfd-label (matches in <mark>), .tfd-detail;
+ *   .tfd-row          .tfd-icon, .tfd-label (matches in <mark>), .tfd-detail, .tfd-shortcut;
  *                     [aria-selected="true"] is the chosen one, .tfd-dim a done one
+ *   .tfd-own-keys     in the strip: the chosen result's own keys (its `actions`)
  */
 @layer tauris-ui {
   :root {
@@ -191,7 +192,16 @@
   .tfd-detail-text, .tfd-snip { overflow: hidden; text-overflow: ellipsis; }
   .tfd-chip { flex: none; width: 3px; height: 11px; border-radius: 1px; background: var(--tfd-chip); }
   .tfd-dim .tfd-label { color: var(--tfd-dim); text-decoration: line-through; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
-  .tfd-row[aria-selected="true"] :is(.tfd-icon, .tfd-detail, .tfd-label) { color: var(--tfd-sel-fg); }
+  /* An item's shortcut ("⇧⌘K"), on its right, as a menu's. */
+  .tfd-shortcut {
+    min-width: 18px;
+    font: inherit;
+    font-size: 11.5px;
+    text-align: right;
+    color: var(--tfd-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .tfd-row[aria-selected="true"] :is(.tfd-icon, .tfd-detail, .tfd-label, .tfd-shortcut) { color: var(--tfd-sel-fg); }
   /* On the selection a match is a darker band, underlined: the text on it still reads. */
   .tfd-row[aria-selected="true"] mark { background: rgb(0 0 0 / 0.26); text-decoration: underline; text-underline-offset: 2px; }
   .tfd-row[aria-selected="true"] .tfd-chip { background: var(--tfd-sel-fg); }
@@ -214,6 +224,9 @@
     border-top: 1px solid var(--tfd-line);
   }
   .tfd-keys > span { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+  .tfd-keys > .tfd-own-keys { gap: 14px; }
+  .tfd-keys > .tfd-own-keys:empty { display: none; }
+  .tfd-own-keys > span { display: flex; align-items: center; gap: 3px; }
 
   @media (prefers-reduced-motion: reduce) {
     .tfd, .tfd-host { animation: none; }

@@ -98,6 +98,11 @@ declare global {
     activate(id: number): void;
     /** Asks onBeforeClose (reason "tab"), then closes; resolves to true when the tab closed. */
     close(id: number): Promise<boolean>;
+    /** The tab menu's Close Other Tabs: the tabs but this one (default the active one), each asked through
+     *  onBeforeClose; it stops at one kept. True when they all closed. */
+    closeOthers(id?: number): Promise<boolean>;
+    /** The tab menu's Move to New Window: this tab (default the active one) in a window of its own. False when it is the only tab. */
+    moveToWindow(id?: number): Promise<boolean>;
     /** Opens a tab after the active one; resolves to its id. */
     open(spec?: { title?: string } & Partial<F>): Promise<number>;
     /** Sends a tab's title and fields to Rust after you changed them, and redraws the strip. */
