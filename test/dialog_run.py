@@ -48,6 +48,7 @@ MOCK = """window.__sent = []; window.__TAURI__ = { core: { invoke: async (name, 
   if (name === 'plugin:tauris-ui|dialog_window_open') return 'tauris-dialog-1';
   if (name === 'plugin:tauris-ui|dialog_window_spec') return window.__spec;
   if (name === 'plugin:tauris-ui|dialog_window_ready') return args.height;
+  if (name === 'plugin:tauris-ui|dialog_window_close') window.__spec = null;
   return null; } } };"""
 
 
@@ -426,6 +427,32 @@ with sync_playwright() as p:
     owner.evaluate("TaurisDialog.form({ window: true, title: 'Here', fields: [{ name: 'a' }] }).then(a => { window.answer = a; }); 0")
     check("no window to be had (no plugin, no permission): in the page instead", lambda: owner.locator(".tdl-form").count() == 1)
     owner.close()
+
+    # ---------- a window kept ready (Config::warm_dialogs) ----------
+    warm = browser.new_page(viewport={"width": 440, "height": 160}, device_scale_factor=2)
+    warm.on("pageerror", lambda e: failures.append(f"page error: {e}") or print("PAGEERROR", e))
+    warm.add_init_script("window.requestAnimationFrame = () => 0; window.addEventListener('DOMContentLoaded', () => { " + MOCK + " window.__spec = null; });")
+    warm.goto(DEMO.as_uri() + "#tauris-dialog")
+    warm.wait_for_function("__sent.some(s => s[0] === 'plugin:tauris-ui|dialog_window_spec')")
+    hand = "s => __taurisUiDeliver('tauris-ui:dialog-window', { label: 'tauris-dialog-1', message: { type: 'spec', spec: s } })"
+    sends = "t => __sent.filter(s => s[0] === 'plugin:tauris-ui|dialog_window_send' && s[1].message.type === t)"
+    warm.evaluate(hand, json.dumps({"kind": "form", "options": {"title": "New Person", "fields": [{"name": "name", "label": "Name"}]},
+                                    "has": {"validate": False, "review": False, "submit": False, "left": False}}))
+    warm.wait_for_function(f"({sends})('shown').length === 1")
+    warm.evaluate("__taurisUiDeliver('tauris-ui:dialog-window', { label: 'tauris-dialog-1', message: { type: 'keys', text: 'Ana' } })")
+    got = (warm.locator(".tdl-form").count(), warm.input_value(".tdl-input"),
+           warm.evaluate("__sent.find(s => s[0] === 'plugin:tauris-ui|dialog_window_ready')[1].width"),
+           warm.evaluate(f"({sends})('shown')[0][1].message.at.warm"))
+    check("a window kept ready: handed its dialog, it draws it, says its size and shows it; keys typed meanwhile land in its field",
+          got == (1, "Ana", 440, True), got)
+    warm.keyboard.press("Enter")
+    warm.wait_for_function("__sent.filter(s => s[0] === 'plugin:tauris-ui|dialog_window_spec').length === 2")
+    done = warm.evaluate(f"({sends})('done')[0][1].message.value")
+    warm.evaluate(hand, json.dumps({"kind": "about", "options": {"name": "MLPC"}, "has": {}}))
+    check("its dialog done, it gives the values and waits; the next one handed to it shows too",
+          lambda: done == {"name": "Ana"} and warm.evaluate("__sent.some(s => s[0] === 'plugin:tauris-ui|dialog_window_close')")
+          and warm.evaluate(f"({sends})('shown').length") == 2 and warm.locator(".tdl-form").count() == 0 and warm.locator(".tdl").count() == 1, done)
+    warm.close()
 
     # ---------- as the plugin delivers it ----------
     page = browser.new_page(viewport={"width": 800, "height": 500})

@@ -123,6 +123,7 @@
   // A form, a review or a sheet in a window of its own: the window's label, or null (then it shows in the page).
   async function openWindow(kind, options, title, width) {
     if (!tauri() || IN_WINDOW) return null;
+    asking = { at: clock(), title: String(title ?? kind) };
     // Data only: the functions stay here, and are asked through messages.
     let spec;
     try {
@@ -154,9 +155,20 @@
 
   // How long a dialog's window may take to show its dialog; after that the dialog shows in the page, and says why.
   const WINDOW_WAIT_MS = 6000;
+  // The dialog last asked for a window: when, and its title (for TaurisDialog.timing).
+  let asking = null;
 
   function waitForWindow(label, onMessage, here) {
     const back = rememberFocus();
+    const asked = asking ?? { at: clock(), title: label };
+    // Keys typed before its window shows (straight after a double click) go to its dialog once it shows.
+    let typed = "";
+    const keep = e => {
+      if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.isComposing) return;
+      typed += e.key;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", keep, true);
     const shield = el("div", "tdl-shield");
     const quieted = [...document.body.children].filter(n => !n.inert && !n.matches("script, style"));
     for (const n of quieted) n.inert = true;
@@ -172,6 +184,7 @@
       const settle = () => {
         done = true;
         clearTimeout(late);
+        window.removeEventListener("keydown", keep, true);
         heard.delete(label);
         windowWaits.splice(windowWaits.indexOf(label), 1);
         shield.remove();
@@ -205,7 +218,14 @@
       heard.set(label, async msg => {
         if (msg.type === "closed") return finish(null);
         if (msg.type === "done") return finish(msg.value ?? null);
-        if (msg.type === "shown") return void clearTimeout(late);
+        if (msg.type === "shown") {
+          clearTimeout(late);
+          window.removeEventListener("keydown", keep, true);
+          if (typed) plugin("dialog_window_reply", { label, message: { type: "keys", text: typed } }).catch(() => {});
+          typed = "";
+          if (window.TaurisDialog?.timing) logTiming(asked, msg.at ?? {});
+          return undefined;
+        }
         // What went wrong in that window, which may never show: said here.
         if (msg.type === "log") return void console.error(`[tauris-ui dialog window] ${msg.text ?? ""}`);
         if (msg.type === "answered") {
@@ -223,6 +243,29 @@
         return undefined;
       });
     });
+  }
+
+  // The time, the same in every window (for TaurisDialog.timing).
+  const clock = () => performance.timeOrigin + performance.now();
+  // In a dialog's window: its dialog's times, its size's teller, a dialog handed to it before it waited.
+  let times = {};
+  let windowFit = null;
+  let specWaiter = null;
+  let handedSpec = null;
+  function typeIn(text) {
+    const t = document.activeElement;
+    if (!text || !(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) || t.disabled || t.readOnly) return;
+    if (t.selectionStart != null) t.setRangeText(text, t.selectionStart, t.selectionEnd ?? t.selectionStart, "end");
+    else t.value += text;
+    if (t.maxLength > 0 && t.value.length > t.maxLength) t.value = t.value.slice(0, t.maxLength);
+    t.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  // TaurisDialog.timing: how long a dialog took to show in its own window, and where the time went.
+  function logTiming(asked, at) {
+    const ms = t => (typeof t === "number" ? `${Math.round(t - asked.at)} ms` : "?");
+    console.info(`[tauris-ui dialog] “${asked.title}” shown ${ms(clock())} after it was asked, in a window ${at.warm ? "kept ready" : "made for it"}: ` +
+      `the window had it at ${ms(at.spec)}, drew it at ${ms(at.drawn)}, was on screen at ${ms(at.shown)}.`);
   }
 
   // In a dialog's window: what goes wrong is said in the window that asked too (this one may never show).
@@ -317,22 +360,44 @@
     }, { signal });
     // In its own window: the window is its size (and follows it as a refusal or a review shows).
     if (sizesWindow) {
+      // One size told at a time; a change meanwhile is told after it.
+      let telling = false;
+      let again = false;
       const fit = () => {
         if (state.closed) return;
+        if (telling) return void (again = true);
+        telling = true;
         const r = box.getBoundingClientRect();
+        times.drawn ??= clock();
         plugin("dialog_window_ready", { width: Math.ceil(r.width), height: Math.ceil(r.height), pageW: window.innerWidth, pageH: window.innerHeight })
           .then(() => {
-            // Shown: the window that asked stops waiting for it.
             if (shownTold) return;
+            // On screen and key now: the keys where the dialog put them (a hidden window may not have taken them).
             shownTold = true;
-            plugin("dialog_window_send", { message: { type: "shown" } }).catch(() => {});
+            times.shown = clock();
+            const at = document.activeElement;
+            if (at instanceof HTMLElement && at !== document.body && box.contains(at)) at.focus({ preventScroll: true });
+            else box.querySelector("input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex='0']")?.focus({ preventScroll: true });
+            // Shown: the window that asked stops waiting for it.
+            plugin("dialog_window_send", { message: { type: "shown", at: times } }).catch(() => {});
           })
-          .catch(e => report(`cannot size its window: ${e}`));
+          .catch(e => report(`cannot size its window: ${e}`))
+          .finally(() => {
+            telling = false;
+            if (again) {
+              again = false;
+              fit();
+            }
+          });
       };
       // Straight from the observer, not on an animation frame: a window never yet on screen gets none.
-      const seen = new ResizeObserver(fit);
+      windowFit = fit;
+      const seen = new ResizeObserver(() => fit());
       seen.observe(box);
-      signal.addEventListener("abort", () => seen.disconnect());
+      signal.addEventListener("abort", () => {
+        seen.disconnect();
+        if (windowFit === fit) windowFit = null;
+      });
     }
     state.close = () => {
       if (state.closed) return;
@@ -1020,6 +1085,19 @@
     document.documentElement.classList.add("tdl-in-window");
     addStyles();
     heard.set("self", async msg => {
+      // A window kept ready: its next dialog.
+      if (msg.type === "spec") {
+        if (specWaiter) {
+          const w = specWaiter;
+          specWaiter = null;
+          w(msg.spec);
+        } else {
+          handedSpec = msg.spec;
+        }
+        return;
+      }
+      // Typed in the window that asked before this one showed: into the field with the keys.
+      if (msg.type === "keys") return void typeIn(String(msg.text ?? ""));
       // The window that asked: a question during its save.
       if (msg.type === "confirm") {
         const yes = await confirmHere(msg.options ?? {});
@@ -1032,29 +1110,50 @@
       if (msg.error != null) waiting.reject(msg.error);
       else waiting.resolve(msg.result);
     });
-    let spec = null;
-    try {
-      spec = JSON.parse(await plugin("dialog_window_spec"));
-    } catch (e) {
-      report(`this window has no dialog to show: ${e}`);
-      return;
+    // One dialog after another, for as long as the window lives: a window kept ready (Config::warm_dialogs)
+    // has none at first, and is told when it has one.
+    for (;;) {
+      let text = null;
+      try {
+        text = await plugin("dialog_window_spec");
+      } catch (e) {
+        return void report(`this window has no dialog to show: ${e}`);
+      }
+      const warm = text == null;
+      if (warm) text = handedSpec ?? (await new Promise(resolve => { specWaiter = resolve; }));
+      handedSpec = null;
+      let spec = null;
+      try {
+        spec = JSON.parse(text);
+      } catch (e) {
+        return void report(`its dialog cannot be read: ${e}`);
+      }
+      if (!spec || !spec.options) return void report("this window has no dialog to show");
+      shownTold = false;
+      times = { warm, spec: clock() };
+      const shown = serve(spec);
+      // Drawn by now: its size is told at once (no waiting for the page to be drawn).
+      windowFit?.();
+      await tellDone(await shown);
     }
-    if (!spec || !spec.options) return void report("this window has no dialog to show");
+  }
+
+  // A dialog in this window: what it gives.
+  function serve(spec) {
     const o = spec.options;
     if (spec.kind === "form") {
-      const values = await formHere({
+      return formHere({
         ...o,
         validate: spec.has.validate ? v => ask("validate", v) : undefined,
         review: spec.has.review ? v => ask("review", v) : undefined,
         submit: spec.has.submit ? v => ask("submit", v) : undefined,
         left: o.left && typeof o.left === "object" ? { ...o.left, run: spec.has.left ? () => ask("left") : undefined } : undefined,
       });
-      return tellDone(values);
     }
-    if (spec.kind === "review") return tellDone(await reviewHere(o));
-    if (spec.kind === "shortcuts") return tellDone(await shortcutsHere(o));
-    if (spec.kind === "about") return tellDone(await aboutHere(o));
-    return tellDone(null);
+    if (spec.kind === "review") return reviewHere(o);
+    if (spec.kind === "shortcuts") return shortcutsHere(o);
+    if (spec.kind === "about") return aboutHere(o);
+    return Promise.resolve(null);
   }
   if (IN_WINDOW) {
     // The asker's answers come to this window under its own label: heard as "self".
@@ -1095,5 +1194,7 @@
     inWindow: IN_WINDOW,
     /** Whether a dialog is open (the app may hold its own keys while one is). */
     get isOpen() { return open.length > 0; },
+    /** true: each dialog in a window of its own logs how long it took to show, and where the time went. */
+    timing: false,
   };
 })();

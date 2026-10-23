@@ -46,6 +46,24 @@ pub(crate) fn attach_child<R: Runtime>(parent: &WebviewWindow<R>, child: &Webvie
     });
 }
 
+// Takes a dialog's window off the window that asked, before it hides: an
+// attached window would come back on screen with it.
+#[cfg(target_os = "macos")]
+pub(crate) fn detach_child<R: Runtime>(parent: &WebviewWindow<R>, child: &WebviewWindow<R>) {
+    let Ok(p) = parent.ns_window() else { return };
+    let p = p as usize;
+    with_ns_window(child, move |c| unsafe {
+        let p = p as *mut objc2::runtime::AnyObject;
+        if !p.is_null() {
+            // [parent removeChildWindow:child]
+            let _: () = objc2::msg_send![&*p, removeChildWindow: c];
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn detach_child<R: Runtime>(_parent: &WebviewWindow<R>, _child: &WebviewWindow<R>) {}
+
 // Elsewhere it was made the owner's at its start: showing it is enough.
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn attach_child<R: Runtime>(_parent: &WebviewWindow<R>, child: &WebviewWindow<R>) {

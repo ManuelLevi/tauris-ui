@@ -8,6 +8,13 @@ dependency, `cargo update -p tauris-ui`).
 
 Nothing yet.
 
+## 0.5.6 — 2026-10-23
+
+- `Config::warm_dialogs()` (off by default) keeps a dialog window ready for each tab window: hidden, its page loaded. A `TaurisDialog` with `window: true` is handed to it and shows at once, instead of waiting about a second for a new window to load the page. After its dialog the window hides and waits for the next. If it is closed, another is made. Each one is a hidden page in memory.
+- Keys typed before a dialog's window shows (straight after a double click) go into its first field.
+- `TaurisDialog.timing = true` logs how long each dialog in its own window took to show, and where the time went.
+- A dialog's window tells its size as soon as its dialog is drawn, and one size at a time.
+
 ## 0.5.5 — 2026-10-23
 
 - Dialogs in their own window now show. The dialog's window waited for an animation frame before telling its size, and WebKit gives none to a window that has never been on screen, so it stayed hidden until the 6-second fallback. It now tells its size as soon as the dialog has laid out.

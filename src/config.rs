@@ -56,6 +56,7 @@ pub struct Config<R: Runtime = Wry> {
     pub(crate) settle: Duration,
     pub(crate) components: Vec<Component>,
     pub(crate) native_feel: bool,
+    pub(crate) warm_dialogs: bool,
 }
 
 impl<R: Runtime> Default for Config<R> {
@@ -88,6 +89,7 @@ impl<R: Runtime> Default for Config<R> {
                 Component::Status,
             ],
             native_feel: false,
+            warm_dialogs: false,
         }
     }
 }
@@ -119,6 +121,16 @@ impl<R: Runtime> Config<R> {
     /// autocapitalised. See `web/native.js`.
     pub fn native_feel(mut self) -> Self {
         self.native_feel = true;
+        self
+    }
+
+    /// Keeps a dialog window ready for each tab window: hidden, its page already
+    /// loaded. A `TaurisDialog` with `window: true` then shows at once, instead
+    /// of loading the page first (about a second). After its dialog the window
+    /// hides and waits for the next. Each one is a hidden page in memory. Off
+    /// by default.
+    pub fn warm_dialogs(mut self) -> Self {
+        self.warm_dialogs = true;
         self
     }
 

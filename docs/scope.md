@@ -27,7 +27,7 @@ Agreed on 2026-10-22 between tauris-ui and the apps that use it (MLPC, MHive).
   - row classes, short text when a column is narrow, and widths kept;
   - loading and error states, several rows selected, and ⌘C as text.
 - **Dialogs**:
-  - questions, forms, reviews and sheets, in the page or in their own window;
+  - questions, forms, reviews and sheets, in the page or in their own window (kept ready with `warm_dialogs`);
   - app fields (`defineField`), and inputs on one line;
   - forms that open refused;
   - `close()`.

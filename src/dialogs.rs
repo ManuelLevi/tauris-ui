@@ -7,6 +7,10 @@
 // `dialog_window_send` and `dialog_window_reply` (the app's checks and its save
 // run there). When it is gone, however it closed, the window that asked hears
 // so and takes the keyboard back.
+//
+// With Config::warm_dialogs, each tab window keeps one such window ready,
+// hidden, its page loaded: a dialog is handed to it (no window to make, no page
+// to load), and after the dialog it hides and waits for the next.
 
 use crate::windows::{inner, tell_page};
 use std::collections::HashMap;
@@ -21,9 +25,15 @@ pub(crate) const DIALOG_EVENT: &str = "tauris-ui:dialog-window";
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
+// How long after a tab window's page has loaded its dialog window is made (not to slow that page).
+const WARM_AFTER: std::time::Duration = std::time::Duration::from_millis(1500);
+
 struct Open {
     owner: String,
-    spec: String,
+    // The dialog it shows; None: a window kept ready, waiting for one.
+    spec: Option<String>,
+    // Its page asked for its dialog and had none: it is told when it has one.
+    idle: bool,
     // What the window adds around its page (a title bar inside the inner size), measured once.
     frame: Option<(f64, f64)>,
 }
@@ -38,11 +48,63 @@ fn owner_of(label: &str) -> Option<String> {
 }
 
 /// Opens `spec` (the page's description of the dialog) in a hidden window of
-/// the app's page; `ready` sizes, places and shows it.
+/// the app's page; `ready` sizes, places and shows it. A window kept ready for
+/// `owner` is handed it; otherwise one is made.
 pub(crate) fn open<R: Runtime>(
     app: &AppHandle<R>,
     owner: &WebviewWindow<R>,
     spec: String,
+    title: String,
+    width: f64,
+) -> Result<String, String> {
+    let handed = open_dialogs().lock().ok().and_then(|mut map| {
+        let (label, d) = map.iter_mut().find(|(_, d)| d.owner == owner.label() && d.spec.is_none())?;
+        d.spec = Some(spec.clone());
+        Some((label.clone(), std::mem::replace(&mut d.idle, false)))
+    });
+    if let Some((label, idle)) = handed {
+        if let Some(w) = app.get_webview_window(&label) {
+            let _ = w.set_title(&title);
+        }
+        // Its page is waiting: told now. Still loading, it asks for it once loaded.
+        if idle {
+            tell_page(
+                app,
+                &label,
+                DIALOG_EVENT,
+                serde_json::json!({ "label": label, "message": { "type": "spec", "spec": spec } }),
+            );
+        }
+        return Ok(label);
+    }
+    build(app, owner, Some(spec), title, width)
+}
+
+/// With `Config::warm_dialogs`: a window kept ready for the tab window `owner`,
+/// made a moment after its page has loaded, unless it has one.
+pub(crate) fn warm_later<R: Runtime>(app: &AppHandle<R>, owner: &str) {
+    let config = &inner(app).config;
+    if !config.warm_dialogs || !config.components.contains(&crate::Component::Dialog) || !owner.starts_with(&config.window_prefix) {
+        return;
+    }
+    let (app, owner) = (app.clone(), owner.to_string());
+    let _ = std::thread::Builder::new().name("tauris-ui dialog window".into()).spawn(move || {
+        std::thread::sleep(WARM_AFTER);
+        let has = open_dialogs().lock().map(|m| m.values().any(|d| d.owner == owner)).unwrap_or(true);
+        if has {
+            return;
+        }
+        if let Some(o) = app.get_webview_window(&owner) {
+            let _ = build(&app, &o, None, String::new(), 440.0);
+        }
+    });
+}
+
+// A hidden window of the app's page for `owner`'s dialogs: showing `spec`, or (None) kept ready.
+fn build<R: Runtime>(
+    app: &AppHandle<R>,
+    owner: &WebviewWindow<R>,
+    spec: Option<String>,
     title: String,
     width: f64,
 ) -> Result<String, String> {
@@ -62,7 +124,7 @@ pub(crate) fn open<R: Runtime>(
     #[cfg(not(target_os = "macos"))]
     let builder = builder.parent(owner).map_err(|e| e.to_string())?;
     if let Ok(mut map) = open_dialogs().lock() {
-        map.insert(label.clone(), Open { owner: owner.label().to_string(), spec, frame: None });
+        map.insert(label.clone(), Open { owner: owner.label().to_string(), spec, idle: false, frame: None });
     }
     let dialog = match builder.build() {
         Ok(d) => d,
@@ -89,6 +151,8 @@ pub(crate) fn open<R: Runtime>(
                 DIALOG_EVENT,
                 serde_json::json!({ "label": me, "message": { "type": "closed" } }),
             );
+            // Gone (its close button, or closed from the window that asked): another is kept ready.
+            warm_later(&app2, &parent);
         }
     });
     // A dialog never outlives its window.
@@ -103,9 +167,15 @@ pub(crate) fn open<R: Runtime>(
     Ok(label)
 }
 
-/// What the dialog window at `label` shows.
+/// What the dialog window at `label` shows; None for a window kept ready
+/// (its page is told when it has a dialog).
 pub(crate) fn spec(label: &str) -> Option<String> {
-    open_dialogs().lock().ok()?.get(label).map(|d| d.spec.clone())
+    let mut map = open_dialogs().lock().ok()?;
+    let d = map.get_mut(label)?;
+    if d.spec.is_none() {
+        d.idle = true;
+    }
+    d.spec.clone()
 }
 
 /// The dialog has laid out at `width` × `height` CSS pixels in a page now
@@ -239,10 +309,30 @@ pub(crate) fn reply<R: Runtime>(
     Ok(())
 }
 
-/// A dialog window closes itself (its answer given, or cancelled).
+/// A dialog window closes itself (its answer given, or cancelled). With
+/// `Config::warm_dialogs` it hides instead, kept for the next dialog (its
+/// answer was given first, so the window that asked has nothing to hear).
 pub(crate) fn close<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    if owner_of(window.label()).is_none() {
-        return Err("This window is not a dialog.".into());
+    let label = window.label().to_string();
+    let owner = owner_of(&label).ok_or("This window is not a dialog.")?;
+    let app = window.app_handle();
+    // Its dialog is over: its page, asking again, has none.
+    if let Ok(mut map) = open_dialogs().lock() {
+        if let Some(d) = map.get_mut(&label) {
+            d.spec = None;
+            d.idle = false;
+        }
     }
-    window.close().map_err(|e| e.to_string())
+    if !inner(app).config.warm_dialogs {
+        return window.close().map_err(|e| e.to_string());
+    }
+    let o = app.get_webview_window(&owner);
+    if let Some(o) = &o {
+        crate::platform::detach_child(o, window);
+    }
+    window.hide().map_err(|e| e.to_string())?;
+    if let Some(o) = &o {
+        let _ = o.set_focus();
+    }
+    Ok(())
 }

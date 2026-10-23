@@ -200,6 +200,8 @@ declare global {
       close(): void;
       /** Whether a dialog is open. */
       readonly isOpen: boolean;
+      /** true: each dialog in a window of its own logs how long it took to show, and where the time went. */
+      timing: boolean;
     };
   }
 

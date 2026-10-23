@@ -1733,3 +1733,23 @@ fn a_dialog_window_belongs_to_the_window_that_asked() {
     let dialog = app.get_webview_window(&label).unwrap();
     assert!(crate::dialogs::close(&dialog).is_ok(), "a dialog closes itself");
 }
+
+// With warm_dialogs, a dialog's window stays after its dialog, hidden and waiting, and the next dialog
+// of the same window is handed to it (no window made); while it shows one, another gets a window of its own.
+#[test]
+fn a_kept_dialog_window_is_handed_the_next_dialog() {
+    let app = app(quiet().warm_dialogs());
+    app.tabs().start().unwrap();
+    let owner = app.get_webview_window("tabs-1").unwrap();
+    let first =
+        crate::dialogs::open(app.handle(), &owner, r#"{"kind":"form"}"#.into(), "New Project".into(), 440.0).unwrap();
+    let dialog = app.get_webview_window(&first).unwrap();
+    assert!(crate::dialogs::close(&dialog).is_ok(), "its dialog done");
+    assert!(app.get_webview_window(&first).is_some(), "the window stays");
+    assert_eq!(crate::dialogs::spec(&first), None, "it waits for the next dialog");
+    let next = crate::dialogs::open(app.handle(), &owner, r#"{"kind":"about"}"#.into(), "About".into(), 420.0).unwrap();
+    assert_eq!(next, first, "the next dialog is handed to it");
+    assert_eq!(crate::dialogs::spec(&first).as_deref(), Some(r#"{"kind":"about"}"#));
+    let other = crate::dialogs::open(app.handle(), &owner, r#"{"kind":"form"}"#.into(), "Edit".into(), 440.0).unwrap();
+    assert_ne!(other, first, "a window showing a dialog is not handed another");
+}

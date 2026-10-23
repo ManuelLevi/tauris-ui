@@ -192,6 +192,10 @@ pub fn init<R: Runtime>(config: Config<R>) -> TauriPlugin<R> {
             if payload.event() == PageLoadEvent::Started {
                 windows::page_loading(webview.app_handle(), webview.label());
             }
+            // A tab window's page has loaded: a dialog window is made ready for it (Config::warm_dialogs).
+            if payload.event() == PageLoadEvent::Finished {
+                dialogs::warm_later(webview.app_handle(), webview.label());
+            }
         })
         .setup(move |app, _| {
             // One per app, alive as long as the app.
